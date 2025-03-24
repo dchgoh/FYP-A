@@ -11,17 +11,18 @@ import { ColorModeContext, useMode } from "./theme";
 function App() {
   const [theme, colorMode] = useMode();
   const [isSidebar, setIsSidebar] = useState(true);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   return (
     <ColorModeContext.Provider value={colorMode}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <div className="app">
-          <Sidebar isSidebar={isSidebar} />
+          <Sidebar isSidebar={isSidebar} isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} />
           <main className="content">
-            <Topbar setIsSidebar={setIsSidebar} />
+            <Topbar setIsSidebar={setIsSidebar} isCollapsed={isCollapsed} />
             <Routes>
-              <Route path="/" element={<Dashboard />} />
+              <Route path="/" element={<Dashboard isCollapsed={isCollapsed} />} />
               <Route path="/team" element={<Team />} />
               <Route path="/upload" element={<Upload />} />
             </Routes>
