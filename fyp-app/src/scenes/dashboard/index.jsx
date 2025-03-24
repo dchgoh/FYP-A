@@ -5,7 +5,7 @@ import ChartDataLabels from "chartjs-plugin-datalabels";
 import PeopleIcon from "@mui/icons-material/People";
 import UploadIcon from '@mui/icons-material/Upload';
 import Co2Icon from '@mui/icons-material/Co2';
-
+import { Timeline, TimelineItem, TimelineSeparator, TimelineConnector, TimelineContent, TimelineDot } from "@mui/lab";
 
 ChartJS.register(ArcElement, Tooltip, Legend, LineElement, LinearScale, PointElement, CategoryScale, BarElement, ChartDataLabels);
 
@@ -15,11 +15,12 @@ const styles = {
   statsGrid: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 3 },
   card: { minHeight: 160, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", p: 2 },
   cardTitle: { mb: 2, fontWeight: "bold" },
-  cardIconBox: { display: "flex", alignItems: "center", gap: 1, color: "primary.main" },
+  cardIconBox: { display: "flex", alignItems: "center", gap: 1, color: "#3498db" },
   chartsGrid: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 3, mt: 4 },
-  barChartGrid: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 3, mt: 1 },
   chartBox: { height: 300, width: "100%" },
-  chartTitle: { marginBottom: 3, marginTop: 1, color:"#3498db" }
+  chartTitle: { marginBottom: 3, marginTop: 1, color:"#3498db" },
+  body2Text: { fontWeight: "bold" },
+  timelineBox: { height: 393.5, width: "100%" }
 };
 
 const pieData = {
@@ -56,22 +57,21 @@ const lineOptions = {
   plugins: {
     legend: {
       display: true,
-      position: "bottom", // Move legend to the top
-      align: "center"    // Align it to the start (left)
+      position: "bottom", 
+      align: "center"    
     },
     datalabels: { display: false }
   },
 };
 
-
 const barData = {
   labels: ["Plot 1", "Plot 2", "Plot 3", "Plot 4", "Plot 5"],
   datasets: [
-    { label: "Bolivia", data: [1000, 1200, 900, 1100, 1050], backgroundColor: "#2c3e50" },
-    { label: "Ecuador", data: [800, 1100, 950, 1200, 1000], backgroundColor: "#2980b9" },
-    { label: "Madagascar", data: [700, 950, 850, 1000, 900], backgroundColor: "#16a085" },
-    { label: "Papua New Guinea", data: [500, 700, 650, 800, 750], backgroundColor: "#8e44ad" },
-    { label: "Rwanda", data: [300, 500, 400, 600, 500], backgroundColor: "#f39c12" }
+    { label: "Bolivia", data: [1000, 1200, 900, 1100, 1050], backgroundColor: "#3498db" },
+    { label: "Ecuador", data: [800, 1100, 950, 1200, 1000], backgroundColor: "#b1b1ff" },
+    { label: "Madagascar", data: [700, 950, 850, 1000, 900], backgroundColor: "#d8d8ff" },
+    { label: "Papua New Guinea", data: [500, 700, 650, 800, 750], backgroundColor: "#ebebff" },
+    { label: "Rwanda", data: [300, 500, 400, 600, 500], backgroundColor: "#8989ff" }
   ]
 };
 
@@ -80,12 +80,19 @@ const barOptions = {
   plugins: {
     legend: {
       display: true,
-      position: "right", // Move legend to the right
-      align:"start" // Align it to the end (right)
+      position: "right", 
+      align:"start" 
     },
     datalabels: { display: false }
   },
 };
+
+const fileUploads = [
+  { date: "March 22, 2025", time: "10:30 AM", file: "report.pdf" },
+  { date: "March 22, 2025", time: "11:15 AM", file: "tree_data.csv" },
+  { date: "March 23, 2025", time: "01:45 PM", file: "project_docs.zip" },
+  { date: "March 23, 2025", time: "03:00 PM", file: "analysis.xlsx" }
+];
 
 
 const Dashboard = () => {
@@ -97,21 +104,21 @@ const Dashboard = () => {
             <Typography variant="h1" sx={styles.cardTitle}>20</Typography>
             <Box sx={styles.cardIconBox}>
               <PeopleIcon fontSize="medium" />
-              <Typography variant="body2" fontWeight="bold">Total Members</Typography>
+              <Typography variant="body2" sx={styles.body2Text} >Total Members</Typography>
             </Box>
           </Card>
           <Card sx={styles.card}>
             <Typography variant="h1" sx={styles.cardTitle}>5</Typography>
             <Box sx={styles.cardIconBox}>
-              <UploadIcon fontSize="medium" />
-              <Typography variant="body2" fontWeight="bold">Files Uploaded</Typography>
+              <UploadIcon fontSize="medium"/>
+              <Typography variant="body2"  sx={styles.body2Text} >Files Uploaded</Typography>
             </Box>
           </Card>
           <Card sx={styles.card}>
-            <Typography variant="h1" sx={styles.cardTitle}>5.1kg</Typography>
+            <Typography variant="h1" sx={styles.cardTitle}>5.1 kg</Typography>
             <Box sx={styles.cardIconBox}>
               <Co2Icon fontSize="large" />
-              <Typography variant="body2" fontWeight="bold">Carbon Estimation</Typography>
+              <Typography variant="body2"  sx={styles.body2Text}>Carbon Estimation</Typography>
             </Box>
           </Card>
         </Box>
@@ -129,12 +136,40 @@ const Dashboard = () => {
             </CardContent>
           </Card>
           <Box sx={styles.barChartGrid}>
-            <Card sx={{ gridColumn: "span 2" }}>
+            <Card>
               <CardContent>
                 <Typography variant="h5" sx={styles.chartTitle}>Tree Structure Count</Typography>
                 <Box sx={styles.chartBox}><Bar data={barData} options={barOptions} /></Box>
               </CardContent>
             </Card>
+            </Box>
+          <Box>
+          <Card sx={styles.timelineBox}>
+            <CardContent>
+              <Typography variant="h5" sx={styles.chartTitle}>File Upload Timeline</Typography>
+              <Timeline position="alternate">
+                {fileUploads.map((upload, index) => (
+                  <TimelineItem key={index}>
+                    <TimelineSeparator>
+                      <TimelineDot color="primary" />
+                      {index < fileUploads.length - 1 && <TimelineConnector />}
+                    </TimelineSeparator>
+                    <TimelineContent>
+                      <Typography variant="subtitle2" color="textSecondary">
+                        {upload.date} {/* Display the date here */}
+                      </Typography>
+                      <Typography variant="body1" sx={{ fontWeight: "bold" }}>
+                        {upload.time}
+                      </Typography>
+                      <Typography variant="body2" color="textSecondary">
+                        {upload.file}
+                      </Typography>
+                    </TimelineContent>
+                  </TimelineItem>
+                ))}
+              </Timeline>
+            </CardContent>
+          </Card>
           </Box>
         </Box>
       </Box>
