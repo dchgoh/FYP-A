@@ -3,7 +3,7 @@ import { useContext, useState, useEffect } from "react";
 import { ColorModeContext } from "../../theme";
 import { useLocation } from "react-router-dom";
 
-const Topbar = () => {
+const Topbar = ({ isCollapsed }) => {
   const theme = useTheme();
 
   const colorMode = useContext(ColorModeContext);
@@ -33,20 +33,28 @@ const Topbar = () => {
   }, [location.pathname]);
 
   return (
-    <Box display="flex" justifyContent="space-between" p={2}>
+    <Box 
+      display="flex" 
+      justifyContent="space-between" 
+      p={2} 
+      sx={{
+        marginLeft: isCollapsed ? "80px" : "270px",
+        transition: "margin-left 0.3s ease"
+      }}
+    >
       {/* PAGE TITLE */}
-      <Box display="flex" alignItems="center">
-        <Typography variant="h3" fontWeight="bold">
+      <Box display="flex" alignItems="center" minWidth="200px">
+        <Typography variant="h3" fontWeight="bold" paddingLeft={"15px"}>
           {pageTitle}
         </Typography>
       </Box>
 
       {/* COMPANY LOGO */}
-      <Box display="flex" justifyContent="center" alignItems="center">
+      <Box display="flex" justifyContent="center" alignItems="center" ml="-120px">
         <img
           src="../../assets/logo.png"
           alt="Company Logo"
-          style={{ maxHeight: "55px" }}
+          style={{ maxHeight: "80px" }}
         />
       </Box>
 
