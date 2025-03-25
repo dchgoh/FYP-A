@@ -21,10 +21,10 @@ const Topbar = ({ isCollapsed }) => {
       case "/upload":
         setPageTitle("Files Upload");
         break;
-      case "/invoices":
+      case "/treecount":
         setPageTitle("Tree Count");
         break;
-      case "/form":
+      case "/area":
         setPageTitle("Area Data");
         break;
       default:

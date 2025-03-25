@@ -27,7 +27,7 @@ const Item = ({ title, to, icon, selected, setSelected }) => {
 const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
-  const [selected, setSelected] = useState("Dashboard");
+  const [selected, setSelected] = useState("Dashboard","Team");
 
   return (
     <Box
@@ -133,14 +133,14 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
             />
             <Item
               title="Tree Count"
-              to="/invoices"
+              to="/treecount"
               icon={<span class="material-symbols-outlined">nature</span>}
               selected={selected}
               setSelected={setSelected}
             />
             <Item
               title="Area Data"
-              to="/form"
+              to="/area"
               icon={<span class="material-symbols-outlined">bar_chart</span>}
               selected={selected}
               setSelected={setSelected}

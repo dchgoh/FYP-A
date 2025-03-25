@@ -4,7 +4,9 @@ import Topbar from "./scenes/global/Topbar";
 import Sidebar from "./scenes/global/Sidebar";
 import Dashboard from "./scenes/dashboard";
 import Team from "./scenes/team";
-import Upload from "./scenes/upload";
+import FileManagement from "./scenes/upload";
+import TreeCountDashboard from "./scenes/treecount";
+import AreaDataDashboard from "./scenes/area";
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { ColorModeContext, useMode } from "./theme";
 
@@ -23,8 +25,10 @@ function App() {
             <Topbar setIsSidebar={setIsSidebar} isCollapsed={isCollapsed} />
             <Routes>
               <Route path="/" element={<Dashboard isCollapsed={isCollapsed} />} />
-              <Route path="/team" element={<Team />} />
-              <Route path="/upload" element={<Upload />} />
+              <Route path="/team" element={<Team isCollapsed={isCollapsed} />} />
+              <Route path="/upload" element={<FileManagement isCollapsed={isCollapsed} />} />
+              <Route path="/treecount" element={<TreeCountDashboard isCollapsed={isCollapsed}/>} />
+              <Route path="/area" element={<AreaDataDashboard isCollapsed={isCollapsed}/>} />
             </Routes>
           </main>
         </div>
