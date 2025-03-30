@@ -139,7 +139,7 @@ const Dashboard = ({ isCollapsed }) => {
       marginLeft: isCollapsed ? "80px" : "270px",
       transition: "margin 0.3s ease",
     },
-    content: { flex: 1, p: 4 },
+    content: { flex: 1, p: 4, pt: 0 },
     // Grid for Stats Row (Total Members, Files Uploaded, Carbon Estimation)
     statsGrid: {
       display: "grid",
@@ -195,29 +195,7 @@ const Dashboard = ({ isCollapsed }) => {
       <Box sx={styles.content}>
         
         {/* Stats Section */}
-        <Box sx={styles.statsGrid}>
-          <Card sx={styles.card}>
-            <Typography variant="h1" sx={styles.cardTitle}>20</Typography>
-            <Box sx={styles.cardIconBox}>
-              <span className="material-symbols-outlined">user_attributes</span>
-              <Typography variant="body2" sx={styles.body2Text}>Total Members</Typography>
-            </Box>
-          </Card>
-          <Card sx={styles.card}>
-            <Typography variant="h1" sx={styles.cardTitle}>5</Typography>
-            <Box sx={styles.cardIconBox}>
-              <span className="material-symbols-outlined">publish</span>
-              <Typography variant="body2" sx={styles.body2Text}>Files Uploaded</Typography>
-            </Box>
-          </Card>
-          <Card sx={styles.card}>
-            <Typography variant="h1" sx={styles.cardTitle}>5.1 kg</Typography>
-            <Box sx={styles.cardIconBox}>
-              <span className="material-symbols-outlined">co2</span>
-              <Typography variant="body2" sx={styles.body2Text}>Carbon Estimation</Typography>
-            </Box>
-          </Card>
-        </Box>
+ 
   
         {/* Row 2: Pie Chart & Line Chart (5:5) */}
         <Box sx={styles.chartsGridRow2}>

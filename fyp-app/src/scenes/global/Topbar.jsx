@@ -5,7 +5,6 @@ import { useLocation } from "react-router-dom";
 
 const Topbar = ({ isCollapsed }) => {
   const theme = useTheme();
-
   const colorMode = useContext(ColorModeContext);
   const location = useLocation();
   const [pageTitle, setPageTitle] = useState("");
@@ -33,13 +32,13 @@ const Topbar = ({ isCollapsed }) => {
   }, [location.pathname]);
 
   return (
-    <Box 
-      display="flex" 
-      justifyContent="space-between" 
-      p={2} 
+    <Box
+      display="flex"
+      justifyContent="space-between"
+      p={2}
       sx={{
         marginLeft: isCollapsed ? "80px" : "270px",
-        transition: "margin-left 0.3s ease"
+        transition: "margin-left 0.3s ease",
       }}
     >
       {/* PAGE TITLE */}
@@ -50,25 +49,31 @@ const Topbar = ({ isCollapsed }) => {
       </Box>
 
       {/* COMPANY LOGO */}
-      <Box display="flex" justifyContent="center" alignItems="center" ml="-120px">
+      <Box
+        display="flex"
+        justifyContent="center"
+        alignItems="center"
+        ml="-120px"
+        height="100%"
+      >
         <img
           src="../../assets/logo.png"
           alt="Company Logo"
-          style={{ maxHeight: "80px" }}
+          style={{ maxHeight: "80px", maxWidth: "150px" }}
         />
       </Box>
 
       {/* ICONS */}
-      <Box display="flex">
+      <Box display="flex" alignItems="center">
         <IconButton onClick={colorMode.toggleColorMode}>
           {theme.palette.mode === "dark" ? (
-            <span class="material-symbols-outlined">dark_mode</span>
+            <span className="material-symbols-outlined">dark_mode</span>
           ) : (
-            <span class="material-symbols-outlined">light_mode</span>
+            <span className="material-symbols-outlined">light_mode</span>
           )}
         </IconButton>
         <IconButton>
-          <span class="material-symbols-outlined">account_circle</span>
+          <span className="material-symbols-outlined">account_circle</span>
         </IconButton>
       </Box>
     </Box>

@@ -71,7 +71,7 @@ const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
       marginLeft: isCollapsed ? "80px" : "270px", // Use isCollapsed here
       transition: "margin 0.3s ease",
     },
-    content: { flex: 1, p: 4 },
+    content: { flex: 1, p: 4, pt: 2 },
     tableContainer: {
       backgroundColor: colors.grey[900],
       borderRadius: 2,
