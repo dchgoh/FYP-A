@@ -1,0 +1,110 @@
+/* Full-screen background */
+.login-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  position: relative;
+}
+
+/* Logo styling */
+.logo {
+  width: 100px;
+  position: relative;
+  top: -30px; /* Moves the logo higher */
+}
+
+.login-box {
+  background: white; /* Change background to solid white */
+  padding: 70px;
+  border-radius: 10px; /* Slightly rounded */
+  box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.2); /* Soft shadow */
+  transition: 0.3s ease-in-out;
+  border: none;
+  width: 1000px; /* Adjust width */
+  min-height: 500px; /* Increase height */
+  text-align: center;
+}
+
+.login-box:hover {
+  box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* Title */
+h2 {
+  color: black;
+  font-size: 26px;
+  font-weight: bold;
+  margin-bottom: 20px;
+}
+
+/* Input fields container */
+.input-group {
+  position: relative;
+  width: 50%; /* Reduce width */
+  margin: 15px auto; /* Center it */
+  margin-bottom: 20px;
+}
+
+/* Input fields */
+.input-group input {
+  width: 100%;
+  padding: 15px 40px; /* Add more padding */
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  background: #f9f9f9;
+}
+
+/* Placeholder text color */
+.input-group input::placeholder {
+  color: balck;
+  text-align: center;
+}
+
+/* Position icons inside input fields */
+.input-group .icon {
+  position: absolute;
+  left: 10px; /* Move icon inside */
+  top: 50%;
+  transform: translateY(-50%);
+  color: gray;
+  font-size: 18px;
+}
+
+/* Login button */
+.login-button {
+  width: 50%;
+  margin: 20px auto; /* Center it */
+  padding: 14px;
+  background-color: #00aaff; /* Light blue */
+  color: white;
+  border: 1px black;
+  border-radius: 30px;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: bold;
+  box-shadow: 0 4px 8px rgba(0, 170, 255, 0.4);
+  transition: background 0.3s ease, transform 0.2s;
+}
+
+.login-button:hover {
+  background-color: #0088cc;
+  transform: scale(1.05);
+}
+
+/* Background Image */
+.background-img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: -1;
+}
+
+.login-message{
+  color: red;
+  font-weight: bold;
+}
