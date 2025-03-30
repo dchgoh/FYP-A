@@ -21,17 +21,18 @@ import {
   Snackbar,
   Alert,
   DialogContentText,
+  Menu,
 } from "@mui/material";
 import { tokens } from "../../theme";
-import { Edit, Delete, Add } from "@mui/icons-material";
+import { Edit, Delete, Add, MoreVert } from "@mui/icons-material";
 
-
-const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
+const Team = ({ isCollapsed }) => {
+  // Receive isCollapsed as a prop
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
   const [selected, setSelected] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
-  const [userRole, setUserRole] = useState(""); 
+  const [userRole, setUserRole] = useState("");
   const [open, setOpen] = useState(false); // Controls modal visibility
   const [openAddEditModal, setOpenAddEditModal] = useState(false); // Renamed for clarity
   const [openConfirmDeleteModal, setOpenConfirmDeleteModal] = useState(false); // State for delete confirmation
@@ -48,6 +49,12 @@ const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
   const [snackbarOpen, setSnackbarOpen] = useState(false); // State for Snackbar visibility
   const [snackbarMessage, setSnackbarMessage] = useState(""); // Message for Snackbar
   const [snackbarSeverity, setSnackbarSeverity] = useState("success"); // 'success' or 'error'
+
+  // State for the action menu
+  const [anchorEl, setAnchorEl] = useState(null);
+  const [selectedUserForActions, setSelectedUserForActions] = useState(null);
+
+  const isMenuOpen = Boolean(anchorEl);
 
   // Fetch users from the database
   const fetchUsers = () => {
@@ -75,17 +82,17 @@ const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
   };
 
   const handleSnackbarClose = (event, reason) => {
-    if (reason === 'clickaway') {
+    if (reason === "clickaway") {
       return;
     }
     setSnackbarOpen(false);
   };
 
-
   // --- Modal Open Handlers ---
   const handleOpenAddModal = () => {
     setIsEditMode(false);
-    setCurrentUserData({ // Reset form for adding
+    setCurrentUserData({
+      // Reset form for adding
       id: null,
       username: "",
       email: "",
@@ -98,7 +105,8 @@ const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
 
   const handleOpenEditModal = (user) => {
     setIsEditMode(true);
-    setCurrentUserData({ // Populate form with user data
+    setCurrentUserData({
+      // Populate form with user data
       id: user.id,
       username: user.username,
       email: user.email,
@@ -122,7 +130,9 @@ const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
 
   // --- Submit Handlers ---
   const handleSubmit = async () => {
-    const url = isEditMode ? `http://localhost:5000/api/users/${currentUserData.id}` : "http://localhost:5000/api/users";
+    const url = isEditMode
+      ? `http://localhost:5000/api/users/${currentUserData.id}`
+      : "http://localhost:5000/api/users";
     const method = isEditMode ? "PUT" : "POST";
 
     // Prepare data: Remove password if it's empty during edit
@@ -132,9 +142,8 @@ const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
     }
     // Remove ID for POST requests if backend doesn't expect it
     if (!isEditMode) {
-        delete dataToSend.id;
+      delete dataToSend.id;
     }
-
 
     try {
       const response = await fetch(url, {
@@ -151,11 +160,17 @@ const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
       const result = await response.json(); // Get response body
 
       if (response.ok) {
-        showSnackbar(result.message || `User ${isEditMode ? 'updated' : 'added'} successfully`, "success");
+        showSnackbar(
+          result.message || `User ${isEditMode ? "updated" : "added"} successfully`,
+          "success"
+        );
         handleCloseModal();
         fetchUsers(); // Refresh user list
       } else {
-        showSnackbar(result.message || `Failed to ${isEditMode ? 'update' : 'add'} user`, "error");
+        showSnackbar(
+          result.message || `Failed to ${isEditMode ? "update" : "add"} user`,
+          "error"
+        );
         console.error("API Error:", result.message);
       }
     } catch (error) {
@@ -199,11 +214,11 @@ const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
         // Try to parse error message from backend if available
         let errorMessage = `Failed to delete user '${userToDelete.username}'.`;
         try {
-            const result = await response.json();
-            errorMessage = result.message || errorMessage;
+          const result = await response.json();
+          errorMessage = result.message || errorMessage;
         } catch (parseError) {
-            // Ignore if response body is not JSON or empty
-            console.log("Could not parse error response body for delete.")
+          // Ignore if response body is not JSON or empty
+          console.log("Could not parse error response body for delete.");
         }
         showSnackbar(errorMessage, "error");
         console.error("API Error deleting user:", response.status, response.statusText);
@@ -212,6 +227,17 @@ const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
       console.error("Error deleting user:", error);
       showSnackbar(`An error occurred: ${error.message}`, "error");
     }
+  };
+
+  // --- Action Menu Handlers ---
+  const handleMenuOpen = (event, user) => {
+    setAnchorEl(event.currentTarget);
+    setSelectedUserForActions(user);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+    setSelectedUserForActions(null);
   };
 
   const styles = {
@@ -275,6 +301,7 @@ const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
           ? colors.primary[700] ?? "#0000ff"
           : colors.grey?.[100] ?? "#888888",
       paddingRight: "5px",
+      verticalAlign: "middle", // Align icon vertically
     }),
     footer: {
       display: "flex",
@@ -290,20 +317,28 @@ const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
         color: `${colors.grey[100]} !important`,
       },
     },
+    accessContainer: {
+      display: "inline-flex", // Use inline-flex
+      alignItems: "center",     // Vertically align items
+      gap: "5px",              // Add some space between icon and text
+      verticalAlign: "middle",  // Ensure vertical alignment
+    },
   };
 
   return (
     <Box sx={styles.container}>
       <Box sx={styles.content}>
-        <Typography variant="h5" color={colors.grey[100]} fontWeight="bold" mb={2}>
-        </Typography>
         {/* Add User Button */}
         {userRole === "admin" && (
           <Button
             variant="contained"
-            color="primary"
-            startIcon={<Add />}
-            sx={{ mb: 2 }}
+            startIcon={<span class="material-symbols-outlined">add</span>}
+            sx={{
+              mb: 2,
+              backgroundColor: colors.primary[700],
+              color: "white",
+              "&:hover": { backgroundColor: colors.primary[400] },
+            }} // Adjusted styles
             onClick={handleOpenAddModal}
           >
             Add User
@@ -313,8 +348,22 @@ const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
         <Dialog open={open} onClose={handleCloseModal}>
           <DialogTitle>{isEditMode ? "Edit User" : "Add New User"}</DialogTitle>
           <DialogContent>
-            <TextField name="username" label="Username" fullWidth margin="dense" value={currentUserData.username} onChange={handleChange} />
-            <TextField name="email" label="Email" fullWidth margin="dense" value={currentUserData.email} onChange={handleChange} />
+            <TextField
+              name="username"
+              label="Username"
+              fullWidth
+              margin="dense"
+              value={currentUserData.username}
+              onChange={handleChange}
+            />
+            <TextField
+              name="email"
+              label="Email"
+              fullWidth
+              margin="dense"
+              value={currentUserData.email}
+              onChange={handleChange}
+            />
             {/* Conditionally render password explanation */}
             <TextField
               name="password"
@@ -325,15 +374,35 @@ const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
               value={currentUserData.password}
               onChange={handleChange}
             />
-            <TextField name="age" label="Age" type="number" fullWidth margin="dense" value={currentUserData.age} onChange={handleChange} />
-            <TextField select name="role" label="Role" fullWidth margin="dense" value={currentUserData.role} onChange={handleChange}>
+            <TextField
+              name="age"
+              label="Age"
+              type="number"
+              fullWidth
+              margin="dense"
+              value={currentUserData.age}
+              onChange={handleChange}
+            />
+            <TextField
+              select
+              name="role"
+              label="Role"
+              fullWidth
+              margin="dense"
+              value={currentUserData.role}
+              onChange={handleChange}
+            >
               <MenuItem value="admin">Admin</MenuItem>
               <MenuItem value="manager">Manager</MenuItem>
             </TextField>
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleCloseModal} color="secondary">Cancel</Button>
-            <Button onClick={handleSubmit} color="primary">{isEditMode ? "Save Changes" : "Add User"}</Button>
+            <Button onClick={handleCloseModal} color="secondary">
+              Cancel
+            </Button>
+            <Button onClick={handleSubmit} color="primary">
+              {isEditMode ? "Save Changes" : "Add User"}
+            </Button>
           </DialogActions>
         </Dialog>
 
@@ -347,7 +416,8 @@ const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
           <DialogTitle id="alert-dialog-title">Confirm Deletion</DialogTitle>
           <DialogContent>
             <DialogContentText id="alert-dialog-description">
-              Are you sure you want to delete the user "{userToDelete?.username}" (ID: {userToDelete?.id})? This action cannot be undone.
+              Are you sure you want to delete the user "{userToDelete?.username}" (ID:{" "}
+              {userToDelete?.id})? This action cannot be undone.
             </DialogContentText>
           </DialogContent>
           <DialogActions>
@@ -375,62 +445,76 @@ const Team = ({ isCollapsed }) => { // Receive isCollapsed as a prop
               </TableRow>
             </TableHead>
             <TableBody>
-            {teamMembers.length > 0 ? (
-              teamMembers.map((user) => {
-                return (
-                  <TableRow key={user.id} hover>
-                    <TableCell sx={{ color: colors.grey[100] }}>{user.id}</TableCell>
-                    <TableCell sx={{ color: colors.grey[100] }}>{user.username}</TableCell>
-                    <TableCell sx={{ color: colors.grey[100] }}>{user.email}</TableCell>
-                    <TableCell sx={{ color: colors.grey[100] }}>{user.age}</TableCell>
-                    <TableCell sx={styles.accessCell(user.role)}>
-                      <span
-                        className="material-symbols-outlined"
-                        style={styles.accessIcon(user.role)}
-                      >
-                        {user.role === "admin"
-                          ? "verified_user"
-                          : user.role === "manager"
-                          ? "security"
-                          : "lock"}
-                      </span>
-                      {user.role}
-                    </TableCell>
-                    {userRole === "admin" && (
-                      <TableCell>
-                        <IconButton sx={{ color: colors.grey[100] }} onClick={() => handleOpenEditModal(user)} title="Edit User">
-                          <Edit fontSize="small" />
-                        </IconButton>
-                        <IconButton sx={{ color: "red" }} onClick={() => handleOpenConfirmDeleteModal(user)} title="Delete User">
-                          <Delete fontSize="small" />
-                        </IconButton>
+              {teamMembers.length > 0 ? (
+                teamMembers.map((user) => {
+                  return (
+                    <TableRow key={user.id} hover>
+                      <TableCell sx={{ color: colors.grey[100] }}>{user.id}</TableCell>
+                      <TableCell sx={{ color: colors.grey[100] }}>{user.username}</TableCell>
+                      <TableCell sx={{ color: colors.grey[100] }}>{user.email}</TableCell>
+                      <TableCell sx={{ color: colors.grey[100] }}>{user.age}</TableCell>
+                      <TableCell sx={styles.accessCell(user.role)}>
+                        <div style={styles.accessContainer}>
+                          <span
+                            className="material-symbols-outlined"
+                            style={styles.accessIcon(user.role)}
+                          >
+                            {user.role === "admin"
+                              ? "verified_user"
+                              : user.role === "manager"
+                              ? "security"
+                              : "lock"}
+                          </span>
+                          {user.role}
+                        </div>
                       </TableCell>
-                    )}
-                  </TableRow>
-                );
-              })
-            ) : (
-              <TableRow>
-                <TableCell colSpan="4" className="text-center text-gray-500">
-                  No users found
-                </TableCell>
-              </TableRow>
-            )}
+                      {userRole === "admin" && (
+                        <TableCell>
+                          <IconButton
+                            aria-label="actions"
+                            aria-controls={`actions-menu-${user.id}`}
+                            aria-haspopup="true"
+                            onClick={(event) => handleMenuOpen(event, user)}
+                            sx={{ color: colors.grey[100] }}
+                          >
+                            <MoreVert />
+                          </IconButton>
+                          <Menu
+                            id={`actions-menu-${user.id}`}
+                            anchorEl={anchorEl}
+                            open={isMenuOpen && selectedUserForActions?.id === user.id}
+                            onClose={handleMenuClose}
+                          >
+                            <MenuItem onClick={() => { handleOpenEditModal(user); handleMenuClose(); }}>Edit</MenuItem>
+                            <MenuItem onClick={() => { handleOpenConfirmDeleteModal(user); handleMenuClose(); }}>Delete</MenuItem>
+                          </Menu>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  );
+                })
+              ) : (
+                <TableRow>
+                  <TableCell colSpan="4" className="text-center text-gray-500">
+                    No users found
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
-       </TableContainer>
+        </TableContainer>
 
-       {/* Snackbar for Notifications */}
-       <Snackbar
-           open={snackbarOpen}
-           autoHideDuration={6000} // Hide after 6 seconds
-           onClose={handleSnackbarClose}
-           anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }} // Position
-         >
-           <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: '100%' }}>
-             {snackbarMessage}
-           </Alert>
-         </Snackbar>
+        {/* Snackbar for Notifications */}
+        <Snackbar
+          open={snackbarOpen}
+          autoHideDuration={6000} // Hide after 6 seconds
+          onClose={handleSnackbarClose}
+          anchorOrigin={{ vertical: "bottom", horizontal: "center" }} // Position
+        >
+          <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: "100%" }}>
+            {snackbarMessage}
+          </Alert>
+        </Snackbar>
       </Box>
     </Box>
   );

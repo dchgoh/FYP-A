@@ -17,10 +17,12 @@ import {
 import { tokens } from "../../theme";
 import { useState } from "react";
 import FileSaver from 'file-saver';
+import { useNavigate } from 'react-router-dom'; // Import useNavigate
 
 const FileManagement = ({ isCollapsed }) => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
+  const navigate = useNavigate(); // Initialize useNavigate
 
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -34,6 +36,7 @@ const FileManagement = ({ isCollapsed }) => {
       status: "complete",
       progress: 100,
       downloadLink: "/report.pdf",
+      potreeUrl: "/pointclouds/metadata.json", // Add Potree URL
     },
     {
       id: 2,
@@ -42,6 +45,7 @@ const FileManagement = ({ isCollapsed }) => {
       status: "complete",
       progress: 100,
       downloadLink: "/presentation.pptx",
+      potreeUrl: "/pointclouds/metadata2.json", // Add Potree URL
     },
     {
       id: 3,
@@ -50,6 +54,7 @@ const FileManagement = ({ isCollapsed }) => {
       status: "incomplete",
       progress: 60,
       downloadLink: null,
+      potreeUrl: null, // Add Potree URL
     },
     {
       id: 4,
@@ -58,6 +63,7 @@ const FileManagement = ({ isCollapsed }) => {
       status: "complete",
       progress: 100,
       downloadLink: "/image.jpg",
+      potreeUrl: "/pointclouds/metadata3.json", // Add Potree URL
     },
     {
       id: 5,
@@ -66,14 +72,15 @@ const FileManagement = ({ isCollapsed }) => {
       status: "incomplete",
       progress: 25,
       downloadLink: null,
+      potreeUrl: null, // Add Potree URL
     },
   ]);
 
   const handleDownload = (file) => {
     if (file.downloadLink) {
-        FileSaver.saveAs(file.downloadLink, file.name);
+      FileSaver.saveAs(file.downloadLink, file.name);
     } else {
-        alert("File is not yet available for download");
+      alert("File is not yet available for download");
     }
   };
 
@@ -91,8 +98,16 @@ const FileManagement = ({ isCollapsed }) => {
     setSelectedFile(null);
   };
 
+  const handleViewPotree = (file) => {
+    if (file.potreeUrl) {
+      navigate(`/potree?url=${encodeURIComponent(file.potreeUrl)}`); // Navigate with URL param
+    } else {
+      alert("Potree data not available for this file.");
+    }
+  };
+
   const styles = {
-   container: {
+    container: {
       display: "flex",
       minHeight: "100vh",
       bgcolor: colors.grey[800],
@@ -125,23 +140,26 @@ const FileManagement = ({ isCollapsed }) => {
       backgroundColor: colors.primary[700],
     },
     headCell: {
-      color: colors.grey[100],
+      color: "white",
       fontWeight: "bold",
     },
     bodyCell: {
       color: colors.grey[100],
     },
     statusCell: (status) => ({
-      color: status === "complete" ? (colors.greenAccent?.[400] ?? "#28a745") : (colors.redAccent?.[400] ?? "#dc3545"), // Optional chaining and defaults
+      color:
+        status === "complete"
+          ? colors.greenAccent?.[400] ?? "#28a745"
+          : colors.redAccent?.[400] ?? "#dc3545", // Optional chaining and defaults
       fontWeight: "bold",
     }),
     progressBar: {
       height: "10px",
       borderRadius: "5px",
     },
-     actionButton:{
+    actionButton: {
       color: colors.blueAccent?.[400] ?? "#007bff", // Optional chaining and default
-     }
+    },
   };
 
   return (
@@ -195,6 +213,7 @@ const FileManagement = ({ isCollapsed }) => {
                     >
                       <MenuItem onClick={() => handleDownload(selectedFile)}>Download</MenuItem>
                       <MenuItem onClick={() => handleRemove(selectedFile?.id)}>Remove</MenuItem>
+                      {selectedFile?.potreeUrl && <MenuItem onClick={() => handleViewPotree(selectedFile)}>View Potree</MenuItem>}
                     </Menu>
                   </TableCell>
                 </TableRow>

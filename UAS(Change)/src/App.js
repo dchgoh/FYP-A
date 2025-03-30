@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, React } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import Topbar from "./scenes/global/Topbar";
 import Sidebar from "./scenes/global/Sidebar";
@@ -8,10 +8,12 @@ import Upload from "./scenes/upload";
 import Login from "./scenes/login/login";
 import TreeCountDashboard from "./scenes/treecount"
 import AreaDataDashboard from "./scenes/area"
+import PotreeViewer from './PotreeViewer';
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { ColorModeContext, useMode } from "./theme";
 
 function App() {
+
   const [theme, colorMode] = useMode();
   const [isSidebar, setIsSidebar] = useState(true);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -30,16 +32,18 @@ function App() {
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <div className="app">
+
           {isAuthenticated && <Sidebar isSidebar={isSidebar} isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} />}
           <main className="content">
             {isAuthenticated && <Topbar setIsSidebar={setIsSidebar} isCollapsed={isCollapsed} />}
             <Routes>
               <Route path="/login" element={<Login setIsAuthenticated={setIsAuthenticated} />} />
-              <Route path="/" element={isAuthenticated ? <Dashboard /> : <Navigate to="/login" />} />
-              <Route path="/team" element={isAuthenticated ? <Team /> : <Navigate to="/login" />} />
-              <Route path="/upload" element={isAuthenticated ? <Upload /> : <Navigate to="/login" />} />
-              <Route path="/treecount" element={isAuthenticated ? <TreeCountDashboard /> : <Navigate to="/login" />} />
-              <Route path="/area" element={isAuthenticated ? <AreaDataDashboard /> : <Navigate to="/login" />} />
+              <Route path="/" element={isAuthenticated ? <Dashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" />} />
+              <Route path="/team" element={isAuthenticated ? <Team isCollapsed={isCollapsed} /> : <Navigate to="/login" />} />
+              <Route path="/upload" element={isAuthenticated ? <Upload isCollapsed={isCollapsed} /> : <Navigate to="/login" />} />
+              <Route path="/treecount" element={isAuthenticated ? <TreeCountDashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" />} />
+              <Route path="/area" element={isAuthenticated ? <AreaDataDashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" />} />
+              <Route path="/potree" element={<PotreeViewer />} />
             </Routes>
           </main>
         </div>
