@@ -103,7 +103,7 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
                   Jim Liew
                 </Typography>
                 <Typography variant="h5" color={colors.grey[200]}>
-                  Role
+                  Admin
                 </Typography>
               </Box>
             </Box>
