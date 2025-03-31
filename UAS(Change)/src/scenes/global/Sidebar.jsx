@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ProSidebar, Menu, MenuItem } from "react-pro-sidebar";
 import { Box, IconButton, Typography, useTheme } from "@mui/material";
 import { Link } from "react-router-dom";
@@ -27,7 +27,26 @@ const Item = ({ title, to, icon, selected, setSelected }) => {
 const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
-  const [selected, setSelected] = useState("Dashboard","Team");
+  const [selected, setSelected] = useState("Dashboard");
+
+  // Add state for user details
+  const [username, setUsername] = useState("User"); // Default value
+  const [userRole, setUserRole] = useState("Role"); // Default value
+
+  // Use useEffect to read from localStorage when the component mounts
+  useEffect(() => {
+    const storedUsername = localStorage.getItem("username");
+    const storedUserRole = localStorage.getItem("userRole");
+
+    if (storedUsername) {
+      setUsername(storedUsername);
+    }
+    if (storedUserRole) {
+      // Capitalize the first letter of the role for display
+      setUserRole(storedUserRole.charAt(0).toUpperCase() + storedUserRole.slice(1));
+    }
+    // No cleanup needed here unless we were subscribing to something
+  }, []); // Empty dependency array means this runs once on mount
 
   return (
     <Box
@@ -100,10 +119,12 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
                   fontWeight="bold"
                   sx={{ m: "10px 0 0 0" }}
                 >
-                  Jim Liew
+                  {/* Use state variable for username */}
+                  {username}
                 </Typography>
                 <Typography variant="h5" color={colors.grey[200]}>
-                  Admin
+                  {/* Use state variable for role */}
+                  {userRole}
                 </Typography>
               </Box>
             </Box>

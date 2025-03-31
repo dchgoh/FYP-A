@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react"; // Import useMemo
 import {
   Box,
   Table,
@@ -22,9 +22,53 @@ import {
   Alert,
   DialogContentText,
   Menu,
+  TableSortLabel, // Import TableSortLabel
 } from "@mui/material";
+import { visuallyHidden } from "@mui/utils"; // Helper for accessibility
 import { tokens } from "../../theme";
 import { Edit, Delete, Add, MoreVert } from "@mui/icons-material";
+
+// Helper function for stable sorting
+function descendingComparator(a, b, orderBy) {
+  if (b[orderBy] < a[orderBy]) {
+    return -1;
+  }
+  if (b[orderBy] > a[orderBy]) {
+    return 1;
+  }
+  return 0;
+}
+
+// Helper function to get the comparator based on order and orderBy
+function getComparator(order, orderBy) {
+  return order === "desc"
+    ? (a, b) => descendingComparator(a, b, orderBy)
+    : (a, b) => -descendingComparator(a, b, orderBy);
+}
+
+// Helper function for stable sorting across browsers
+function stableSort(array, comparator) {
+  const stabilizedThis = array.map((el, index) => [el, index]);
+  stabilizedThis.sort((a, b) => {
+    const order = comparator(a[0], b[0]);
+    if (order !== 0) {
+      return order;
+    }
+    return a[1] - b[1]; // Use original index for stability
+  });
+  return stabilizedThis.map((el) => el[0]);
+}
+
+// Define which columns are sortable and their corresponding data keys
+const headCells = [
+  { id: "index", numeric: false, disablePadding: false, label: "No.", sortable: false },
+  { id: "username", numeric: false, disablePadding: false, label: "Username", sortable: true },
+  { id: "email", numeric: false, disablePadding: false, label: "Email", sortable: true },
+  { id: "age", numeric: true, disablePadding: false, label: "Age", sortable: true },
+  { id: "role", numeric: false, disablePadding: false, label: "Role", sortable: true },
+  { id: "actions", numeric: false, disablePadding: false, label: "Action", sortable: false },
+];
+
 
 const Team = ({ isCollapsed }) => {
   // Receive isCollapsed as a prop
@@ -34,7 +78,7 @@ const Team = ({ isCollapsed }) => {
   const [teamMembers, setTeamMembers] = useState([]);
   const [userRole, setUserRole] = useState("");
   const [open, setOpen] = useState(false); // Controls modal visibility
-  const [openAddEditModal, setOpenAddEditModal] = useState(false); // Renamed for clarity
+  // const [openAddEditModal, setOpenAddEditModal] = useState(false); // You might not need this if `open` handles both
   const [openConfirmDeleteModal, setOpenConfirmDeleteModal] = useState(false); // State for delete confirmation
   const [userToDelete, setUserToDelete] = useState(null);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -54,6 +98,10 @@ const Team = ({ isCollapsed }) => {
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedUserForActions, setSelectedUserForActions] = useState(null);
 
+  // --- Sorting State ---
+  const [order, setOrder] = useState("asc"); // 'asc' or 'desc'
+  const [orderBy, setOrderBy] = useState(null); // Property name to sort by (e.g., 'username', 'age')
+
   const isMenuOpen = Boolean(anchorEl);
 
   // Fetch users from the database
@@ -66,7 +114,6 @@ const Team = ({ isCollapsed }) => {
 
   useEffect(() => {
     fetchUsers();
-    // --- Read role from localStorage ---
     const storedRole = localStorage.getItem("userRole");
     if (storedRole) {
       setUserRole(storedRole);
@@ -92,13 +139,7 @@ const Team = ({ isCollapsed }) => {
   const handleOpenAddModal = () => {
     setIsEditMode(false);
     setCurrentUserData({
-      // Reset form for adding
-      id: null,
-      username: "",
-      email: "",
-      password: "",
-      age: "",
-      role: "manager", // Sensible default
+      id: null, username: "", email: "", password: "", age: "", role: "manager",
     });
     setOpen(true);
   };
@@ -106,21 +147,13 @@ const Team = ({ isCollapsed }) => {
   const handleOpenEditModal = (user) => {
     setIsEditMode(true);
     setCurrentUserData({
-      // Populate form with user data
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      password: "", // Clear password field for editing - DO NOT PREPOPULATE HASH
-      age: user.age,
-      role: user.role,
+      id: user.id, username: user.username, email: user.email, password: "", age: user.age, role: user.role,
     });
     setOpen(true);
   };
 
   const handleCloseModal = () => {
     setOpen(false);
-    // Consider resetting currentUserData here if desired when cancelling
-    // setCurrentUserData({ id: null, username: "", /* ... */ });
   };
 
   // --- Form Change Handler ---
@@ -135,12 +168,10 @@ const Team = ({ isCollapsed }) => {
       : "http://localhost:5000/api/users";
     const method = isEditMode ? "PUT" : "POST";
 
-    // Prepare data: Remove password if it's empty during edit
     const dataToSend = { ...currentUserData };
     if (isEditMode && !dataToSend.password) {
       delete dataToSend.password;
     }
-    // Remove ID for POST requests if backend doesn't expect it
     if (!isEditMode) {
       delete dataToSend.id;
     }
@@ -149,15 +180,10 @@ const Team = ({ isCollapsed }) => {
       const response = await fetch(url, {
         method: method,
         headers: { "Content-Type": "application/json" },
-        // SECURITY NOTE: Add Authorization header if using JWT/Tokens
-        // headers: {
-        //   "Content-Type": "application/json",
-        //   "Authorization": `Bearer ${localStorage.getItem('token')}`
-        // },
         body: JSON.stringify(dataToSend),
       });
 
-      const result = await response.json(); // Get response body
+      const result = await response.json();
 
       if (response.ok) {
         showSnackbar(
@@ -165,7 +191,7 @@ const Team = ({ isCollapsed }) => {
           "success"
         );
         handleCloseModal();
-        fetchUsers(); // Refresh user list
+        fetchUsers();
       } else {
         showSnackbar(
           result.message || `Failed to ${isEditMode ? "update" : "add"} user`,
@@ -180,13 +206,13 @@ const Team = ({ isCollapsed }) => {
   };
 
   const handleOpenConfirmDeleteModal = (user) => {
-    setUserToDelete(user); // Store the whole user object (or just ID if preferred)
+    setUserToDelete(user);
     setOpenConfirmDeleteModal(true);
   };
 
   const handleCloseConfirmDeleteModal = () => {
     setOpenConfirmDeleteModal(false);
-    setUserToDelete(null); // Clear the user to delete
+    setUserToDelete(null);
   };
 
   // --- Actual Delete Handler ---
@@ -197,27 +223,18 @@ const Team = ({ isCollapsed }) => {
     const url = `http://localhost:5000/api/users/${userId}`;
 
     try {
-      const response = await fetch(url, {
-        method: "DELETE",
-        // SECURITY NOTE: Add Authorization header if using JWT/Tokens
-        // headers: {
-        //   "Authorization": `Bearer ${localStorage.getItem('token')}`
-        // },
-      });
+      const response = await fetch(url, { method: "DELETE" });
 
-      // Check if response is ok OR if it's a 204 No Content (common for DELETE)
       if (response.ok || response.status === 204) {
         showSnackbar(`User '${userToDelete.username}' deleted successfully`, "success");
         handleCloseConfirmDeleteModal();
-        fetchUsers(); // Refresh user list
+        fetchUsers();
       } else {
-        // Try to parse error message from backend if available
         let errorMessage = `Failed to delete user '${userToDelete.username}'.`;
         try {
           const result = await response.json();
           errorMessage = result.message || errorMessage;
         } catch (parseError) {
-          // Ignore if response body is not JSON or empty
           console.log("Could not parse error response body for delete.");
         }
         showSnackbar(errorMessage, "error");
@@ -240,7 +257,30 @@ const Team = ({ isCollapsed }) => {
     setSelectedUserForActions(null);
   };
 
+  // --- Sorting Handler ---
+  const handleRequestSort = (event, property) => {
+    const isAsc = orderBy === property && order === "asc";
+    setOrder(isAsc ? "desc" : "asc");
+    setOrderBy(property);
+  };
+
+  // --- Calculate Sorted Data ---
+  // Use useMemo to avoid recalculating the sorted array on every render
+  const sortedTeamMembers = useMemo(() => {
+    if (!orderBy) {
+      // If no sort is applied, return the original array (or apply a default sort if desired)
+      return teamMembers;
+    }
+    // Ensure age is treated as a number for sorting
+    const processedTeamMembers = teamMembers.map(member => ({
+        ...member,
+        age: Number(member.age) || 0 // Convert age to number, default to 0 if invalid
+    }));
+    return stableSort(processedTeamMembers, getComparator(order, orderBy));
+  }, [teamMembers, order, orderBy]); // Dependencies for useMemo
+
   const styles = {
+    // ... (keep your existing styles object) ...
     container: {
       display: "flex",
       minHeight: "100vh",
@@ -332,13 +372,13 @@ const Team = ({ isCollapsed }) => {
         {userRole === "admin" && (
           <Button
             variant="contained"
-            startIcon={<span class="material-symbols-outlined">add</span>}
+            startIcon={<span className="material-symbols-outlined">add</span>}
             sx={{
               mb: 2,
               backgroundColor: colors.primary[700],
               color: "white",
               "&:hover": { backgroundColor: colors.primary[400] },
-            }} // Adjusted styles
+            }}
             onClick={handleOpenAddModal}
           >
             Add User
@@ -348,7 +388,8 @@ const Team = ({ isCollapsed }) => {
         <Dialog open={open} onClose={handleCloseModal}>
           <DialogTitle>{isEditMode ? "Edit User" : "Add New User"}</DialogTitle>
           <DialogContent>
-            <TextField
+            {/* ... (keep your text fields) */}
+             <TextField
               name="username"
               label="Username"
               fullWidth
@@ -364,7 +405,6 @@ const Team = ({ isCollapsed }) => {
               value={currentUserData.email}
               onChange={handleChange}
             />
-            {/* Conditionally render password explanation */}
             <TextField
               name="password"
               label={isEditMode ? "New Password (leave blank to keep current)" : "Password"}
@@ -382,6 +422,7 @@ const Team = ({ isCollapsed }) => {
               margin="dense"
               value={currentUserData.age}
               onChange={handleChange}
+              InputProps={{ inputProps: { min: 0 } }} // Optional: prevent negative age
             />
             <TextField
               select
@@ -394,6 +435,7 @@ const Team = ({ isCollapsed }) => {
             >
               <MenuItem value="admin">Admin</MenuItem>
               <MenuItem value="manager">Manager</MenuItem>
+              {/* Add other roles if needed */}
             </TextField>
           </DialogContent>
           <DialogActions>
@@ -413,46 +455,85 @@ const Team = ({ isCollapsed }) => {
           aria-labelledby="alert-dialog-title"
           aria-describedby="alert-dialog-description"
         >
-          <DialogTitle id="alert-dialog-title">Confirm Deletion</DialogTitle>
-          <DialogContent>
-            <DialogContentText id="alert-dialog-description">
-              Are you sure you want to delete the user "{userToDelete?.username}" (ID:{" "}
-              {userToDelete?.id})? This action cannot be undone.
-            </DialogContentText>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={handleCloseConfirmDeleteModal} color="secondary">
-              Cancel
-            </Button>
-            <Button onClick={handleDeleteUser} color="error" autoFocus>
-              Delete
-            </Button>
-          </DialogActions>
+            {/* ... (keep your delete confirmation dialog content) */}
+            <DialogTitle id="alert-dialog-title">Confirm Deletion</DialogTitle>
+            <DialogContent>
+                <DialogContentText id="alert-dialog-description">
+                Are you sure you want to delete the user "{userToDelete?.username}" (ID:{" "}
+                {userToDelete?.id})? This action cannot be undone.
+                </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+                <Button onClick={handleCloseConfirmDeleteModal} color="secondary">
+                Cancel
+                </Button>
+                <Button onClick={handleDeleteUser} color="error" autoFocus>
+                Delete
+                </Button>
+            </DialogActions>
         </Dialog>
 
         <TableContainer component={Paper} sx={styles.tableContainer}>
-          <Table sx={styles.table} aria-label="simple table">
+          <Table sx={styles.table} aria-label="team members table">
+            {/* --- Enhanced Table Head for Sorting --- */}
             <TableHead sx={styles.tableHead}>
               <TableRow>
-                <TableCell sx={{ fontWeight: "bold", color: "#FFFFFF" }}>ID</TableCell>
-                <TableCell sx={{ fontWeight: "bold", color: "#FFFFFF" }}>Username</TableCell>
-                <TableCell sx={{ fontWeight: "bold", color: "#FFFFFF" }}>Email</TableCell>
-                <TableCell sx={{ fontWeight: "bold", color: "#FFFFFF" }}>Age</TableCell>
-                <TableCell sx={{ fontWeight: "bold", color: "#FFFFFF" }}>Role</TableCell>
-                {userRole === "admin" && (
-                  <TableCell sx={{ fontWeight: "bold", color: "#FFFFFF" }}>Action</TableCell>
-                )}
+                {headCells.map((headCell) => {
+                  // Only render Action column if user is admin
+                  if (headCell.id === 'actions' && userRole !== 'admin') {
+                    return null;
+                  }
+                  // Only render sort label for sortable columns
+                  const isSortable = headCell.sortable;
+                  return (
+                    <TableCell
+                      key={headCell.id}
+                      align={headCell.numeric ? "right" : "left"}
+                      padding={headCell.disablePadding ? "none" : "normal"}
+                      sortDirection={orderBy === headCell.id ? order : false}
+                      sx={styles.headCell}
+                    >
+                      {isSortable ? (
+                        <TableSortLabel
+                          active={orderBy === headCell.id}
+                          direction={orderBy === headCell.id ? order : "asc"}
+                          onClick={(event) => handleRequestSort(event, headCell.id)}
+                          sx={{
+                            // Style the sort label itself if needed
+                            '& .MuiTableSortLabel-icon': {
+                                color: orderBy === headCell.id ? colors.grey[100] : colors.grey[500] + ' !important', // Ensure icon visibility
+                            },
+                            color: colors.grey[100] + ' !important', // Make text white
+                          }}
+                        >
+                          {headCell.label}
+                          {orderBy === headCell.id ? (
+                            <Box component="span" sx={visuallyHidden}>
+                              {order === "desc" ? "sorted descending" : "sorted ascending"}
+                            </Box>
+                          ) : null}
+                        </TableSortLabel>
+                      ) : (
+                        headCell.label // Render label without sort functionality
+                      )}
+                    </TableCell>
+                  );
+                })}
               </TableRow>
             </TableHead>
             <TableBody>
-              {teamMembers.length > 0 ? (
-                teamMembers.map((user) => {
+              {/* --- Use sortedTeamMembers for mapping --- */}
+              {sortedTeamMembers.length > 0 ? (
+                sortedTeamMembers.map((user, index) => { // index here is the sorted index, not stable ID
+                  const originalIndex = teamMembers.findIndex(originalUser => originalUser.id === user.id); // Find original index if needed for display
                   return (
                     <TableRow key={user.id} hover>
-                      <TableCell sx={{ color: colors.grey[100] }}>{user.id}</TableCell>
-                      <TableCell sx={{ color: colors.grey[100] }}>{user.username}</TableCell>
-                      <TableCell sx={{ color: colors.grey[100] }}>{user.email}</TableCell>
-                      <TableCell sx={{ color: colors.grey[100] }}>{user.age}</TableCell>
+                       {/* Use originalIndex + 1 if you want the number based on original fetch order */}
+                       {/* Or just use index + 1 for the sorted row number */}
+                      <TableCell sx={styles.bodyCell}>{index + 1}</TableCell>
+                      <TableCell sx={styles.bodyCell}>{user.username}</TableCell>
+                      <TableCell sx={styles.bodyCell}>{user.email}</TableCell>
+                      <TableCell sx={styles.bodyCell} align="right">{user.age}</TableCell> {/* Align numeric data */}
                       <TableCell sx={styles.accessCell(user.role)}>
                         <div style={styles.accessContainer}>
                           <span
@@ -470,7 +551,8 @@ const Team = ({ isCollapsed }) => {
                       </TableCell>
                       {userRole === "admin" && (
                         <TableCell>
-                          <IconButton
+                           {/* ... (keep your action menu IconButton and Menu) */}
+                           <IconButton
                             aria-label="actions"
                             aria-controls={`actions-menu-${user.id}`}
                             aria-haspopup="true"
@@ -484,6 +566,9 @@ const Team = ({ isCollapsed }) => {
                             anchorEl={anchorEl}
                             open={isMenuOpen && selectedUserForActions?.id === user.id}
                             onClose={handleMenuClose}
+                            MenuListProps={{
+                              'aria-labelledby': `actions-button-${user.id}`,
+                            }}
                           >
                             <MenuItem onClick={() => { handleOpenEditModal(user); handleMenuClose(); }}>Edit</MenuItem>
                             <MenuItem onClick={() => { handleOpenConfirmDeleteModal(user); handleMenuClose(); }}>Delete</MenuItem>
@@ -495,7 +580,11 @@ const Team = ({ isCollapsed }) => {
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan="4" className="text-center text-gray-500">
+                  <TableCell
+                    colSpan={userRole === "admin" ? headCells.length : headCells.length -1} // Adjust colspan based on role
+                    align="center"
+                    sx={styles.bodyCell}
+                  >
                     No users found
                   </TableCell>
                 </TableRow>
@@ -507,9 +596,9 @@ const Team = ({ isCollapsed }) => {
         {/* Snackbar for Notifications */}
         <Snackbar
           open={snackbarOpen}
-          autoHideDuration={6000} // Hide after 6 seconds
+          autoHideDuration={6000}
           onClose={handleSnackbarClose}
-          anchorOrigin={{ vertical: "bottom", horizontal: "center" }} // Position
+          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
         >
           <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: "100%" }}>
             {snackbarMessage}

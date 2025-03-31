@@ -181,7 +181,7 @@ initDatabase().then(() => {
     try { // Wrap in try...catch for better error handling
       // Fetch user data including the role
       const userResult = await pool.query(
-        "SELECT id, mfa_code, mfa_expires_at, role FROM users WHERE email = $1", // <-- Added 'role' here
+        "SELECT id, username, mfa_code, mfa_expires_at, role FROM users WHERE email = $1", // <-- Added 'role' here
         [email]
       );
   
@@ -190,7 +190,7 @@ initDatabase().then(() => {
       }
   
       const user = userResult.rows[0];
-      const { id, mfa_code, mfa_expires_at, role } = user; // <-- Destructure the role
+      const { username, mfa_code, mfa_expires_at, role } = user; // <-- Destructure the role
   
       if (!mfa_code) {
           // This might happen if MFA wasn't initiated properly or already cleared
@@ -217,6 +217,7 @@ initDatabase().then(() => {
         success: true,
         message: "MFA verified! Access granted.",
         role: role, // <-- Include the role here
+        username: username,
       });
   
     } catch (error) {
