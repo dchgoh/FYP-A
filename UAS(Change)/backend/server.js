@@ -382,6 +382,23 @@ initDatabase().then(() => {
     }
   });
 
+  // --- NEW: Endpoint to get user count ---
+  app.get("/api/users/count", async (req, res) => {
+    try {
+      // Query the database to count all rows in the users table
+      const result = await pool.query("SELECT COUNT(*) FROM users");
+
+      // The count is in the first row, first column (as a string initially)
+      const count = parseInt(result.rows[0].count, 10); // Convert to integer
+
+      res.json({ count: count }); // Send the count back as JSON
+
+    } catch (error) {
+      console.error("Error fetching user count:", error);
+      res.status(500).json({ message: "Server error fetching user count" });
+    }
+  });
+
   app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
   });

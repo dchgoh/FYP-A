@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import { Box, Card, CardContent, Typography, useTheme } from "@mui/material";
 import { Pie, Line, Bar } from "react-chartjs-2";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, LineElement, LinearScale, PointElement, CategoryScale, BarElement } from "chart.js";
@@ -11,6 +12,37 @@ const Dashboard = ({ isCollapsed }) => {
 
   const theme = useTheme();
   const colors = tokens(theme.palette.mode); // Get colors from theme
+
+  // --- State to hold the user count ---
+  const [totalMembers, setTotalMembers] = useState(null); // Initialize as null or a loading indicator like '...'
+  const [fetchError, setFetchError] = useState(null);     // Optional: state for error handling
+
+  // --- Fetch user count when component mounts ---
+  useEffect(() => {
+    const fetchUserCount = async () => {
+      try {
+        // Replace with your actual backend URL if different
+        const response = await fetch('http://localhost:5000/api/users/count');
+
+        if (!response.ok) {
+          // Handle HTTP errors (e.g., 404, 500)
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        setTotalMembers(data.count); // Update state with the fetched count
+        setFetchError(null); // Clear any previous errors
+
+      } catch (error) {
+        console.error("Failed to fetch user count:", error);
+        setFetchError("Failed to load member count."); // Set error message
+        setTotalMembers('Error'); // Indicate an error in the UI
+      }
+    };
+
+    fetchUserCount(); // Call the fetch function
+
+  }, []); // Empty dependency array means this runs only once on mount
 
   const pieData = {
     labels: ["Plot 1", "Plot 2", "Plot 3", "Plot 4", "Plot 5"],
@@ -197,7 +229,9 @@ const Dashboard = ({ isCollapsed }) => {
         {/* Stats Section */}
         <Box sx={styles.statsGrid}>
           <Card sx={styles.card}>
-            <Typography variant="h1" sx={styles.cardTitle}>20</Typography>
+            <Typography variant="h1" sx={styles.cardTitle}>
+              {totalMembers === null ? '...' : totalMembers} {/* Show '...' while loading */}
+            </Typography>
             <Box sx={styles.cardIconBox}>
               <span className="material-symbols-outlined">user_attributes</span>
               <Typography variant="body2" sx={styles.body2Text}>Total Members</Typography>
