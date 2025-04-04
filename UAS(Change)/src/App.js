@@ -1,5 +1,5 @@
 import { useState, useEffect, React } from "react";
-import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import Topbar from "./scenes/global/Topbar";
 import Sidebar from "./scenes/global/Sidebar";
 import Dashboard from "./scenes/dashboard";
@@ -43,7 +43,7 @@ function App() {
               <Route path="/upload" element={isAuthenticated ? <Upload isCollapsed={isCollapsed} /> : <Navigate to="/login" />} />
               <Route path="/treecount" element={isAuthenticated ? <TreeCountDashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" />} />
               <Route path="/area" element={isAuthenticated ? <AreaDataDashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" />} />
-              <Route path="/potree" element={<PotreeViewer />} />
+              <Route path="/potree" element={isAuthenticated ? <PotreeViewer isCollapsed={isCollapsed} /> : <Navigate to="/login" />} />
             </Routes>
           </main>
         </div>

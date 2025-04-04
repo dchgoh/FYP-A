@@ -16,6 +16,7 @@ const Login = ({ setIsAuthenticated }) => {
   useEffect(() => {
     localStorage.removeItem("authenticated");
     localStorage.removeItem("userRole");
+    localStorage.removeItem("username");
     setIsAuthenticated(false);
   }, [setIsAuthenticated]);
   
@@ -51,6 +52,9 @@ const Login = ({ setIsAuthenticated }) => {
       localStorage.setItem("authenticated", "true"); // Store authentication
       if (data.role) {
         localStorage.setItem("userRole", data.role); // Store the role received from backend
+      }
+      if (data.username) { // Check if username exists in response
+        localStorage.setItem("username", data.username); // Store the username
       }
       setIsAuthenticated(true);
       navigate("/");
