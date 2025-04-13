@@ -10,6 +10,7 @@ import Login from "./scenes/login/login";
 import TreeCountDashboard from "./scenes/treecount";
 import AreaDataDashboard from "./scenes/area";
 import MapDashboard from "./scenes/map";
+import PotreeDashboard from "./scenes/view_potree";
 import PotreeViewer from './PotreeViewer';
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { ColorModeContext, useMode } from "./theme";
@@ -158,6 +159,10 @@ function App() {
               <Route
                 path="/map"
                 element={isAuthenticated ? <MapDashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
+              />
+              <Route
+                path="/view_potree"
+                element={isAuthenticated ? <PotreeDashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
               />
               <Route
                 path="/potree"

@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import "react-pro-sidebar/dist/css/styles.css";
 import { tokens } from "../../theme";
 import MenuOutlinedIcon from "@mui/icons-material/MenuOutlined";
+import ScatterPlotIcon from '@mui/icons-material/ScatterPlot';
 
 const Item = ({ title, to, icon, selected, setSelected }) => {
   const theme = useTheme();
@@ -153,6 +154,20 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
               setSelected={setSelected}
             />
             <Item
+              title="Potree List"
+              to="/view_potree"
+              icon={<ScatterPlotIcon />} 
+              selected={selected}
+              setSelected={setSelected}
+            />
+            <Item
+              title="Canopy Map"
+              to="/map"
+              icon={<span class="material-symbols-outlined">map</span>}
+              selected={selected}
+              setSelected={setSelected}
+            />
+            <Item
               title="Tree Count"
               to="/treecount"
               icon={<span class="material-symbols-outlined">nature</span>}
@@ -166,13 +181,7 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
               selected={selected}
               setSelected={setSelected}
             />
-            <Item
-              title="Map"
-              to="/map"
-              icon={<span class="material-symbols-outlined">map</span>}
-              selected={selected}
-              setSelected={setSelected}
-            />
+            
           </Box>
         </Menu>
       </ProSidebar>
