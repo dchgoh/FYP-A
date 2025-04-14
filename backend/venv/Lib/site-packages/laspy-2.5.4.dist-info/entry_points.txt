@@ -1,0 +1,2 @@
+[console_scripts]
+laspy = laspy.cli.main:main
