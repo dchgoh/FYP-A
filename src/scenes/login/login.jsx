@@ -1,9 +1,7 @@
 import React, { useState } from "react";
 import "./login.css"; // Assuming you have this CSS file
 import { FaEnvelope, FaEye, FaSpinner } from "react-icons/fa";
-// Removed useNavigate here, navigation is handled by App.js after successful login
 
-// Renamed prop: receive onLoginSuccess from App.js
 const Login = ({ onLoginSuccess }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
@@ -22,7 +20,7 @@ const Login = ({ onLoginSuccess }) => {
     setMfaRequired(false); // Reset MFA state on new login attempt
 
     try {
-      const response = await fetch("http://localhost:5000/api/login", {
+      const response = await fetch("http://localhost:5000/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -75,7 +73,7 @@ const Login = ({ onLoginSuccess }) => {
     setIsError(false);
 
     try {
-        const response = await fetch("http://localhost:5000/api/verify-mfa", {
+        const response = await fetch("http://localhost:5000/api/auth/verify-mfa", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             // Send email to identify user, and the code they entered

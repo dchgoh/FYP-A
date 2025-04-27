@@ -135,21 +135,21 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
             <Item
               title="Dashboard"
               to="/"
-              icon={<span class="material-symbols-outlined" >home</span>}
+              icon={<span className="material-symbols-outlined" >home</span>}
               selected={selected}
               setSelected={setSelected}
             />
             <Item
               title="Manage Team"
               to="/team"
-              icon={<span class="material-symbols-outlined">group</span>}
+              icon={<span className="material-symbols-outlined">group</span>}
               selected={selected}
               setSelected={setSelected}
             />
             <Item
               title="Files Upload"
               to="/upload"
-              icon={<span class="material-symbols-outlined">home_storage</span>}
+              icon={<span className="material-symbols-outlined">home_storage</span>}
               selected={selected}
               setSelected={setSelected}
             />
@@ -163,21 +163,21 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
             <Item
               title="Canopy Map"
               to="/map"
-              icon={<span class="material-symbols-outlined">map</span>}
+              icon={<span className="material-symbols-outlined">map</span>}
               selected={selected}
               setSelected={setSelected}
             />
             <Item
               title="Tree Count"
               to="/treecount"
-              icon={<span class="material-symbols-outlined">nature</span>}
+              icon={<span className="material-symbols-outlined">nature</span>}
               selected={selected}
               setSelected={setSelected}
             />
             <Item
               title="Area Data"
               to="/area"
-              icon={<span class="material-symbols-outlined">bar_chart</span>}
+              icon={<span className="material-symbols-outlined">bar_chart</span>}
               selected={selected}
               setSelected={setSelected}
             />
