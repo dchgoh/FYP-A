@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react'; // Removed useMemo, Added useCallback
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import { Link } from 'react-router-dom';
 import 'leaflet/dist/leaflet.css';
-import { Select, MenuItem, FormControl, InputLabel, Box, Alert as MuiAlert, Typography } from '@mui/material'; // Added Typography
+import { Select, MenuItem, FormControl, InputLabel, Box, Alert as MuiAlert, Typography, CircularProgress, Grid } from '@mui/material';
 
 // --- Leaflet Icon Fix (keep this) ---
 import L from 'leaflet';
@@ -14,193 +14,311 @@ L.Icon.Default.mergeOptions({
 });
 // --- End Icon Fix ---
 
-// *** MODIFICATION 1: Accept isCollapsed prop ***
+// Constants
+const API_BASE_URL = "http://localhost:5000/api";
+
 const MapComponent = ({ isCollapsed }) => {
   // --- State Variables ---
-  const [allFilesWithCoords, setAllFilesWithCoords] = useState([]);
+  // Renamed allFilesWithCoords -> mapFiles to reflect it holds filtered results
+  const [mapFiles, setMapFiles] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [divisions, setDivisions] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('all');
-  const [isLoadingFiles, setIsLoadingFiles] = useState(true);
+  const [selectedDivisionId, setSelectedDivisionId] = useState('all');
+  const [isLoadingFiles, setIsLoadingFiles] = useState(true); // Loading state specifically for map files
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
-  const [errorFiles, setErrorFiles] = useState(null);
+  const [isLoadingDivisions, setIsLoadingDivisions] = useState(true);
+  const [errorFiles, setErrorFiles] = useState(null); // Error state specifically for map files
   const [errorProjects, setErrorProjects] = useState(null);
+  const [errorDivisions, setErrorDivisions] = useState(null);
 
   // --- Default Map View Settings ---
   const initialPosition = [1.55, 110.35];
   const initialZoomLevel = 5;
 
-  // --- Fetch Data (Files and Projects) ---
-  useEffect(() => {
-    // (Fetch logic remains the same - no changes needed here)
-    const storedToken = localStorage.getItem('authToken');
+  // --- Helper for Fetching (Generic - used for Projects/Divisions) ---
+  const fetchDropdownData = useCallback(async (url, token, setDataFunc, setLoadingFunc, setErrorFunc) => {
+    setLoadingFunc(true);
+    setErrorFunc(null);
+    try {
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Failed to read error response');
+        throw new Error(`HTTP error! Status: ${response.status}, Endpoint: ${url.replace(API_BASE_URL,'')}, Details: ${errorText.substring(0,100)}`);
+      }
+      const data = await response.json();
+      setDataFunc(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error(`Fetch error for ${url}:`, err);
+      setErrorFunc(err.message || `An error occurred while fetching data from ${url.replace(API_BASE_URL,'')}.`);
+      setDataFunc([]); // Clear data on error
+    } finally {
+      setLoadingFunc(false);
+    }
+  }, []); // No dependencies needed
 
+  // --- Fetch Dropdown Data (Projects and Divisions) ONCE on Mount ---
+  useEffect(() => {
+    const storedToken = localStorage.getItem('authToken');
     if (!storedToken) {
-      setErrorFiles("Authentication required. Please log in.");
-      setErrorProjects("Authentication required.");
-      setIsLoadingFiles(false);
+      const authError = "Authentication required.";
+      setErrorProjects(authError);
+      setErrorDivisions(authError);
       setIsLoadingProjects(false);
+      setIsLoadingDivisions(false);
+      // Don't set file error here, let the file fetch handle it
       return;
     }
 
-    const fetchFiles = async () => {
-        setIsLoadingFiles(true);
-        setErrorFiles(null);
-        try {
-            const response = await fetch('http://localhost:5000/api/files', {
-                headers: {
-                    'Authorization': `Bearer ${storedToken}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-            if (!response.ok) {
-                // Simplified error handling for brevity
-                const errorData = await response.text(); // Get text in case it's HTML
-                throw new Error(`HTTP error! status: ${response.status} - ${errorData.substring(0, 100)}`);
-            }
-            const allFiles = await response.json();
-            const filesWithValidCoords = allFiles.filter(file =>
-                file.latitude !== null && typeof file.latitude === 'number' &&
-                file.longitude !== null && typeof file.longitude === 'number'
-            );
-            setAllFilesWithCoords(filesWithValidCoords);
-        } catch (err) {
-            console.error("Failed to fetch files:", err);
-            setErrorFiles(err.message || "An error occurred while fetching files.");
-        } finally {
-            setIsLoadingFiles(false);
-        }
-    };
+    fetchDropdownData(`${API_BASE_URL}/projects`, storedToken, setProjects, setIsLoadingProjects, setErrorProjects);
+    fetchDropdownData(`${API_BASE_URL}/divisions`, storedToken, setDivisions, setIsLoadingDivisions, setErrorDivisions);
 
+  }, [fetchDropdownData]); // Runs once
 
-    const fetchProjects = async () => {
-        setIsLoadingProjects(true);
-        setErrorProjects(null);
-        try {
-            const response = await fetch('http://localhost:5000/api/projects', {
-                headers: { 'Authorization': `Bearer ${storedToken}` }
-            });
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-            const data = await response.json();
-            setProjects(data || []);
-        } catch (err) {
-            console.error("Failed to fetch projects:", err);
-            setErrorProjects(err.message || "An error occurred while fetching projects.");
-        } finally {
-            setIsLoadingProjects(false);
-        }
-    };
-
-    Promise.all([fetchFiles(), fetchProjects()]);
-
-  }, []); // Runs once on mount
-
-
-  // --- Filter Markers Based on Selected Project ---
-  const filteredMarkers = useMemo(() => {
-    if (selectedProjectId === 'all') {
-      return allFilesWithCoords;
+  // --- Fetch FILTERED Map Files ---
+  const fetchMapFiles = useCallback(async () => {
+    const storedToken = localStorage.getItem('authToken');
+    if (!storedToken) {
+      setErrorFiles("Authentication required. Please log in.");
+      setIsLoadingFiles(false);
+      setMapFiles([]); // Clear files if not authenticated
+      return;
     }
-    if (selectedProjectId === 'unassigned') {
-      return allFilesWithCoords.filter(file => file.project_id === null);
-    }
-    return allFilesWithCoords.filter(file => file.project_id === parseInt(selectedProjectId, 10));
-  }, [allFilesWithCoords, selectedProjectId]);
 
-  // --- Handle Dropdown Change ---
+    setIsLoadingFiles(true);
+    setErrorFiles(null);
+    setMapFiles([]); // Clear previous results immediately
+
+    try {
+      const params = new URLSearchParams();
+
+      // Project Filter Logic (Keep as is)
+      if (selectedProjectId && selectedProjectId !== 'all') {
+          if (selectedProjectId === 'unassigned') {
+            params.append('projectId', 'null'); // Send 'null' string for unassigned projects
+          } else {
+              params.append('projectId', selectedProjectId); // Send actual ID
+          }
+      }
+      // Else: 'all' projects selected, don't add projectId parameter
+
+      // --- CORRECTED: Division Filter Logic ---
+      if (selectedDivisionId && selectedDivisionId !== 'all') {
+          if (selectedDivisionId === 'unassigned') { // <<< ADD THIS CHECK
+            params.append('divisionId', 'null');   // <<< Send 'null' string for unassigned divisions
+          } else {
+              params.append('divisionId', selectedDivisionId); // Send actual ID
+          }
+      }
+      // Else: 'all' divisions selected, don't add divisionId parameter
+      // --- End Correction ---
+
+      const query = params.toString();
+      const url = `${API_BASE_URL}/files${query ? `?${query}` : ''}`;
+
+      // console.log("Fetching map files from:", url); // For debugging
+
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${storedToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Failed to read error response');
+        throw new Error(`HTTP error fetching files! Status: ${response.status}, URL: ${url}, Details: ${errorText.substring(0, 150)}`);
+      }
+
+      const filesData = await response.json();
+      const filesArray = Array.isArray(filesData) ? filesData : [];
+
+      const filesWithValidCoords = filesArray.filter(file =>
+        file.latitude !== null && typeof file.latitude === 'number' &&
+        file.longitude !== null && typeof file.longitude === 'number'
+      );
+
+       const processedFiles = filesWithValidCoords.map(f => ({
+            ...f,
+            projectName: f.projectName || (f.project_id ? `Project ID ${f.project_id}` : 'Unassigned'),
+            divisionName: f.divisionName || (f.division_id ? `Division ID ${f.division_id}` : 'N/A'),
+       }));
+
+      setMapFiles(processedFiles);
+
+    } catch (err) {
+      console.error("Failed to fetch map files:", err);
+      setErrorFiles(err.message || "An error occurred while fetching map files.");
+      setMapFiles([]);
+    } finally {
+      setIsLoadingFiles(false);
+    }
+  // Dependencies remain the same as they correctly trigger the fetch
+  }, [selectedProjectId, selectedDivisionId]);
+
+  // --- Effect to Trigger Fetching Files when Filters Change ---
+  useEffect(() => {
+    // Fetch files when the component mounts initially AND
+    // whenever fetchMapFiles is recreated (due to filter changes)
+    fetchMapFiles();
+  }, [fetchMapFiles]); // fetchMapFiles is the dependency
+
+
+  // --- Handle Dropdown Changes ---
   const handleProjectChange = (event) => {
     setSelectedProjectId(event.target.value);
+    // The useEffect listening to fetchMapFiles will trigger the refetch
   };
 
-  // --- Render Logic ---
-  const isLoading = isLoadingFiles || isLoadingProjects;
-  const error = errorFiles || errorProjects;
+  const handleDivisionChange = (event) => {
+    setSelectedDivisionId(event.target.value);
+    // The useEffect listening to fetchMapFiles will trigger the refetch
+  };
 
-  // --- Determine map center and zoom ---
+  // --- Combined Loading/Error States ---
+  // Check loading state for dropdown data OR file data
+
+  // Prioritize showing file fetching error, then project/division errors
+  const error = errorFiles || errorProjects || errorDivisions;
+
+  // --- Determine map center and zoom based on CURRENT mapFiles state ---
   let mapCenter = initialPosition;
   let mapZoom = initialZoomLevel;
-  if (filteredMarkers.length > 0) {
-      mapCenter = [filteredMarkers[0].latitude, filteredMarkers[0].longitude];
-      mapZoom = 13;
+  if (mapFiles.length > 0) {
+      // Simple centering on the first marker in the list
+      mapCenter = [mapFiles[0].latitude, mapFiles[0].longitude];
+      mapZoom = 13; // Zoom in when markers are present
   }
+  // If mapFiles is empty (due to filters or no data), use initial view
 
   return (
-    // *** MODIFICATION 2: Apply dynamic margin and transition to the outermost Box ***
     <Box sx={{
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(96vh - 80px)', // Example: Adjust height to account for Topbar (adjust 80px as needed)
-        paddingTop: '10px', // Add some padding if needed below the topbar
-        marginLeft: isCollapsed ? "80px" : "270px", // Dynamic margin like Topbar
-        transition: "margin-left 0.3s ease",    // Smooth transition like Topbar
-        overflow: 'hidden', // Prevent potential scrollbars on this container
+        height: 'calc(100vh - 64px)', // Adjust as needed
+        marginLeft: isCollapsed ? "80px" : "270px",
+        transition: "margin-left 0.3s ease",
+        overflow: 'hidden',
+        padding: '10px',
+        boxSizing: 'border-box',
     }}>
-      {/* --- Project Filter Dropdown --- */}
-      {/* Added flexShrink: 0 so it doesn't shrink */}
-      <Box sx={{ padding: '0 10px 10px 10px', backgroundColor: 'transparent', flexShrink: 0 }}>
-        <FormControl fullWidth size="small">
-          <InputLabel id="project-filter-label">Filter by Project</InputLabel>
-          <Select
-            labelId="project-filter-label"
-            id="project-filter-select"
-            value={selectedProjectId}
-            label="Filter by Project"
-            onChange={handleProjectChange}
-            disabled={isLoadingProjects}
-          >
-            <MenuItem value="all">All Projects</MenuItem>
-            <MenuItem value="unassigned">Unassigned Files</MenuItem>
-            {projects.map((project) => (
-              <MenuItem key={project.id} value={project.id.toString()}>
-                {project.name} (ID: {project.id})
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-         {/* Display loading/error states clearly */}
-         {isLoading && <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 1 }}>Loading data...</Typography>}
-         {error && !isLoading && <MuiAlert severity="error" sx={{ mt: 1 }}>{error}</MuiAlert>}
+      {/* --- Filter Controls Row --- */}
+      <Box sx={{ marginBottom: '10px', flexShrink: 0 }}>
+         <Grid container spacing={2} alignItems="center">
+             {/* Division Filter */}
+             <Grid item xs={12} sm={6} md={4}>
+                <FormControl fullWidth size="small" variant="outlined">
+                    <InputLabel id="division-filter-label">Filter by Division</InputLabel>
+                    <Select
+                        labelId="division-filter-label"
+                        id="division-filter-select"
+                        value={selectedDivisionId}
+                        label="Filter by Division"
+                        onChange={handleDivisionChange}
+                        disabled={isLoadingDivisions || isLoadingFiles} // Disable while loading divisions OR files
+                        MenuProps={{ PaperProps: { sx: { maxHeight: 300 } } }}
+                    >
+                        <MenuItem value="all">All Divisions</MenuItem>
+                                 
+                        {divisions.map((division) => (
+                        <MenuItem key={`div-${division.id}`} value={division.id.toString()}>
+                            {division.name}
+                        </MenuItem>
+                        ))}
+                    </Select>
+                </FormControl>
+                {/* Show spinner inside if divisions are loading */}
+                {isLoadingDivisions && <CircularProgress size={20} sx={{ position: 'absolute', right: 35, top: '50%', transform: 'translateY(-50%)', zIndex: 1 }} />}
+             </Grid>
+
+             {/* Project Filter */}
+             <Grid item xs={12} sm={6} md={4}>
+                <FormControl fullWidth size="small" variant="outlined">
+                    <InputLabel id="project-filter-label">Filter by Project</InputLabel>
+                    <Select
+                        labelId="project-filter-label"
+                        id="project-filter-select"
+                        value={selectedProjectId}
+                        label="Filter by Project"
+                        onChange={handleProjectChange}
+                        disabled={isLoadingProjects || isLoadingFiles} // Disable while loading projects OR files
+                        MenuProps={{ PaperProps: { sx: { maxHeight: 300 } } }}
+                    >
+                        <MenuItem value="all">All Projects</MenuItem>
+                        
+                        
+                        {projects.map((project) => (
+                        <MenuItem key={`proj-${project.id}`} value={project.id.toString()}>
+                            {project.name}
+                        </MenuItem>
+                        ))}
+                    </Select>
+                </FormControl>
+                 {/* Show spinner inside if projects are loading */}
+                {isLoadingProjects && <CircularProgress size={20} sx={{ position: 'absolute', right: 35, top: '50%', transform: 'translateY(-50%)', zIndex: 1 }} />}
+             </Grid>
+         </Grid>
+
+         {/* Display combined loading/error states clearly */}
+         {/* Show file loading text *only* if files are loading */}
+         {isLoadingFiles && <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 1 }}>Loading map data...</Typography>}
+         {error && !isLoadingFiles && <MuiAlert severity="error" sx={{ mt: 1 }}>Error: {error}</MuiAlert>}
       </Box>
 
+
       {/* --- Map Container --- */}
-      {/* Use flexGrow: 1 to make map take remaining space */}
-      <Box className="map-container" sx={{ flexGrow: 1, width: '100%', position: 'relative' /* Needed for absolute positioning of message */ }}>
-        {!isLoading && !error && ( // Only render map if not loading and no errors
+      <Box className="map-container" sx={{ flexGrow: 1, width: '100%', position: 'relative', border: '1px solid #ccc', borderRadius: '4px', overflow: 'hidden' }}>
+         {/* Map is rendered only when files are NOT loading and there's no file error */}
+         {/* We assume dropdown data might still be loading but we can show the map */}
+        {!isLoadingFiles && !errorFiles && (
             <MapContainer
+            key={`${mapCenter.join(',')}-${mapZoom}`} // Force re-render on view change
             center={mapCenter}
             zoom={mapZoom}
             style={{ height: '100%', width: '100%' }}
             zoomControl={true}
+            scrollWheelZoom={true}
             >
             <TileLayer
                 attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
 
-            {filteredMarkers.map(file => {
-                const potreeViewPath = file.potreeUrl
+            {/* Render markers from the mapFiles state */}
+            {mapFiles.map(file => {
+                const potreeViewPath = file.potreeUrl && typeof file.potreeUrl === 'string' && file.potreeUrl !== 'pending_refresh'
                     ? `/potree?url=${encodeURIComponent(file.potreeUrl)}`
                     : null;
+
                 return (
                 <Marker
                     position={[file.latitude, file.longitude]}
-                    key={file.id}
+                    key={file.id} // Use file ID as key
                 >
-                    <Popup>
-                    <div>
-                        <strong>{file.name || 'Unnamed File'}</strong>
-                        <br />
-                        Coords: {file.latitude.toFixed(5)}, {file.longitude.toFixed(5)}
-                        <br />
-                        Project: {file.projectName || 'Unassigned'}
-                        <br />
+                    <Popup minWidth={200}>
+                    <div style={{ lineHeight: 1.5 }}>
+                        <Typography variant="subtitle2" component="strong" gutterBottom>
+                            {file.name || 'Unnamed File'}
+                        </Typography>
+                        <Typography variant="body2">
+                            Coords: {file.latitude.toFixed(5)}, {file.longitude.toFixed(5)}
+                        </Typography>
+                        <Typography variant="body2">
+                             Division: {file.divisionName || 'N/A'} {/* Use processed name */}
+                        </Typography>
+                        <Typography variant="body2">
+                            Project: {file.projectName || 'Unassigned'} {/* Use processed name */}
+                        </Typography>
                         {potreeViewPath ? (
-                           <Link to={potreeViewPath} style={{ textDecoration: 'none', color: '#3388cc', fontWeight: 'bold', display: 'block', marginTop: '5px' }}>
+                           <Link to={potreeViewPath} style={{ textDecoration: 'none', color: '#3388cc', fontWeight: 'bold', display: 'block', marginTop: '8px' }}>
                              View Point Cloud
                            </Link>
                         ) : (
-                           <span style={{color: '#999', fontStyle: 'italic', display: 'block', marginTop: '5px'}}>
+                           <Typography variant="caption" style={{color: '#999', fontStyle: 'italic', display: 'block', marginTop: '8px'}}>
                               Potree data not available
-                           </span>
+                           </Typography>
                         )}
                     </div>
                     </Popup>
@@ -209,11 +327,26 @@ const MapComponent = ({ isCollapsed }) => {
             })}
             </MapContainer>
         )}
-         {/* Message for no filtered markers */}
-         {filteredMarkers.length === 0 && !isLoading && !error && (
-           <div style={{ textAlign: 'center', padding: '10px', color: '#555', position: 'absolute', top: '10px', /* Adjusted top position */ left: '50%', transform: 'translateX(-50%)', background: 'rgba(255,255,255,0.8)', zIndex: 1000, borderRadius: '4px' }}>
-             No files found for the selected project filter.
-           </div>
+         {/* Message for no files found (only show if not loading files and no file error) */}
+         {mapFiles.length === 0 && !isLoadingFiles && !errorFiles && (
+           <Box sx={{ /* Styles for no results message */
+               textAlign: 'center', padding: '10px', color: '#555', position: 'absolute',
+               top: '10px', left: '50%', transform: 'translateX(-50%)',
+               background: 'rgba(255,255,255,0.8)', zIndex: 1000,
+               borderRadius: '4px', pointerEvents: 'none'
+           }}>
+             No files found matching the current filters.
+           </Box>
+         )}
+         {/* Loading overlay specifically for the map area during file fetch */}
+         {isLoadingFiles && (
+             <Box sx={{ /* Styles for map loading overlay */
+                 position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                 backgroundColor: 'rgba(255,255,255,0.7)', display: 'flex',
+                 justifyContent: 'center', alignItems: 'center', zIndex: 1100
+             }}>
+                 <CircularProgress />
+             </Box>
          )}
       </Box>
     </Box>

@@ -154,13 +154,6 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
               setSelected={setSelected}
             />
             <Item
-              title="Potree List"
-              to="/view_potree"
-              icon={<ScatterPlotIcon />} 
-              selected={selected}
-              setSelected={setSelected}
-            />
-            <Item
               title="Canopy Map"
               to="/map"
               icon={<span className="material-symbols-outlined">map</span>}

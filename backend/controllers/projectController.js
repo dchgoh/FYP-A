@@ -3,29 +3,78 @@ const ROLES = require('../config/roles'); // Adjust path relative to controllers
 
 // Create a new Project (Admin Only)
 exports.createProject = async (req, res) => {
-    const { name, description } = req.body;
+    // *** MODIFIED: Added divisionId ***
+    const { name, description, divisionId } = req.body;
+
+    // --- Validation ---
     if (!name || name.trim() === "") {
         return res.status(400).json({ success: false, message: "Project name required." });
     }
+    // *** MODIFIED: Validate divisionId ***
+    if (!divisionId || isNaN(parseInt(divisionId))) {
+        return res.status(400).json({ success: false, message: "Valid Division ID required." });
+    }
+    const cleanDivisionId = parseInt(divisionId);
+    const cleanName = name.trim();
+
+    let poolClient;
     try {
-        const result = await pool.query(
-            "INSERT INTO projects (name, description) VALUES ($1, $2) RETURNING id, name, description, created_at",
-            [name.trim(), description || null]
+        poolClient = await pool.connect();
+
+        // *** MODIFIED: Check if Division exists ***
+        const divisionCheck = await poolClient.query("SELECT 1 FROM divisions WHERE id = $1", [cleanDivisionId]);
+        if (divisionCheck.rowCount === 0) {
+            return res.status(404).json({ success: false, message: `Division with ID ${cleanDivisionId} not found.` });
+        }
+
+        // *** MODIFIED: Include division_id in INSERT ***
+        const result = await poolClient.query(
+            "INSERT INTO projects (name, description, division_id) VALUES ($1, $2, $3) RETURNING id, name, description, division_id, created_at",
+            [cleanName, description || null, cleanDivisionId]
         );
+
         res.status(201).json({ success: true, project: result.rows[0] });
+
     } catch (error) {
         console.error("Error creating project:", error);
-        if (error.code === '23505' && error.constraint === 'projects_name_key') {
-            return res.status(409).json({ success: false, message: `Project with name "${name.trim()}" already exists.` });
+        // *** MODIFIED: Update unique constraint name and message ***
+        if (error.code === '23505' && error.constraint === 'uq_division_project_name') { // Adjusted constraint name
+            return res.status(409).json({ success: false, message: `Project with name "${cleanName}" already exists in this division.` });
         }
         res.status(500).json({ success: false, message: "Server error creating project." });
+    } finally {
+         if (poolClient) {
+            try { poolClient.release(); } catch (e) { console.error("Error releasing client", e)}
+         }
     }
 };
 
-// Get all Projects (All logged-in users)
+// Get all Projects, optionally filtered by division (All logged-in users)
 exports.getProjects = async (req, res) => {
+    // *** MODIFIED: Optional filtering and join with divisions ***
+    const { divisionId } = req.query; // Get optional divisionId from query string
+
+    let query = `
+        SELECT
+            p.id,
+            p.name,
+            p.description,
+            p.division_id,
+            d.name AS division_name
+        FROM projects p
+        JOIN divisions d ON p.division_id = d.id
+    `;
+    const queryParams = [];
+
+    if (divisionId && !isNaN(parseInt(divisionId))) {
+        query += " WHERE p.division_id = $1";
+        queryParams.push(parseInt(divisionId));
+    }
+
+    query += " ORDER BY d.name ASC, p.name ASC"; // Order by division name, then project name
+
     try {
-        const result = await pool.query("SELECT id, name FROM projects ORDER BY name ASC");
+        const result = await pool.query(query, queryParams);
         res.json(result.rows);
     } catch (error) {
         console.error("Error fetching projects:", error);
@@ -53,24 +102,23 @@ exports.assignDataManager = async (req, res) => {
         // --- Validation Step 1: Check if project exists ---
         const projectCheck = await poolClient.query("SELECT 1 FROM projects WHERE id = $1", [projectId]);
         if (projectCheck.rowCount === 0) {
-            poolClient.release();
+             poolClient.release();
             return res.status(404).json({ success: false, message: "Project not found." });
         }
 
         // --- Validation Step 2: Check if user exists and is a Data Manager ---
         const userCheck = await poolClient.query("SELECT role FROM users WHERE id = $1", [managerUserId]);
         if (userCheck.rowCount === 0) {
-            poolClient.release();
+             poolClient.release();
             return res.status(404).json({ success: false, message: "User not found." });
         }
         if (userCheck.rows[0].role !== ROLES.DATA_MANAGER) {
-            poolClient.release();
+             poolClient.release();
             return res.status(400).json({ success: false, message: "User is not a Data Manager." });
         }
 
         // --- Perform Assignment ---
-        // Can use the pool directly for the simple insert or the client
-        await pool.query( // Changed back to pool for simplicity, as ON CONFLICT handles race conditions
+        await pool.query( // Can use pool directly, ON CONFLICT handles potential races
             "INSERT INTO project_data_managers (user_id, project_id) VALUES ($1, $2) ON CONFLICT (user_id, project_id) DO NOTHING",
             [managerUserId, projectId]
         );
@@ -82,7 +130,7 @@ exports.assignDataManager = async (req, res) => {
         res.status(500).json({ success: false, message: "Server error assigning data manager." });
     } finally {
         if (poolClient) {
-            poolClient.release(); // Ensure client is always released
+             poolClient.release(); // Ensure client is always released
         }
     }
 };
@@ -155,7 +203,9 @@ exports.getMyAssignedProjects = async (req, res) => {
 
     // Admins/Regulars conceptually have access to all/none via this specific mechanism
     if (userRole === ROLES.ADMIN || userRole === ROLES.REGULAR) {
-        return res.json({ assignedProjectIds: [] }); // Return empty for non-DMs
+        // Admins could potentially see *all* projects via getProjects.
+        // Regulars see none via this route.
+        return res.json({ assignedProjectIds: [] });
     }
 
     if (userRole === ROLES.DATA_MANAGER) {
@@ -185,8 +235,6 @@ exports.deleteProject = async (req, res) => {
         return res.status(400).json({ success: false, message: "Invalid project ID." });
     }
 
-    // Note: DB constraints handle related record cleanup (files set to NULL, assignments deleted)
-
     let poolClient;
     try {
         poolClient = await pool.connect();
@@ -196,14 +244,15 @@ exports.deleteProject = async (req, res) => {
         const checkResult = await poolClient.query("SELECT 1 FROM projects WHERE id = $1 FOR UPDATE", [projectId]); // Lock row
         if (checkResult.rowCount === 0) {
             await poolClient.query('ROLLBACK');
+            poolClient.release();
             return res.status(404).json({ success: false, message: "Project not found." });
         }
 
-        // Perform the deletion
-        // Constraints ON DELETE SET NULL (files) and ON DELETE CASCADE (assignments) handle related data
+        // Perform the deletion - Cascades will handle related data
         await poolClient.query("DELETE FROM projects WHERE id = $1", [projectId]);
 
         await poolClient.query('COMMIT'); // Commit transaction
+        poolClient.release();
 
         res.status(200).json({ success: true, message: "Project deleted successfully." });
 
@@ -211,11 +260,9 @@ exports.deleteProject = async (req, res) => {
         console.error(`Error deleting project ${projectId}:`, error);
         if (poolClient) {
             try { await poolClient.query('ROLLBACK'); } catch (rbErr) { console.error("Rollback error:", rbErr); }
+            finally { poolClient.release(); } // Ensure release even on rollback error
         }
         res.status(500).json({ success: false, message: "Server error deleting project." });
-    } finally {
-        if (poolClient) {
-            poolClient.release(); // Release client back to the pool
-        }
     }
+    // No finally block needed here as it's handled within try/catch for poolClient
 };

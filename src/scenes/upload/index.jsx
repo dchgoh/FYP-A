@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, Typography, useTheme, IconButton, Menu, MenuItem, Button, Dialog,
@@ -86,8 +86,8 @@ const FileManagement = ({ isCollapsed }) => {
   const [snackbarSeverity, setSnackbarSeverity] = useState("success");
   const [deletingProjectId, setDeletingProjectId] = useState(null);
   const [plotName, setPlotName] = useState('');
-  const [selectedDivisionId, setSelectedDivisionId] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [selectedDivisionIdForCreation, setSelectedDivisionIdForCreation] = useState('');
   const [isDivisionProjectSettingsModalOpen, setIsDivisionProjectSettingsModalOpen] = useState(false);
   const [deletingDivisionId, setDeletingDivisionId] = useState(null); // State for division deletion
 
@@ -125,12 +125,11 @@ const FileManagement = ({ isCollapsed }) => {
             case 'upload':
             case 'view':
             case 'download':
-            case 'convert':
                 return true;
             case 'assignProject':
                 return file?.project_id === null || assignedProjectIdsForDM.includes(file?.project_id);
             case 'delete':
-                return file?.project_id !== null && assignedProjectIdsForDM.includes(file.project_id);
+                return file?.project_id !== null || assignedProjectIdsForDM.includes(file.project_id);
             case 'manageAssignments':
             case 'createProject':
                 return false;
@@ -160,7 +159,7 @@ const FileManagement = ({ isCollapsed }) => {
     } finally {
         setLoadingDivisionsList(false);
     }
-}, [/* showSnackbar is stable, removed for brevity */]);
+},[showSnackbar]);
 
   const fetchProjectsList = useCallback(async (token) => {
       if (!token) return;
@@ -175,7 +174,7 @@ const FileManagement = ({ isCollapsed }) => {
       } finally {
           setLoadingProjectsList(false);
       }
-  }, [/* showSnackbar is stable, removed for brevity */]);
+  }, [showSnackbar ]);
 
   const fetchFiles = useCallback(async (
     projectIdToFilter = filterProjectId,  // Gets current project filter state by default
@@ -271,7 +270,7 @@ const FileManagement = ({ isCollapsed }) => {
       } finally {
           setLoadingModalDMs(false);
       }
-  }, [/* showSnackbar */]);
+  }, [showSnackbar]);
 
   const fetchAssignmentsForModal = useCallback(async (projectId, token) => {
       if (!token || !projectId) return;
@@ -286,7 +285,7 @@ const FileManagement = ({ isCollapsed }) => {
       } finally {
           setLoadingAssignmentsForProjectId(curr => curr === projectId ? null : curr);
       }
-  }, [/* showSnackbar */]);
+  }, [showSnackbar]);
 
   // --- EFFECTS ---
   // Fetch User Info and Permissions on Mount
@@ -329,7 +328,7 @@ const FileManagement = ({ isCollapsed }) => {
       }
     };
     fetchUserAndPermissions();
-  }, [fetchProjectsList, fetchAllDataManagersForModal]); // Added dependencies
+  }, [fetchProjectsList, fetchAllDataManagersForModal,fetchDivisionsList]); // Added dependencies
 
   // Fetch Files when Permissions Loaded or Filters Change
   useEffect(() => {
@@ -435,6 +434,8 @@ const FileManagement = ({ isCollapsed }) => {
     setNewFile(null);
     setUploadProgress(null);
     setIsUploading(false);
+    setPlotName('');
+    setSelectedProjectId('');
   };
 
   const handleCloseUploadModal = () => {
@@ -461,15 +462,22 @@ const FileManagement = ({ isCollapsed }) => {
     if (!newFile) { showSnackbar("Please select a file.", "warning"); return; }
     const token = localStorage.getItem('authToken');
     if (!token) { showSnackbar("Auth required.", "error"); return; }
+
+    // Optional: Add validation for plotName/selectedProjectId if they become mandatory
+    // if (!plotName.trim()) { /* ... show snackbar ... */ return; }
+    // if (!selectedProjectId) { /* ... show snackbar ... */ return; }
+
     const fd = new FormData();
     fd.append('file', newFile);
-    fd.append('plot_name', plotName);
-    fd.append('division_id', selectedDivisionId);
-    fd.append('project_id', selectedProjectId);
+    if (plotName.trim()) fd.append('plot_name', plotName.trim());
+    fd.append('project_id', selectedProjectId); // Can be empty if not selected
+
     setIsUploading(true);
     setUploadProgress(0);
+
     try {
-        const res = await axios.post(`${API_BASE_URL}/files/upload`, fd, {
+        // --- Step 1: Upload the file ---
+        const uploadRes = await axios.post(`${API_BASE_URL}/files/upload`, fd, {
             headers: {
                 'Content-Type': 'multipart/form-data',
                 'Authorization': `Bearer ${token}`
@@ -478,12 +486,44 @@ const FileManagement = ({ isCollapsed }) => {
                 setUploadProgress(pe.total ? Math.round((pe.loaded * 100) / pe.total) : 0);
             }
         });
-        if (res.data.success) {
-            showSnackbar("File uploaded successfully!", "success");
+
+        if (uploadRes.data.success && uploadRes.data.file && uploadRes.data.file.id) {
+            const uploadedFile = uploadRes.data.file;
+            const newFileId = uploadedFile.id;
+            // Use originalname from the response if available, fallback to the state `newFile`
+            const originalFileNameForCheck = uploadedFile.original_name || newFile.name;
+
+            showSnackbar("File upload complete. Triggering conversion...", "success");
             handleCloseUploadModal();
-            fetchFiles(); // Refresh file list
+            fetchFiles(); // Refresh list immediately
+
+            // --- Step 2: Automatically trigger conversion (if applicable) ---
+            const lcFileName = originalFileNameForCheck.toLowerCase();
+            const isConvertible = lcFileName.endsWith('.las') || lcFileName.endsWith('.laz'); // Simple check
+
+             if (isConvertible) {
+                 console.log(`Attempting to auto-trigger conversion for File ID: ${newFileId}`);
+                 // Make the GET request to the backend conversion endpoint
+                 axios.get(`${API_BASE_URL}/files/potreeconverter/${newFileId}`, {
+                     headers: { 'Authorization': `Bearer ${token}` }
+                 }).then(convRes => {
+                     console.log(`Conversion endpoint called for ${newFileId}, response status: ${convRes.status}`);
+                     // Optional: showSnackbar(`Conversion process started for ${originalFileNameForCheck}.`, "info");
+                 }).catch(convErr => {
+                     console.error(`Error triggering conversion for ${newFileId}:`, convErr.response?.data || convErr.message);
+                     showSnackbar(`Failed to start conversion for ${originalFileNameForCheck}.`, "error");
+                 });
+             } else {
+                  console.log(`Skipping auto-conversion for ${originalFileNameForCheck}`);
+             }
+             // --- *** REMOVED call to handleConvertPotree *** ---
+
+        } else if (uploadRes.data.success) {
+             showSnackbar("File uploaded, but details missing from response.", "warning");
+             handleCloseUploadModal();
+             fetchFiles();
         } else {
-            showSnackbar(res.data.message || "File upload failed.", "error");
+            showSnackbar(uploadRes.data.message || "File upload failed.", "error");
             setUploadProgress(null);
         }
     } catch (e) {
@@ -492,6 +532,7 @@ const FileManagement = ({ isCollapsed }) => {
         setUploadProgress(null);
     } finally {
         setIsUploading(false);
+        // Resetting fields in handleCloseUploadModal is usually sufficient
     }
   };
 
@@ -608,13 +649,42 @@ const FileManagement = ({ isCollapsed }) => {
     setFilterProjectId(event.target.value);
   };
 
-  const handleDivisionFilterChange = (event) => { // <-- NEW Handler
-    setFilterDivisionId(event.target.value);
+  const handleDivisionFilterChange = (event) => {
+    const newDivisionId = event.target.value;
+    setFilterDivisionId(newDivisionId);
+
+    // --- Reset Project Filter if necessary ---
+    if (newDivisionId === 'all') {
+      // No need to reset project filter if 'All Divisions' is selected
+      return;
+    }
+
+    // If a specific division is selected, check the current project filter
+    const currentProjectId = filterProjectId;
+    if (currentProjectId !== 'all' && currentProjectId !== 'unassigned') {
+      const numericProjectId = parseInt(currentProjectId, 10);
+      const numericDivisionId = parseInt(newDivisionId, 10);
+
+      // Find the currently selected project in the *full* list
+      const projectStillValid = projectsList.find(
+        p => p.id === numericProjectId && p.division_id === numericDivisionId
+      );
+
+      // If the project is not found or doesn't belong to the new division, reset project filter
+      if (!projectStillValid) {
+        setFilterProjectId('all'); // Reset to 'All Projects'
+        // Note: fetchFiles will be triggered by useEffect due to filterProjectId change
+      }
+    }
+    // --- End Reset Logic ---
+    // fetchFiles is triggered by useEffect dependency on filterDivisionId
   };
 
   const handleOpenCreateProjectModal = () => {
-    if (!canPerformAction('createProject')) { showSnackbar("Permission denied.", "error"); return; }
+    // Rely on Admin role check for now, or add 'createProject' to canPerformAction
+    if (userRole !== ROLES.ADMIN) { showSnackbar("Permission denied.", "error"); return; }
     setNewProjectName('');
+    setSelectedDivisionIdForCreation(''); // *** Reset division selection for new project
     setCreateProjectModalOpen(true);
   };
 
@@ -634,10 +704,15 @@ const FileManagement = ({ isCollapsed }) => {
     if (isCreatingProject) return;
     setCreateProjectModalOpen(false);
     setNewProjectName('');
+    setSelectedDivisionIdForCreation(''); // *** Reset on close
   };
 
   const handleCreateDivision = async () => {
-    if (!canPerformAction('createDivision')) { showSnackbar("Permission denied.", "error"); return; }
+    // Add a specific check for Admin role or a dedicated 'createDivision' permission
+    if (userRole !== ROLES.ADMIN) { // Or use: !canPerformAction('createDivision') if defined
+        showSnackbar("Permission denied.", "error");
+        return;
+    }
     if (!newDivisionName.trim() || isCreatingDivision) {
         if (!newDivisionName.trim()) showSnackbar("Division name required.", "warning");
         return;
@@ -648,10 +723,15 @@ const FileManagement = ({ isCollapsed }) => {
     try {
         const res = await axios.post(`${API_BASE_URL}/divisions`, { name: newDivisionName.trim() }, { headers: { 'Authorization': `Bearer ${token}` } });
         if (res.data.success && res.data.division) {
+            // const createdDivision = res.data.division; // No longer needed unless used elsewhere immediately
             showSnackbar(`Division "${res.data.division.name}" created!`, "success");
-            handleCloseCreateDivisionModal();
             await fetchDivisionsList(token); // Refresh division list
-        } else { showSnackbar(res.data.message || "Create division failed.", "error"); }
+            // REMOVE THE FOLLOWING LINE:
+            // setSelectedDivisionId(createdDivision.id);
+            handleCloseCreateDivisionModal();
+        } else {
+             showSnackbar(res.data.message || "Create division failed.", "error");
+        }
     } catch (e) {
         console.error("Create division error:", e);
         const msg = e.response?.status === 409 ? `Division "${newDivisionName.trim()}" already exists.` : e.response?.data?.message || "Server error creating division.";
@@ -662,24 +742,56 @@ const FileManagement = ({ isCollapsed }) => {
   };
 
   const handleCreateProject = async () => {
-    if (!canPerformAction('createProject')) { showSnackbar("Permission denied.", "error"); return; }
+    if (userRole !== ROLES.ADMIN) { showSnackbar("Permission denied.", "error"); return; }
     if (!newProjectName.trim() || isCreatingProject) {
         if (!newProjectName.trim()) showSnackbar("Project name required.", "warning");
         return;
     }
+    // *** ADDED: Check if division is selected ***
+    if (!selectedDivisionIdForCreation) {
+        showSnackbar("Please select a Division for the project.", "warning");
+        return;
+    }
+
     const token = localStorage.getItem('authToken');
     if (!token) { showSnackbar("Auth required.", "error"); return; }
+
     setIsCreatingProject(true);
     try {
-        const res = await axios.post(`${API_BASE_URL}/projects`, { name: newProjectName.trim() }, { headers: { 'Authorization': `Bearer ${token}` } });
+        // *** MODIFIED: Send divisionId in the request body ***
+        const res = await axios.post(
+            `${API_BASE_URL}/projects`,
+            {
+                name: newProjectName.trim(),
+                divisionId: selectedDivisionIdForCreation // Send selected division ID
+            },
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+
         if (res.data.success && res.data.project) {
-            showSnackbar(`Project "${res.data.project.name}" created!`, "success");
-            handleCloseCreateProjectModal();
+            const createdProject = res.data.project;
+            showSnackbar(`Project "${createdProject.name}" created!`, "success");
             await fetchProjectsList(token); // Refresh project list
-        } else { showSnackbar(res.data.message || "Create project failed.", "error"); }
+
+            // Optional: Pre-select the newly created project in the upload modal if it's open?
+            // This requires passing the ID back or finding it in the updated list.
+            // setSelectedProjectId(createdProject.id); // Might auto-select in upload modal if needed
+
+            handleCloseCreateProjectModal();
+        } else {
+            showSnackbar(res.data.message || "Create project failed.", "error");
+        }
     } catch (e) {
         console.error("Create project error:", e);
-        const msg = e.response?.status === 409 ? `Project "${newProjectName.trim()}" already exists.` : e.response?.data?.message || "Server error creating project.";
+        let msg = "Server error creating project.";
+        // Check for unique constraint violation (project name within division)
+        if (e.response?.status === 409 && e.response?.data?.message?.includes('already exists in this division')) {
+            msg = `Project "${newProjectName.trim()}" already exists in the selected division.`;
+        } else if (e.response?.status === 404 && e.response?.data?.message?.includes('Division')) {
+             msg = "Selected division not found. Please refresh.";
+        } else {
+             msg = e.response?.data?.message || msg;
+        }
         showSnackbar(msg, "error");
     } finally {
         setIsCreatingProject(false);
@@ -747,9 +859,11 @@ const FileManagement = ({ isCollapsed }) => {
              showSnackbar(`Division "${divisionName}" deleted successfully.`, "success");
              // Refresh lists
              await fetchDivisionsList(token); // Update the division list
+             await fetchProjectsList(token);
              // Refresh the main file list (files might become unassigned)
              await fetchFiles('all', 'all'); // Fetch all files, regardless of previous filter
              setFilterDivisionId('all'); // Reset division filter dropdown
+             setFilterProjectId('all');
          } else {
              showSnackbar(response.data.message || "Failed to delete division.", "error");
          }
@@ -829,6 +943,24 @@ const FileManagement = ({ isCollapsed }) => {
     const assignedIds = (assignmentsInModal[projectId] || []).map(m => m.id);
     return allDataManagers.filter(dm => !assignedIds.includes(dm.id));
   };
+
+  const filteredProjectsForDropdown = useMemo (() => {
+    if (filterDivisionId === 'all') {
+      return projectsList; // Show all projects if 'All Divisions' is selected
+    }
+    if (!filterDivisionId) {
+      return []; // No division selected yet
+    }
+    const numericDivisionId = parseInt(filterDivisionId, 10);
+    if (isNaN(numericDivisionId)) {
+      return []; // Should not happen with select, but safety check
+    }
+    // Filter projects based on the selected division ID
+    return projectsList.filter(p => p.division_id === numericDivisionId);
+  }, [projectsList, filterDivisionId]); // Recalculate when projectsList or filterDivisionId changes
+
+const CREATE_NEW_DIVISION_VALUE = "__CREATE_NEW_DIVISION__"; // Special value for Division Select
+const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value for Project Select
 
   // --- STYLES ---
   // (Keep the exact styles object as provided)
@@ -914,7 +1046,6 @@ const FileManagement = ({ isCollapsed }) => {
     // --- Upload Dialog Specific ---
     fileDisplay: {
       textAlign: "center",
-      marginTop: "20px",
       padding: "15px",
       border: `1px dashed ${colors.grey?.[500] ?? "#888"}`,
       borderRadius: "5px",
@@ -1149,7 +1280,7 @@ const FileManagement = ({ isCollapsed }) => {
                         label="Filter Division"
                         onChange={handleDivisionFilterChange}
                         disabled={isLoading || loadingDivisionsList || !!convertingFileId || !!deletingProjectId} // Added deletingProjectId check
-                        MenuProps={{ PaperProps: { sx: { backgroundColor: colors.primary[600], color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.primary[500] }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: colors.blueAccent[700]+'!important', color:colors.grey[100] }}} }}
+                        MenuProps={{ PaperProps: { sx: { color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.primary[500] }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: colors.blueAccent[700]+'!important', color:colors.grey[100] }}} }}
                     >
                         <MenuItem value="all"><em>All Division</em></MenuItem>
                         {divisionsList.map(p=>(<MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>))}
@@ -1157,22 +1288,42 @@ const FileManagement = ({ isCollapsed }) => {
                 </FormControl>
              </Grid>
              <Grid item xs={12} sm="auto">
-                <FormControl fullWidth variant="outlined" size="small" sx={styles.filterFormControl}>
-                    <InputLabel id="project-filter-label">Filter Project</InputLabel>
-                    <Select
-                        labelId="project-filter-label"
-                        id="project-filter-select"
-                        value={filterProjectId}
-                        label="Filter Project"
-                        onChange={handleProjectFilterChange}
-                        disabled={isLoading || loadingProjectsList || !!convertingFileId || !!deletingProjectId} // Added deletingProjectId check
-                        MenuProps={{ PaperProps: { sx: { backgroundColor: colors.primary[600], color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.primary[500] }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: colors.blueAccent[700]+'!important', color:colors.grey[100] }}} }}
-                    >
-                        <MenuItem value="all"><em>All Project</em></MenuItem>
-                        {projectsList.map(p=>(<MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>))}
-                    </Select>
-                </FormControl>
-             </Grid>
+              <FormControl fullWidth variant="outlined" size="small" sx={styles.filterFormControl}>
+                <InputLabel id="project-filter-label">Filter Project</InputLabel>
+                <Select
+                  labelId="project-filter-label"
+                  id="project-filter-select"
+                  value={filterProjectId}
+                  label="Filter Project"
+                  onChange={handleProjectFilterChange}
+                  // Disable if loading or depending actions are running
+                  disabled={isLoading || loadingProjectsList || !!convertingFileId || !!deletingProjectId}
+                  MenuProps={{ PaperProps: { sx: { color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.primary[500] }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: colors.blueAccent[700]+'!important', color:colors.grey[100] }}} }}
+                >
+                  <MenuItem value="all"><em>All Projects</em></MenuItem>
+                  {/* Optional: Only show unassigned if relevant filter selected? */}
+                  {/* <MenuItem value="unassigned" sx={{fontStyle:'italic'}}>Unassigned</MenuItem> */}
+
+                  {/* Render options from the DERIVED filtered list */}
+                  {loadingProjectsList
+                    ? <MenuItem disabled><CircularProgress size={20} sx={{mr: 1}}/> Loading...</MenuItem>
+                    // Use filteredProjectsForDropdown here
+                    : filteredProjectsForDropdown.map(p => (
+                        <MenuItem key={p.id} value={p.id}>
+                            {/* Show project name. Division name context might be redundant now */}
+                            {p.name}
+                            {/* Optionally show division name if 'All Divisions' is selected */}
+                            {filterDivisionId === 'all' && ` (${p.division_name || 'No Div'})`}
+                        </MenuItem>
+                      ))
+                  }
+                   {/* Show a message if a division is selected but has no projects */}
+                    {!loadingProjectsList && filterDivisionId !== 'all' && filteredProjectsForDropdown.length === 0 && (
+                        <MenuItem disabled sx={{ fontStyle: 'italic' }}>No projects in this division</MenuItem>
+                    )}
+                </Select>
+              </FormControl>
+            </Grid>
           </Grid>
         </Grid>
 
@@ -1181,7 +1332,12 @@ const FileManagement = ({ isCollapsed }) => {
         <Dialog open={openUploadModal} onClose={handleCloseUploadModal} disableEscapeKeyDown={isUploading} PaperProps={{ sx: styles.dialogPaper }}>
             <DialogTitle sx={styles.dialogTitle}>Upload New File</DialogTitle>
             <DialogContent sx={styles.dialogContent}>
-                <Button variant="outlined" onClick={triggerFileInput} disabled={isUploading} sx={{ mb: 2, borderColor: colors.grey[500], color: colors.grey[100], '&:hover': {borderColor: colors.blueAccent[300]} }}>Select File (.las/.laz)</Button>
+                <Button variant="outlined" onClick={triggerFileInput} disabled={isUploading} sx={{ mb: 1, borderColor: colors.grey[500], color: colors.grey[100], '&:hover': {borderColor: colors.blueAccent[300]} }}>Select File (.las/.laz)</Button>
+                <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} disabled={isUploading} accept=".las,.laz"/>
+                <Box sx={styles.fileDisplay}>
+                    {newFile ? (<><Typography>{newFile.name}</Typography><Typography variant="body2" sx={{ color: colors.grey[300], mt: 0.5 }}>{(newFile.size/1024/1024).toFixed(2)} MB</Typography></>) : <Typography sx={{ color: colors.grey[400] }}>No file selected</Typography>}
+                </Box>
+                {isUploading && uploadProgress !== null && ( <Box sx={styles.uploadProgressContainer}><LinearProgress variant="determinate" value={uploadProgress} /><Typography variant="caption" display="block" sx={{ textAlign: 'center', mt: 0.5 }}>{uploadProgress}%</Typography></Box> )}
                 <TextField
                   label="Plot Name"
                   value={plotName}
@@ -1192,83 +1348,40 @@ const FileManagement = ({ isCollapsed }) => {
                   sx={styles.dialogTextField}
                 />
                 {/* Select Existing Division */}
-                <FormControl fullWidth margin="dense" sx={styles.dialogSelectControl}>
-                  <InputLabel id="division-select-label">Division</InputLabel>
+                <FormControl fullWidth margin="dense" sx={styles.dialogSelectControl} disabled={isUploading}>
+                  <InputLabel id="project-select-label-upload">Assign to Project (Optional)</InputLabel>
                   <Select
-                    labelId="division-select-label"
-                    value={selectedDivisionId}
-                    onChange={(e) => setSelectedDivisionId(e.target.value)}
-                    label="Division"
-                  >
-                    {divisionsList.length > 0 ? (
-                      divisionsList.map((proj) => (
-                        <MenuItem key={proj.id} value={proj.id}>
-                          {proj.name}
-                        </MenuItem>
-                      ))
-                    ) : (
-                      <MenuItem value="" disabled>
-                        No division available. Please create one.
-                      </MenuItem>
-                    )}
-                  </Select>
-                </FormControl>
-
-                {/* Button to Create New Division */}
-                {canPerformAction('createProject') && ( // you can add new 'createDivision' permission if needed
-                  <Button
-                    variant="outlined"
-                    startIcon={<AddCircleOutlineIcon />}
-                    sx={{ mt: 1, borderColor: colors.greenAccent[500], color: colors.greenAccent[400], '&:hover': { borderColor: colors.greenAccent[300] }, textTransform: 'none' }}
-                    onClick={handleOpenCreateDivisionModal}
-                    fullWidth
-                  >
-                    New Division
-                  </Button>
-                )}
-
-                {/* Select Existing Project */}
-                <FormControl fullWidth margin="dense" sx={styles.dialogSelectControl}>
-                  <InputLabel id="project-select-label">Project</InputLabel>
-                  <Select
-                    labelId="project-select-label"
+                    labelId="project-select-label-upload"
                     value={selectedProjectId}
-                    onChange={(e) => setSelectedProjectId(e.target.value)}
-                    label="Project"
+                    onChange={(e) => {
+                        // Handle "Create New" case if kept here
+                        const value = e.target.value;
+                        if (value === CREATE_NEW_PROJECT_VALUE) {
+                            handleOpenCreateProjectModal(); // Open the project creation modal
+                            // Don't set selectedProjectId state yet
+                        } else {
+                            setSelectedProjectId(value); // Set state for existing project
+                        }
+                    }}
+                    label="Assign to Project (Optional)"
+                    MenuProps={{ PaperProps: { sx: { color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.primary[500], }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: colors.blueAccent[700]+'!important', color:colors.grey[100]}}},}}
                   >
-                    {projectsList.length > 0 ? (
-                      projectsList.map((proj) => (
+                    <MenuItem value=""><em>-- No Project Created --</em></MenuItem>
+                    {/* Provide loading state */}
+                     {loadingProjectsList ? <MenuItem disabled><CircularProgress size={20} sx={{mr: 1}}/> Loading...</MenuItem> : projectsList.map((proj) => (
                         <MenuItem key={proj.id} value={proj.id}>
-                          {proj.name}
+                          {proj.name} ({proj.division_name || 'No Div'}) {/* Show division for context */}
                         </MenuItem>
-                      ))
-                    ) : (
-                      <MenuItem value="" disabled>
-                        No projects available. Please create one.
+                      ))}
+                     {/* "Create New" Option - requires Admin */}
+                    {userRole === ROLES.ADMIN && (
+                      <MenuItem value={CREATE_NEW_PROJECT_VALUE} sx={{ fontStyle: 'italic', color: colors.greenAccent[400] }}>
+                          <ListItemIcon sx={{ minWidth: '32px', color: 'inherit' }}><AddCircleOutlineIcon fontSize="small" /></ListItemIcon>
+                          <ListItemText>New Project...</ListItemText>
                       </MenuItem>
                     )}
                   </Select>
-                </FormControl>
-
-                {/* Button to Create New Project */}
-                {canPerformAction('createProject') && (
-                  <Button
-                    variant="outlined"
-                    startIcon={<AddCircleOutlineIcon />}
-                    sx={{ mt: 1, borderColor: colors.greenAccent[500], color: colors.greenAccent[400], '&:hover': { borderColor: colors.greenAccent[300] }, textTransform: 'none' }}
-                    onClick={handleOpenCreateProjectModal}
-                    fullWidth
-                  >
-                    New Project
-                  </Button>
-                )}
-
-
-                <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} disabled={isUploading} accept=".las,.laz"/>
-                <Box sx={styles.fileDisplay}>
-                    {newFile ? (<><Typography>{newFile.name}</Typography><Typography variant="body2" sx={{ color: colors.grey[300], mt: 0.5 }}>{(newFile.size/1024/1024).toFixed(2)} MB</Typography></>) : <Typography sx={{ color: colors.grey[400] }}>No file selected</Typography>}
-                </Box>
-                {isUploading && uploadProgress !== null && ( <Box sx={styles.uploadProgressContainer}><LinearProgress variant="determinate" value={uploadProgress} /><Typography variant="caption" display="block" sx={{ textAlign: 'center', mt: 0.5 }}>{uploadProgress}%</Typography></Box> )}
+                </FormControl>                
             </DialogContent>
             <DialogActions sx={styles.dialogActions}><Button onClick={handleCloseUploadModal} color="secondary" disabled={isUploading}>Cancel</Button><Button onClick={handleFileUpload} color="primary" disabled={isUploading || !newFile} variant="contained">{isUploading ? <CircularProgress size={24} color="inherit"/> : "Upload"}</Button></DialogActions>
         </Dialog>
@@ -1283,8 +1396,57 @@ const FileManagement = ({ isCollapsed }) => {
         {/* Create Project Dialog */}
         <Dialog open={createProjectModalOpen} onClose={handleCloseCreateProjectModal} disableEscapeKeyDown={isCreatingProject} PaperProps={{ sx: styles.dialogPaper }}>
             <DialogTitle sx={styles.dialogTitle}>Create New Project</DialogTitle>
-            <DialogContent sx={styles.dialogContent}><TextField autoFocus margin="dense" id="new-project-name" label="Project Name" type="text" fullWidth variant="outlined" value={newProjectName} onChange={(e) => setNewProjectName(e.target.value.trimStart())} disabled={isCreatingProject} required sx={styles.dialogTextField}/></DialogContent>
-            <DialogActions sx={styles.dialogActions}><Button onClick={handleCloseCreateProjectModal} color="secondary" disabled={isCreatingProject}>Cancel</Button><Button onClick={handleCreateProject} color="primary" disabled={isCreatingProject || !newProjectName.trim()} variant="contained">{isCreatingProject ? <CircularProgress size={24} color="inherit"/> : "Create"}</Button></DialogActions>
+            <DialogContent sx={styles.dialogContent}>
+                {/* *** ADDED: Division Selector *** */}
+                 <FormControl fullWidth required variant="outlined" margin="dense" size="small" sx={styles.dialogSelectControl} disabled={isCreatingProject || loadingDivisionsList}>
+                    <InputLabel id="create-project-division-label">Division</InputLabel>
+                    <Select
+                        labelId="create-project-division-label"
+                        id="create-project-division-select"
+                        value={selectedDivisionIdForCreation}
+                        label="Division *" // Indicate required
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value === CREATE_NEW_DIVISION_VALUE) {
+                              // Open the create division modal
+                              handleOpenCreateDivisionModal();
+                              // Don't update the selection state for the project modal yet
+                          } else {
+                              // Regular selection
+                              setSelectedDivisionIdForCreation(value);
+                          }
+                      }}
+                      MenuProps={{ PaperProps: { sx: { color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.primary[500], }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: colors.blueAccent[700]+'!important', color:colors.grey[100]}}},}}
+                  >
+                         <MenuItem value="" disabled><em>Select Division...</em></MenuItem>
+                         {loadingDivisionsList ? <MenuItem disabled><CircularProgress size={20} sx={{mr: 1}}/> Loading...</MenuItem> : divisionsList.map((div) => ( <MenuItem key={div.id} value={div.id}>{div.name}</MenuItem> ))}
+                         {userRole === ROLES.ADMIN && ( // Check if user can create divisions
+                            <MenuItem value={CREATE_NEW_DIVISION_VALUE} sx={{ fontStyle: 'italic', color: colors.greenAccent[400] }}>
+                                <ListItemIcon sx={{ minWidth: '32px', color: 'inherit' }}>
+                                   <AddCircleOutlineIcon fontSize="small" />
+                                </ListItemIcon>
+                               <ListItemText>New Division...</ListItemText>
+                            </MenuItem>
+                         )}
+                         {/* --- End "Create New" Option --- */}
+                    </Select>
+                </FormControl>
+
+                {/* Project Name Input */}
+                <TextField autoFocus margin="dense" id="new-project-name" label="Project Name" type="text" fullWidth required variant="outlined" value={newProjectName} onChange={(e) => setNewProjectName(e.target.value.trimStart())} disabled={isCreatingProject} sx={styles.dialogTextField}/>
+            </DialogContent>
+            <DialogActions sx={styles.dialogActions}>
+                <Button onClick={handleCloseCreateProjectModal} color="secondary" disabled={isCreatingProject}>Cancel</Button>
+                <Button
+                    onClick={handleCreateProject}
+                    color="primary"
+                    // Disable if creating, name empty, OR division not selected
+                    disabled={isCreatingProject || !newProjectName.trim() || !selectedDivisionIdForCreation}
+                    variant="contained"
+                >
+                    {isCreatingProject ? <CircularProgress size={24} color="inherit"/> : "Create"}
+                </Button>
+            </DialogActions>
         </Dialog>
 
         {/* Assign Project Dialog */}
@@ -1478,13 +1640,15 @@ const FileManagement = ({ isCollapsed }) => {
                        </List>
                    )}
                    {/* Button to Create New Division */}
-                  {canPerformAction('createProject') && ( // you can add new 'createDivision' permission if needed
+                   {userRole === ROLES.ADMIN && ( // Corrected check
                     <Button
                       variant="outlined"
                       startIcon={<AddCircleOutlineIcon />}
                       sx={{ mt: 1, borderColor: colors.greenAccent[500], color: colors.greenAccent[400], '&:hover': { borderColor: colors.greenAccent[300] }, textTransform: 'none' }}
                       onClick={handleOpenCreateDivisionModal}
                       fullWidth
+                      // Optional: disable if another action is running
+                      disabled={!!deletingDivisionId || !!deletingProjectId}
                     >
                       New Division
                     </Button>
@@ -1621,10 +1785,8 @@ const FileManagement = ({ isCollapsed }) => {
                                             transformOrigin={{vertical:'top',horizontal:'right'}}
                                             PaperProps={{sx:{backgroundColor:colors.primary[800],color:colors.grey[100],mt:0.5}}}
                                         >
-                                            {cA && (<MenuItem onClick={()=>handleOpenAssignProjectModal(selectedFile)} disabled={isAssigningProject||!!convertingFileId || !!deletingProjectId}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><AssignmentIcon fontSize="small"/></ListItemIcon><ListItemText>Assign File Project</ListItemText></MenuItem>)}
                                             {cD && (<MenuItem onClick={()=>handleDownload(selectedFile)} disabled={!!convertingFileId || !!deletingProjectId}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><DownloadIcon fontSize="small"/></ListItemIcon><ListItemText>Download</ListItemText></MenuItem>)}
-                                            {cV && isReady && (<MenuItem onClick={()=>handleViewPotree(selectedFile)} disabled={!isReady||!!convertingFileId || !!deletingProjectId}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><VisibilityIcon fontSize="small"/></ListItemIcon><ListItemText>View Potree</ListItemText></MenuItem>)}
-                                            {cC && !isReady && (<MenuItem onClick={()=>handleConvertPotree(selectedFile)} disabled={isReady||isConverting||!!convertingFileId || !!deletingProjectId}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><TransformIcon fontSize="small"/></ListItemIcon><ListItemText>{isConverting?'Converting...':'Convert Potree'}</ListItemText></MenuItem>)}
+                                            {cV && isReady && (<MenuItem onClick={()=>handleViewPotree(selectedFile)} disabled={!isReady||!!convertingFileId || !!deletingProjectId}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><VisibilityIcon fontSize="small"/></ListItemIcon><ListItemText>View Point Cloud</ListItemText></MenuItem>)}
                                             {cDel && (<MenuItem onClick={()=>handleRemove(selectedFile)} disabled={!!convertingFileId || !!deletingProjectId} sx={{ color: colors.redAccent[400], '.MuiListItemIcon-root': { color: colors.redAccent[400] } }} ><ListItemIcon sx={styles.menuItemIcon}><DeleteIcon fontSize="small"/></ListItemIcon><ListItemText>Remove</ListItemText></MenuItem>)}
                                             {!hasVisibleActions && (<MenuItem disabled sx={styles.menuItemDisabledText}><ListItemText>No actions permitted</ListItemText></MenuItem>)}
                                         </Menu>

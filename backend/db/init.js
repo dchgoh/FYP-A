@@ -68,7 +68,7 @@ const createUsersTable = async () => {
           email VARCHAR(255) UNIQUE NOT NULL,
           password TEXT NOT NULL,
           age INT,
-          role VARCHAR(50) CHECK (role IN ('Administrator', 'Data Manager', 'Regular')),
+          role VARCHAR(50) CHECK (role IN ('${ROLES.ADMIN}', '${ROLES.DATA_MANAGER}', '${ROLES.REGULAR}')),
           failed_attempts INT DEFAULT 0,
           is_locked BOOLEAN DEFAULT FALSE,
           mfa_code TEXT,
@@ -100,9 +100,9 @@ const createUsersTable = async () => {
 
 // Function: Create the projects table
 const createDivisionsTable = async () => {
-  let pool = null;
+let pool = null;
  try {
-   pool = new Pool({ ...dbConfig, database: "uasuserdata" });
+  pool = new Pool({ ...dbConfig, database: "uasuserdata" });
    await pool.query(`
      CREATE TABLE IF NOT EXISTS divisions (
        id SERIAL PRIMARY KEY,
@@ -113,36 +113,48 @@ const createDivisionsTable = async () => {
    `);
    console.log("Divisions table checked/created.");
  } catch (error) {
-   console.error("Error creating projects table:", error);
- } finally {
-   if (pool) await pool.end();
+   console.error("Error creating divisions table:", error);
+   throw error; // Propagate error
  }
 };
 
 // Function: Create the projects table
 const createProjectsTable = async () => {
-   let pool = null;
+  let pool = null;
   try {
     pool = new Pool({ ...dbConfig, database: "uasuserdata" });
     await pool.query(`
       CREATE TABLE IF NOT EXISTS projects (
         id SERIAL PRIMARY KEY,
-        name VARCHAR(255) UNIQUE NOT NULL,
+        division_id INTEGER NOT NULL,                
+        name VARCHAR(255) NOT NULL,                  
         description TEXT,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_division_project_name UNIQUE (division_id, name), 
+        CONSTRAINT fk_division                          
+          FOREIGN KEY(division_id)
+          REFERENCES divisions(id)
+          ON DELETE CASCADE                            
+          ON UPDATE CASCADE
       );
     `);
     console.log("Projects table checked/created.");
+
+    // Add index for faster lookups by division_id
+     await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_projects_division_id ON projects(division_id);
+    `);
+    console.log("Index on projects(division_id) checked/created.");
+
   } catch (error) {
     console.error("Error creating projects table:", error);
-  } finally {
-    if (pool) await pool.end();
+    throw error; // Propagate error
   }
 };
 
 // Function: Create/update the files table
 const createFilesTable = async () => {
-   let pool = null;
+  let pool = null;
   try {
     pool = new Pool({ ...dbConfig, database: "uasuserdata" });
     await pool.query(`
@@ -155,25 +167,20 @@ const createFilesTable = async () => {
           size_bytes BIGINT,
           upload_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
           potree_metadata_path TEXT,
-          division_id INTEGER,
-          project_id INTEGER, -- Foreign key column
+          project_id INTEGER NOT NULL, 
           plot_name VARCHAR(255) NOT NULL,
-          latitude DOUBLE PRECISION,  
+          latitude DOUBLE PRECISION,
           longitude DOUBLE PRECISION,
-          CONSTRAINT fk_division
-            FOREIGN KEY(division_id)
-            REFERENCES divisions(id)
-            ON DELETE SET NULL
-            ON UPDATE CASCADE,
-          CONSTRAINT fk_project
+          CONSTRAINT fk_project                       
             FOREIGN KEY(project_id)
             REFERENCES projects(id)
-            ON DELETE SET NULL -- If project is deleted, set file's project_id to NULL
+            ON DELETE CASCADE                   
             ON UPDATE CASCADE
       );
     `);
     console.log("Uploaded_files table checked/updated.");
 
+    // Index remains useful
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_uploaded_files_project_id ON uploaded_files(project_id);
     `);
@@ -181,11 +188,9 @@ const createFilesTable = async () => {
 
   } catch (error) {
     console.error("Error creating/updating uploaded_files table:", error);
-  } finally {
-    if (pool) await pool.end();
+    throw error; // Propagate error
   }
 };
-
 
 // Function: Create the project_data_managers table
 const createProjectDataManagersTable = async () => {
@@ -197,15 +202,15 @@ const createProjectDataManagersTable = async () => {
             user_id INTEGER NOT NULL,
             project_id INTEGER NOT NULL,
             assigned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (user_id, project_id), -- Ensures uniqueness
+            PRIMARY KEY (user_id, project_id),
             CONSTRAINT fk_user
                 FOREIGN KEY(user_id)
                 REFERENCES users(id)
-                ON DELETE CASCADE, -- If user is deleted, remove assignments
+                ON DELETE CASCADE,
             CONSTRAINT fk_project_assignment
                 FOREIGN KEY(project_id)
                 REFERENCES projects(id)
-                ON DELETE CASCADE -- If project is deleted, remove assignments
+                ON DELETE CASCADE 
         );
     `);
     console.log("Project_data_managers table checked/created.");
