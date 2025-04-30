@@ -520,3 +520,153 @@ exports.assignProjectToFile = async (req, res) => {
         res.status(500).json({ message: "Server error assigning project to file." });
     }
 };
+
+exports.reassignFileDetails = async (req, res) => {
+    const fileId = parseInt(req.params.id);
+    const { projectId, plotName } = req.body; // Expecting new project ID and plot name
+    const requestingUserId = req.user.userId;
+    const requestingUserRole = req.user.role;
+
+    // --- Input Validation ---
+    if (isNaN(fileId)) {
+        return res.status(400).json({ success: false, message: "Invalid file ID." });
+    }
+    // Allow projectId to be null (for unassigning), otherwise validate as integer
+    let cleanProjectId = null;
+    if (projectId !== null && projectId !== undefined && projectId !== '') {
+        cleanProjectId = parseInt(projectId);
+        if (isNaN(cleanProjectId)) {
+            return res.status(400).json({ success: false, message: "Invalid project ID format. Must be an integer or null." });
+        }
+    }
+    // Validate plotName (e.g., require it to be a non-empty string)
+    if (!plotName || typeof plotName !== 'string' || plotName.trim() === '') {
+         return res.status(400).json({ success: false, message: "Plot name is required and cannot be empty." });
+    }
+    const cleanPlotName = plotName.trim();
+
+    let poolClient;
+    try {
+        poolClient = await pool.connect();
+        await poolClient.query('BEGIN'); // Start transaction
+
+        // --- Fetch Current File Info (and lock row) ---
+        const fileCheckResult = await poolClient.query(
+            "SELECT project_id FROM uploaded_files WHERE id = $1 FOR UPDATE",
+            [fileId]
+        );
+        if (fileCheckResult.rowCount === 0) {
+            await poolClient.query('ROLLBACK');
+            return res.status(404).json({ success: false, message: "File not found." });
+        }
+        const currentProjectId = fileCheckResult.rows[0].project_id;
+
+        // --- Permission Checks ---
+        let canProceed = false;
+        if (requestingUserRole === ROLES.ADMIN) {
+            canProceed = true; // Admins can reassign any file
+        } else if (requestingUserRole === ROLES.DATA_MANAGER) {
+            // Data Manager Checks:
+            // 1. Can they modify the *current* file? (Must manage current project OR it's unassigned)
+            let canAccessCurrent = false;
+            if (currentProjectId === null) {
+                canAccessCurrent = true; // Can reassign currently unassigned files
+            } else {
+                const currentAssignmentCheck = await poolClient.query(
+                    "SELECT 1 FROM project_data_managers WHERE user_id = $1 AND project_id = $2",
+                    [requestingUserId, currentProjectId]
+                );
+                canAccessCurrent = currentAssignmentCheck.rowCount > 0;
+            }
+
+            // 2. Can they assign TO the *target* project? (Must manage target project OR target is null)
+            let canAssignToTarget = false;
+            if (cleanProjectId === null) {
+                canAssignToTarget = true; // Can always unassign (to null)
+            } else {
+                const targetAssignmentCheck = await poolClient.query(
+                    "SELECT 1 FROM project_data_managers WHERE user_id = $1 AND project_id = $2",
+                    [requestingUserId, cleanProjectId]
+                );
+                canAssignToTarget = targetAssignmentCheck.rowCount > 0;
+            }
+
+            if (canAccessCurrent && canAssignToTarget) {
+                canProceed = true;
+            }
+        }
+
+        if (!canProceed) {
+            await poolClient.query('ROLLBACK');
+            return res.status(403).json({ success: false, message: "Forbidden: You do not have permission to perform this reassignment." });
+        }
+
+        // --- Check if Target Project Exists (if not null) ---
+        if (cleanProjectId !== null) {
+            const projectExistsCheck = await poolClient.query("SELECT 1 FROM projects WHERE id = $1", [cleanProjectId]);
+            if (projectExistsCheck.rowCount === 0) {
+                await poolClient.query('ROLLBACK');
+                return res.status(404).json({ success: false, message: "Target project not found." });
+            }
+        }
+
+        // --- Perform Update ---
+        const updateResult = await poolClient.query(
+            `UPDATE uploaded_files
+             SET project_id = $1, plot_name = $2
+             WHERE id = $3`,
+            [cleanProjectId, cleanPlotName, fileId]
+        );
+
+        if (updateResult.rowCount === 0) {
+             // Should not happen due to previous checks, but safety first
+             await poolClient.query('ROLLBACK');
+             console.warn(`File reassignment update failed for ID ${fileId} after checks.`);
+             return res.status(404).json({ message: "File not found during update operation (concurrency?)." });
+        }
+
+        await poolClient.query('COMMIT'); // Commit transaction
+
+        // --- Fetch Full Updated Record to Return ---
+        // (Same query as in getFiles or assignProjectToFile for consistency)
+         const updatedFileResult = await poolClient.query( // Use the same client
+            `SELECT
+                f.id, f.original_name, f.size_bytes, f.upload_date, f.stored_path,
+                f.potree_metadata_path, f.project_id, f.plot_name, f.latitude, f.longitude,
+                p.name AS project_name,
+                p.division_id,
+                d.name AS division_name
+            FROM uploaded_files f
+            LEFT JOIN projects p ON f.project_id = p.id
+            LEFT JOIN divisions d ON p.division_id = d.id
+            WHERE f.id = $1`,
+            [fileId]
+        );
+
+        if (updatedFileResult.rows.length === 0) {
+             // This is unlikely if commit succeeded, but handle it
+             console.error(`Failed to fetch updated file details for ID ${fileId} after successful reassignment.`);
+             return res.status(200).json({ success: true, message: "File reassignment updated, but failed to retrieve updated details.", file: null });
+        }
+
+        // Format and send response
+        const updatedFile = formatFileRecord(updatedFileResult.rows[0]); // Use your helper
+        res.json({ success: true, message: "File details updated successfully.", file: updatedFile });
+
+
+    } catch (error) {
+        console.error(`Error reassigning file details for ID ${fileId}:`, error);
+         if (poolClient) { // Attempt rollback on error
+             try { await poolClient.query('ROLLBACK'); } catch (rbErr) { console.error("Rollback error:", rbErr); }
+         }
+        // Check for specific errors like foreign key violations if needed
+        if (error.code === '23503' && error.constraint === 'fk_project') { // Check if constraint name is correct
+            return res.status(404).json({ success: false, message: "Update failed: Target project does not exist." });
+        }
+        res.status(500).json({ success: false, message: "Server error updating file details." });
+    } finally {
+        if (poolClient) {
+            poolClient.release(); // Always release client
+        }
+    }
+};

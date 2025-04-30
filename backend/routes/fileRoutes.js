@@ -33,4 +33,12 @@ router.get('/potreeconverter/:id', (req, res, next) => {
 // Assign Project (PATCH): Admin/DM (DM check is *inside* the controller now for target project)
 router.patch('/:id', checkRole([ROLES.ADMIN, ROLES.DATA_MANAGER]), fileController.assignProjectToFile);
 
+router.patch(
+    '/:id/reassign', // Using :id for the fileId
+    protect, // Must be logged in
+    // Permission check will be mostly inside the controller for this complex case
+    // checkRole([ROLES.ADMIN, ROLES.DATA_MANAGER]), // Basic role check
+    fileController.reassignFileDetails // <-- Use the new controller
+);
+
 module.exports = router;
