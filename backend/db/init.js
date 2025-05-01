@@ -167,14 +167,18 @@ const createFilesTable = async () => {
           size_bytes BIGINT,
           upload_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
           potree_metadata_path TEXT,
-          project_id INTEGER NOT NULL, 
-          plot_name VARCHAR(255) NOT NULL,
+          project_id INTEGER, -- Allow NULL for unassigned files
+          plot_name VARCHAR(255), -- Allow NULL if plot name is optional during upload
           latitude DOUBLE PRECISION,
           longitude DOUBLE PRECISION,
-          CONSTRAINT fk_project                       
+          -- *** ADDED COLUMNS ***
+          status VARCHAR(50) DEFAULT 'uploaded', -- Add the status column with a default value
+          processing_error TEXT, -- Add a column to store processing errors
+          -- *********************
+          CONSTRAINT fk_project
             FOREIGN KEY(project_id)
             REFERENCES projects(id)
-            ON DELETE CASCADE                   
+            ON DELETE SET NULL -- Changed from CASCADE to SET NULL so files aren't deleted when project is deleted
             ON UPDATE CASCADE
       );
     `);
@@ -186,9 +190,17 @@ const createFilesTable = async () => {
     `);
     console.log("Index on uploaded_files(project_id) checked/created.");
 
+    // *** Optional: Add an index on the status column if you filter by status often ***
+    // await pool.query(`
+    //   CREATE INDEX IF NOT EXISTS idx_uploaded_files_status ON uploaded_files(status);
+    // `);
+    // console.log("Index on uploaded_files(status) checked/created.");
+
   } catch (error) {
     console.error("Error creating/updating uploaded_files table:", error);
     throw error; // Propagate error
+  } finally {
+     if(pool) await pool.end(); // Added pool.end() in finally
   }
 };
 

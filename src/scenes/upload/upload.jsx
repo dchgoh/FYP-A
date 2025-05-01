@@ -95,7 +95,7 @@ const FileManagement = ({ isCollapsed }) => {
   const [selectedProjectIdForReassign, setSelectedProjectIdForReassign] = useState('');
   const [newPlotNameForReassign, setNewPlotNameForReassign] = useState('');
   const [isReassigning, setIsReassigning] = useState(false);
-
+  const [filesBeingProcessed, setFilesBeingProcessed] = useState(new Set());
 
   // --- UTILITY FUNCTIONS ---
   const showSnackbar = useCallback((message, severity = "success") => {
@@ -183,9 +183,12 @@ const FileManagement = ({ isCollapsed }) => {
       }
   }, [showSnackbar ]);
 
+    // Add filesBeingProcessed state if you haven't already:
+  // const [filesBeingProcessed, setFilesBeingProcessed] = useState(new Set());
+
   const fetchFiles = useCallback(async (
-    projectIdToFilter = filterProjectId,  // Gets current project filter state by default
-    divisionIdToFilter = filterDivisionId // <-- ADDED: Gets current division filter state by default
+    projectIdToFilter = filterProjectId,
+    divisionIdToFilter = filterDivisionId
   ) => {
       // Check permissions and authentication token first
       if (isLoadingPermissions || !userRole) {
@@ -202,46 +205,69 @@ const FileManagement = ({ isCollapsed }) => {
       }
 
       try {
-          // --- MODIFIED: Prepare parameters for the API request ---
-          const params = {}; // Create an empty object to hold query parameters
-
-          // Add projectId to params ONLY if it's selected (not 'all')
+          // Prepare parameters for the API request
+          const params = {};
           if (projectIdToFilter && projectIdToFilter !== 'all') {
               params.projectId = projectIdToFilter;
           }
-
-          // Add divisionId to params ONLY if it's selected (not 'all')
           if (divisionIdToFilter && divisionIdToFilter !== 'all') {
-              params.divisionId = divisionIdToFilter; // <-- ADDED: Include divisionId parameter
+              params.divisionId = divisionIdToFilter;
           }
-          // --- End Parameter Modification ---
 
-          // Make the API call to fetch files, passing the params object
+          // Make the API call to fetch files
           const res = await axios.get(`${API_BASE_URL}/files`, {
               headers: { 'Authorization': `Bearer ${token}` },
-              params: params // <-- MODIFIED: Send the potentially populated params object
+              params: params
           });
 
           // Process the response data
-          const filesData = Array.isArray(res.data) ? res.data : []; // Ensure data is an array
+          const filesData = Array.isArray(res.data) ? res.data : [];
 
-          // Format the file data for display in the table
+          // Format the file data for display
           const formatted = filesData.map(f => ({
-              ...f, // Spread existing file properties
-              // Calculate size in MB or show 'N/A'
+              ...f, // Spread existing file properties from backend
+              // Frontend calculated/formatted fields:
               size: f.size_bytes ? (f.size_bytes / 1024 / 1024).toFixed(2) + ' MB' : 'N/A',
-              // Format upload date or show 'N/A'
               uploadDate: f.upload_date ? new Date(f.upload_date).toLocaleDateString() : 'N/A',
-              // Include potreeUrl if available
+              // potreeUrl comes directly from backend (null or path string)
               potreeUrl: f.potreeUrl || null,
-              // Include projectName, default to "Unassigned"
               projectName: f.projectName || "Unassigned",
-              // <-- ADDED: Include divisionName, default to "N/A" (Ensure backend provides this!)
               divisionName: f.divisionName || "N/A"
           }));
 
-          // Update the component's state with the formatted files
+          // Update the main file list state
           setFiles(formatted);
+
+          // *** ADDED: Cleanup Optimistic State ***
+          // Remove IDs from filesBeingProcessed if the fetched data now shows a potreeUrl
+          // (meaning conversion completed) or if the file is no longer in the list.
+          setFilesBeingProcessed(currentProcessing => {
+              // Create a mutable copy of the current processing set
+              const stillProcessing = new Set(currentProcessing);
+              // Create a set of IDs from the files just fetched for efficient lookup
+              const fetchedFileIds = new Set(formatted.map(f => f.id));
+
+              // Iterate through the IDs that were previously marked as processing
+              currentProcessing.forEach(id => {
+                  // Find the file details in the newly fetched data corresponding to the processing ID
+                  const fileInData = formatted.find(f => f.id === id);
+
+                  // Check if the file should no longer be considered processing:
+                  // 1. The file ID is no longer present in the fetched data (deleted, filtered out)
+                  // OR
+                  // 2. The file exists in the fetched data AND it now has a potreeUrl (conversion is done)
+                  if (!fetchedFileIds.has(id) || (fileInData && fileInData.potreeUrl)) {
+                       // If the ID is still in our 'stillProcessing' set, remove it
+                       if (stillProcessing.has(id)) {
+                          console.log(`Optimistic state cleanup: Removing File ${id} from processing set.`);
+                          stillProcessing.delete(id);
+                       }
+                  }
+              });
+              // Return the cleaned-up set to update the state
+              return stillProcessing;
+          });
+          // *** END OF ADDED BLOCK ***
 
       } catch (e) {
           // Handle errors during the fetch operation
@@ -257,13 +283,14 @@ const FileManagement = ({ isCollapsed }) => {
       }
   }, [
       // Dependencies for useCallback: Re-create function if these change
-      filterProjectId,    // State variable for project filter
-      filterDivisionId,   // <-- ADDED: State variable for division filter
-      isLoadingPermissions, // State variable for permission loading status
-      userRole,           // State variable for user's role
-      showSnackbar        // Include if showSnackbar is defined outside useCallback and might change (usually stable)
-      // Note: API_BASE_URL is a constant, doesn't need to be listed
-  ]); // <-- Dependency array updated
+      filterProjectId,
+      filterDivisionId,
+      isLoadingPermissions,
+      userRole,
+      showSnackbar // Assuming showSnackbar is stable (defined with useCallback)
+      // filesBeingProcessed is intentionally NOT listed here to avoid infinite loops
+      // setFilesBeingProcessed is also stable and doesn't need to be listed
+  ]);
 
   const fetchAllDataManagersForModal = useCallback(async (token) => {
       if (!token) return;
@@ -401,30 +428,47 @@ const FileManagement = ({ isCollapsed }) => {
   const handleConvertPotree = async (fileToConvert) => {
     if (!canPerformAction('convert', fileToConvert)) { showSnackbar("Permission denied.", "error"); handleMenuClose(); return; }
     const fileId = fileToConvert?.id;
-    if (fileToConvert?.potreeUrl && fileToConvert.potreeUrl !== 'pending_refresh') { showSnackbar("Already converted.", "info"); handleMenuClose(); return; }
-    if (!fileId || convertingFileId) { if (convertingFileId) showSnackbar("Conversion in progress.", "warning"); handleMenuClose(); return; }
+
+    // *** ADDED: Prevent triggering if already optimistically processing ***
+    if (fileToConvert?.potreeUrl || filesBeingProcessed.has(fileId)) {
+        showSnackbar(filesBeingProcessed.has(fileId) ? "Conversion already in progress." : "Already converted.", "info");
+        handleMenuClose();
+        return;
+    }
+    // ----------------------------------------------------------------------
+    if (!fileId) { handleMenuClose(); return; }
+
     handleMenuClose();
     const token = localStorage.getItem('authToken');
     if (!token) { showSnackbar("Auth required.", "error"); return; }
-    setConvertingFileId(fileId);
-    showSnackbar(`Starting conversion: "${fileToConvert.name}"...`, "info");
+
+    // *** Optimistic Update ***
+    setFilesBeingProcessed(prev => new Set(prev).add(fileId));
+    showSnackbar(`Starting conversion: "${fileToConvert.name}"... (UI may block)`, "info"); // Warn about blocking
+
     try {
-        const res = await axios.get(`${API_BASE_URL}/files/potreeconverter/${fileId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+        // *** Call the backend (this will block until backend finishes) ***
+        const res = await axios.get(`${API_BASE_URL}/files/potreeconverter/${fileId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
         if (res.data.success) {
-            showSnackbar(`"${fileToConvert.name}" converted!`, "success");
-            // Optimistic update first
-            setFiles(cf => cf.map(f => f.id === fileId ? { ...f, potreeUrl: res.data.potreeUrl || 'pending_refresh' } : f));
-            // Fetch updated list after a short delay to ensure server processed
-            await new Promise(r => setTimeout(r, 500));
+            showSnackbar(`"${fileToConvert.name}" converted! Refreshing...`, "success");
+            // *** Fetch updated list to get the potreeUrl & clear optimistic state ***
             fetchFiles();
-        } else { showSnackbar(res.data.message || `Conversion failed: ${fileToConvert.name}.`, "error"); }
+        } else {
+            showSnackbar(res.data.message || `Conversion failed: ${fileToConvert.name}.`, "error");
+             // *** Remove from optimistic state on failure ***
+             setFilesBeingProcessed(prev => { const next = new Set(prev); next.delete(fileId); return next; });
+        }
     } catch (e) {
         console.error("Conversion error:", e);
         showSnackbar(e.response?.data?.message || `Server error during conversion.`, "error");
-    } finally {
-        setConvertingFileId(null);
+         // *** Remove from optimistic state on error ***
+         setFilesBeingProcessed(prev => { const next = new Set(prev); next.delete(fileId); return next; });
     }
-  };
+    // Note: No 'finally' block needed to clear state here, as fetchFiles() or error handling does it.
+};
 
   const handleViewPotree = (fileToView) => {
     if (!canPerformAction('view', fileToView)) { showSnackbar("Permission denied.", "error"); handleMenuClose(); return; }
@@ -465,81 +509,134 @@ const FileManagement = ({ isCollapsed }) => {
   };
 
   const handleFileUpload = async () => {
-    if (!canPerformAction('upload')) { showSnackbar("Permission denied.", "error"); return; }
-    if (!newFile) { showSnackbar("Please select a file.", "warning"); return; }
+    console.log('--- handleFileUpload START ---');
+    // 1. Basic checks
+    if (!canPerformAction('upload')) {
+      showSnackbar("Permission denied.", "error");
+      return;
+    }
+    if (!newFile) {
+      showSnackbar("Please select a file.", "warning");
+      return;
+    }
     const token = localStorage.getItem('authToken');
-    if (!token) { showSnackbar("Auth required.", "error"); return; }
+    if (!token) {
+      showSnackbar("Authentication required.", "error");
+      return;
+    }
 
-    // Optional: Add validation for plotName/selectedProjectId if they become mandatory
-    // if (!plotName.trim()) { /* ... show snackbar ... */ return; }
-    // if (!selectedProjectId) { /* ... show snackbar ... */ return; }
-
+    // 2. Prepare FormData
     const fd = new FormData();
     fd.append('file', newFile);
-    if (plotName.trim()) fd.append('plot_name', plotName.trim());
-    fd.append('project_id', selectedProjectId); // Can be empty if not selected
+    if (plotName.trim()) {
+        fd.append('plot_name', plotName.trim());
+    }
+    // Ensure selectedProjectId is handled correctly (can be empty string or number)
+    // Backend expects null or integer. Send '' if not selected, backend will handle.
+    fd.append('project_id', selectedProjectId || ''); // Send empty string if not selected
 
+    console.log('FormData prepared. Keys:', [...fd.keys()]);
+    console.log('Project ID being sent (via FormData):', selectedProjectId || 'Not selected');
+
+    // 3. Start upload state
     setIsUploading(true);
     setUploadProgress(0);
+    let uploadedFileId = null; // Use a clearer name
 
     try {
         // --- Step 1: Upload the file ---
+        console.log(`>>> Making axios.post to: ${API_BASE_URL}/files/upload`);
         const uploadRes = await axios.post(`${API_BASE_URL}/files/upload`, fd, {
-            headers: {
-                'Content-Type': 'multipart/form-data',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: { 'Content-Type': 'multipart/form-data', 'Authorization': `Bearer ${token}` },
             onUploadProgress: (pe) => {
                 setUploadProgress(pe.total ? Math.round((pe.loaded * 100) / pe.total) : 0);
             }
         });
+        console.log('<<< axios.post FINISHED. Status:', uploadRes.status);
 
+        // 4. Handle successful upload response
         if (uploadRes.data.success && uploadRes.data.file && uploadRes.data.file.id) {
             const uploadedFile = uploadRes.data.file;
-            const newFileId = uploadedFile.id;
-            // Use originalname from the response if available, fallback to the state `newFile`
-            const originalFileNameForCheck = uploadedFile.original_name || newFile.name;
+            uploadedFileId = uploadedFile.id; // Store the ID from the backend response
+            const originalFileName = uploadedFile.name || newFile.name; // Use response name if available
 
-            showSnackbar("File upload complete. Triggering conversion...", "success");
+            showSnackbar("File upload complete.", "success"); // Shortened message
             handleCloseUploadModal();
-            fetchFiles(); // Refresh list immediately
+
+            // Fetch files to get the new file in the list with its initial status (e.g., 'uploaded')
+            // This is important for the table to show the new file.
+            await fetchFiles();
 
             // --- Step 2: Automatically trigger conversion (if applicable) ---
-            const lcFileName = originalFileNameForCheck.toLowerCase();
-            const isConvertible = lcFileName.endsWith('.las') || lcFileName.endsWith('.laz'); // Simple check
+            const lcFileName = originalFileName.toLowerCase();
+            const isConvertible = lcFileName.endsWith('.las') || lcFileName.endsWith('.laz');
 
-             if (isConvertible) {
-                 console.log(`Attempting to auto-trigger conversion for File ID: ${newFileId}`);
-                 // Make the GET request to the backend conversion endpoint
-                 axios.get(`${API_BASE_URL}/files/potreeconverter/${newFileId}`, {
+            if (isConvertible && uploadedFileId) {
+                console.log(`Attempting to auto-trigger conversion for File ID: ${uploadedFileId}`);
+
+                // *** Optimistic Update: Show "Converting..." immediately ***
+                // Add the file ID to the set of files being processed.
+                setFilesBeingProcessed(prev => new Set(prev).add(uploadedFileId));
+                // Show a snackbar indicating conversion started.
+                // Note: The UI will *not* block here because the backend request is async.
+                showSnackbar(`Conversion requested for "${originalFileName}". Processing in background...`, "info");
+
+                // *** Trigger conversion ASYNCHRONOUSLY ***
+                // We do NOT 'await' this call. We fire it off and handle its immediate response/error.
+                axios.get(`${API_BASE_URL}/files/potreeconverter/${uploadedFileId}`, {
                      headers: { 'Authorization': `Bearer ${token}` }
-                 }).then(convRes => {
-                     console.log(`Conversion endpoint called for ${newFileId}, response status: ${convRes.status}`);
-                     // Optional: showSnackbar(`Conversion process started for ${originalFileNameForCheck}.`, "info");
-                 }).catch(convErr => {
-                     console.error(`Error triggering conversion for ${newFileId}:`, convErr.response?.data || convErr.message);
-                     showSnackbar(`Failed to start conversion for ${originalFileNameForCheck}.`, "error");
-                 });
-             } else {
-                  console.log(`Skipping auto-conversion for ${originalFileNameForCheck}`);
-             }
-             // --- *** REMOVED call to handleConvertPotree *** ---
+                 })
+                 .then(response => {
+                     // This block runs when the backend *responds* to the trigger request.
+                     // With the async backend, this response (status 202) is quick.
+                     console.log(`Auto-conversion trigger successful for File ID: ${uploadedFileId}. Backend returned ${response.status}.`);
+                     // At this point, the backend has updated the DB status to 'processing' and started the external tool.
+                     // The frontend relies on periodic fetchFiles calls to get the final status ('ready' or 'failed').
+                     // No need to call fetchFiles() *here*. The UI should already show "Converting..."
+                     // due to the optimistic update above, and the next periodic fetch will update it.
+                 })
+                 .catch(convErr => {
+                     // This block runs if the *initial conversion trigger request itself* fails.
+                     // e.g., backend returns 400, 404, or 500 due to setup/pre-check errors.
+                     console.error(`Error triggering conversion for File ID ${uploadedFileId}:`, convErr.response?.data || convErr.message);
 
-        } else if (uploadRes.data.success) {
-             showSnackbar("File uploaded, but details missing from response.", "warning");
-             handleCloseUploadModal();
-             fetchFiles();
+                     // Remove from optimistic state as the conversion didn't even successfully start.
+                     setFilesBeingProcessed(prev => { const next = new Set(prev); next.delete(uploadedFileId); return next; });
+
+                     // Show an error snackbar specific to the trigger failure.
+                     showSnackbar(convErr.response?.data?.message || `Failed to start conversion for "${originalFileName}". Server error.`, "error");
+
+                     // It might be useful to re-fetch files here too, in case the backend
+                     // updated the status to 'failed' immediately (e.g., missing converter).
+                     fetchFiles(); // This will update the table row to show the 'failed' status if set by backend
+                 });
+
+                // The handleFileUpload function continues execution immediately after the axios.get promise chain is set up.
+
+            } else {
+                 console.log(`Skipping auto-conversion for ${originalFileName} (ID: ${uploadedFileId}) - Not LAS/LAZ file.`);
+            }
+
         } else {
+            // 5. Handle upload failure (backend returned success: false or missing file/id in response)
             showSnackbar(uploadRes.data.message || "File upload failed.", "error");
             setUploadProgress(null);
         }
     } catch (e) {
+        // 6. Handle errors during the *upload* API call itself (network error, CORS, unhandled backend 500 during upload)
         console.error("Upload error:", e);
         showSnackbar(e.response?.data?.message || "Server error during upload.", "error");
         setUploadProgress(null);
+        // Ensure no optimistic state remains if an ID was somehow obtained before a catchable error
+        // (less likely for upload but good practice)
+         if (uploadedFileId) {
+             setFilesBeingProcessed(prev => { const next = new Set(prev); next.delete(uploadedFileId); return next; });
+         }
     } finally {
+        // 7. Final cleanup regardless of upload success/failure
+        console.log('--- handleFileUpload FINALLY block ---');
         setIsUploading(false);
-        // Resetting fields in handleCloseUploadModal is usually sufficient
+        // Resetting other fields happens in handleCloseUploadModal if called
     }
   };
 
@@ -1510,7 +1607,7 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                 />
                 {/* Select Existing Division */}
                 <FormControl fullWidth margin="dense" sx={styles.dialogSelectControl} disabled={isUploading}>
-                  <InputLabel id="project-select-label-upload">Assign to Project (Optional)</InputLabel>
+                  <InputLabel id="project-select-label-upload">Assign to Project (Required)</InputLabel>
                   <Select
                     labelId="project-select-label-upload"
                     value={selectedProjectId}
@@ -1524,7 +1621,7 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                             setSelectedProjectId(value); // Set state for existing project
                         }
                     }}
-                    label="Assign to Project (Optional)"
+                    label="Assign to Project (Required)"
                     MenuProps={{ PaperProps: { sx: { color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.primary[500], }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: colors.blueAccent[700]+'!important', color:colors.grey[100]}}},}}
                   >
                     <MenuItem value=""><em>-- No Project Created --</em></MenuItem>
@@ -1899,45 +1996,99 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                             <TableCell sx={{...styles.headCell, textAlign:'center'}}>Actions</TableCell>
                         </TableRow>
                     </TableHead>
-                    <TableBody>
+                                        <TableBody>
                         {files.map((file) => {
-                            const isConverting = convertingFileId === file.id;
-                            const isReady = !!file.potreeUrl && file.potreeUrl !== 'pending_refresh';
-                            let sT="Not Converted"; let sC=colors.grey[500];
-                            if(isConverting){sT="Converting...";sC=colors.blueAccent[300];}
-                            else if(isReady){sT="Ready";sC=colors.greenAccent[400];}
+                            // *** MODIFIED: Determine Status based on Optimistic State and potreeUrl ***
+                            // Check if the file ID is in our optimistic processing set
+                            const isOptimisticallyProcessing = filesBeingProcessed.has(file.id);
+                            // Check if the file is actually ready based on backend data
+                            const isReady = !!file.potreeUrl; // Simplified: presence of URL means ready
 
-                            const cA=canPerformAction('assignProject',file);
-                            const cD=canPerformAction('download',file);
-                            const cV=canPerformAction('view',file);
-                            const cC=canPerformAction('convert',file);
-                            const cDel=canPerformAction('delete',file);
+                            let sT = "Not Ready"; // Default Status Text
+                            let sC = colors.grey[500]; // Default Status Color
+
+                            // Determine status text and color based on state
+                            if (isOptimisticallyProcessing) {
+                                sT = "Converting...";
+                                sC = colors.blueAccent[300];
+                            } else if (isReady) {
+                                sT = "Ready";
+                                sC = colors.greenAccent[400];
+                            }
+                            // else remains "Not Ready"
+
+                            // Use optimistic state to determine if actions should be disabled/UI dimmed
+                            const isEffectivelyConverting = isOptimisticallyProcessing;
+                            // ----------------------------------------------------------------------
+
+                            // Permission checks (no change needed in canPerformAction calls)
+                            const cA = canPerformAction('assignProject',file);
+                            const cD = canPerformAction('download',file);
+                            const cV = canPerformAction('view',file);
+                            const cC = canPerformAction('convert',file);
+                            const cDel = canPerformAction('delete',file);
                             const cReassign = canPerformAction('reassign', file);
-                            const hasVisibleActions = cA || cD || (cC && !isReady && !isConverting) || cDel || (cV && isReady);
+
+                            // *** MODIFIED: Update calculation based on new variables ***
+                            // Check if any action other than view/convert is possible
+                            const hasModifyActions = cA || cD || cDel || cReassign;
+                            // Check if *any* action is possible (modify, or view when ready, or convert when not ready/converting)
+                            const hasAnyAction = hasModifyActions || (cV && isReady) || (cC && !isReady && !isEffectivelyConverting);
+                            // ---------------------------------------------------------
 
                             return (
-                                <TableRow key={file.id} hover sx={{'&:last-child td,&:last-child th':{border:0}, opacity:isConverting?0.6:1}}>
-                                    <TableCell sx={styles.bodyCell} title={file.name}>{file.name}</TableCell>
-                                    <TableCell sx={styles.bodyCell}>{file.plot_name || 'N/A'}</TableCell>
-                                    <TableCell sx={styles.bodyCell}>{file.divisionName || 'N/A'}</TableCell>
-                                    <TableCell sx={styles.bodyCell} title={file.projectName}>{file.projectName}</TableCell>
-                                    <TableCell sx={styles.bodyCell}>{file.size}</TableCell>
-                                    <TableCell sx={styles.bodyCell}>{file.uploadDate}</TableCell>
+                                <TableRow
+                                    key={file.id}
+                                    hover
+                                    sx={{
+                                        '&:last-child td,&:last-child th':{border:0},
+                                        // *** MODIFIED: Dim row if optimistically processing ***
+                                        opacity: isEffectivelyConverting ? 0.6 : 1,
+                                        // Prevent hover effect when converting
+                                        '&:hover': {
+                                            backgroundColor: isEffectivelyConverting ? 'inherit' : undefined
+                                        }
+                                        // ---------------------------------------------------
+                                    }}
+                                >
+                                    {/* Keep TableCells for file details the same */}
+                                     <TableCell sx={styles.bodyCell} title={file.name}>{file.name}</TableCell>
+                                     <TableCell sx={styles.bodyCell}>{file.plot_name || 'N/A'}</TableCell>
+                                     <TableCell sx={styles.bodyCell}>{file.divisionName || 'N/A'}</TableCell>
+                                     <TableCell sx={styles.bodyCell} title={file.projectName}>{file.projectName}</TableCell>
+                                     <TableCell sx={styles.bodyCell}>{file.size}</TableCell>
+                                     <TableCell sx={styles.bodyCell}>{file.uploadDate}</TableCell>
+
+                                    {/* Potree Status Cell - MODIFIED */}
                                     <TableCell sx={{...styles.bodyCell,textAlign:'center'}}>
-                                        {isConverting ? (<Box sx={styles.statusText}><CircularProgress size={16} sx={{color:sC}}/><Typography variant="caption" sx={{color:sC,ml:1}}>{sT}</Typography></Box>) : (<Typography variant="caption" sx={{color:sC}}>{sT}</Typography>)}
+                                        {isEffectivelyConverting ? (
+                                          <Box sx={styles.statusText}>
+                                            {/* Show spinner when converting */}
+                                            <CircularProgress size={16} sx={{color:sC}}/>
+                                            <Typography variant="caption" sx={{color:sC,ml:1}}>{sT}</Typography>
+                                          </Box>
+                                        ) : (
+                                          // Just show text when not converting
+                                          <Typography variant="caption" sx={{color:sC}}>{sT}</Typography>
+                                        )}
                                     </TableCell>
+                                    {/* ------------------------- */}
+
+                                    {/* Actions Cell - MODIFIED (disabled logic) */}
                                     <TableCell sx={{...styles.bodyCell,textAlign:'center',p:'0 8px'}}>
                                         <IconButton
                                             aria-label={`actions-for-${file.name}`}
                                             onClick={(e)=>handleMenuClick(e,file)}
                                             sx={styles.actionButton}
                                             size="small"
-                                            disabled={isConverting || !hasVisibleActions || !!deletingProjectId} // Added deletingProjectId check
-                                            title={!hasVisibleActions?"Forbidden":"More"}
+                                            // *** MODIFIED: Disable if converting, deleting, or no actions possible ***
+                                            disabled={isEffectivelyConverting || !hasAnyAction || !!deletingProjectId || !!deletingDivisionId}
+                                            title={!hasAnyAction?"No actions available":(isEffectivelyConverting?"Processing...":"More Actions")}
                                         >
                                             <MoreVertIcon fontSize="small"/>
                                         </IconButton>
                                         <Menu
+                                            // Keep Menu props the same
                                             id={`menu-for-${file.id}`}
                                             anchorEl={anchorEl}
                                             keepMounted
@@ -1947,24 +2098,26 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                                             transformOrigin={{vertical:'top',horizontal:'right'}}
                                             PaperProps={{sx:{backgroundColor:colors.primary[800],color:colors.grey[100],mt:0.5}}}
                                         >
+                                            {/* --- MODIFIED: Add 'isEffectivelyConverting' disabled check to ALL MenuItems --- */}
                                             {cReassign && (
-                                                <MenuItem
-                                                    onClick={() => handleOpenReassignModal(selectedFile)}
-                                                    disabled={!!convertingFileId || !!deletingProjectId || isAssigningProject /* Add isReassigning if needed? */}
-                                                >
-                                                    <ListItemIcon sx={{...styles.menuItemIcon, color: colors.grey[300]}}>
-                                                        <AssignmentIcon fontSize="small"/> {/* Or EditIcon */}
-                                                    </ListItemIcon>
-                                                    <ListItemText>Edit Details / Reassign</ListItemText>
-                                                </MenuItem>
-                                            )}
-                                            {cD && (<MenuItem onClick={()=>handleDownload(selectedFile)} disabled={!!convertingFileId || !!deletingProjectId}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><DownloadIcon fontSize="small"/></ListItemIcon><ListItemText>Download</ListItemText></MenuItem>)}
-                                            {cV && isReady && (<MenuItem onClick={()=>handleViewPotree(selectedFile)} disabled={!isReady||!!convertingFileId || !!deletingProjectId}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><VisibilityIcon fontSize="small"/></ListItemIcon><ListItemText>View Point Cloud</ListItemText></MenuItem>)}
-                                            {cDel && (<MenuItem onClick={()=>handleRemove(selectedFile)} disabled={!!convertingFileId || !!deletingProjectId} sx={{ color: colors.redAccent[400], '.MuiListItemIcon-root': { color: colors.redAccent[400] } }} ><ListItemIcon sx={styles.menuItemIcon}><DeleteIcon fontSize="small"/></ListItemIcon><ListItemText>Remove</ListItemText></MenuItem>)}
-                                            {!hasVisibleActions && (<MenuItem disabled sx={styles.menuItemDisabledText}><ListItemText>No actions permitted</ListItemText></MenuItem>)}
+                                                 <MenuItem onClick={() => handleOpenReassignModal(selectedFile)} disabled={isEffectivelyConverting || !!deletingProjectId || !!deletingDivisionId /* other disabling conditions like isAssigningProject might still be relevant in specific modals */}>
+                                                     <ListItemIcon sx={{...styles.menuItemIcon, color: colors.grey[300]}}><AssignmentIcon fontSize="small"/></ListItemIcon>
+                                                     <ListItemText>Edit Details / Reassign</ListItemText>
+                                                 </MenuItem>
+                                             )}
+                                            {cD && (<MenuItem onClick={()=>handleDownload(selectedFile)} disabled={isEffectivelyConverting || !!deletingProjectId || !!deletingDivisionId}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><DownloadIcon fontSize="small"/></ListItemIcon><ListItemText>Download</ListItemText></MenuItem>)}
+                                            {/* Only show View option if file is ready */}
+                                            {cV && isReady && (<MenuItem onClick={()=>handleViewPotree(selectedFile)} disabled={isEffectivelyConverting || !!deletingProjectId || !!deletingDivisionId}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><VisibilityIcon fontSize="small"/></ListItemIcon><ListItemText>View Point Cloud</ListItemText></MenuItem>)}
+                                            {/* Only show Convert option if conversion is allowed, file is not ready, AND not currently converting */}
+                                            {cC && !isReady && !isEffectivelyConverting && (<MenuItem onClick={()=>handleConvertPotree(selectedFile)} disabled={isEffectivelyConverting || !!deletingProjectId || !!deletingDivisionId}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><TransformIcon fontSize="small"/></ListItemIcon><ListItemText>Convert to Potree</ListItemText></MenuItem>)}
+                                            {cDel && (<MenuItem onClick={()=>handleRemove(selectedFile)} disabled={isEffectivelyConverting || !!deletingProjectId || !!deletingDivisionId} sx={{ color: colors.redAccent[400], '.MuiListItemIcon-root': { color: colors.redAccent[400] } }} ><ListItemIcon sx={styles.menuItemIcon}><DeleteIcon fontSize="small"/></ListItemIcon><ListItemText>Remove</ListItemText></MenuItem>)}
+                                            {/* Show this if no actions are possible at all */}
+                                            {!hasAnyAction && (<MenuItem disabled sx={styles.menuItemDisabledText}><ListItemText>No actions permitted</ListItemText></MenuItem>)}
+                                            {/* ---------------------------------------------------------------------------------- */}
                                         </Menu>
                                     </TableCell>
-                               </TableRow>
+                                    {/* ------------------------------------ */}
+                                </TableRow>
                            );
                         })}
                     </TableBody>
