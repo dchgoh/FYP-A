@@ -1,13 +1,11 @@
 const fs = require('fs');
 const path = require('path');
-const { execSync, spawn } = require("child_process");
+const { execSync, spawn, spawnSync } = require("child_process");
 const { pool } = require('../config/db'); // Adjust path relative to controllers/
 const ROLES = require('../config/roles'); // Adjust path relative to controllers/
 // Optional: Import the utility if you created it
 // const { processLasFile } = require('../utils/processLas'); // Adjust path
 
-// --- Helper Function (Consider moving to utils/fileHelpers.js) ---
-// No change needed here IF the input dbRecord has the correct fields from joins
 const formatFileRecord = (dbRecord) => {
     if (!dbRecord) return null;
     return {
@@ -45,124 +43,344 @@ exports.uploadFile = async (req, res) => {
         return res.status(400).json({ success: false, message: "No file uploaded." });
     }
 
-    const { originalname, filename, path: stored_path_absolute, mimetype, size } = req.file;
-    // *** MODIFIED: Removed division_id extraction ***
+    // stored_path_absolute_original IS THE KEY. It will be overwritten if segmentation is successful.
+    const { originalname, filename, path: stored_path_absolute_original, mimetype, size } = req.file;
     const { plot_name, project_id } = req.body;
+    // stored_path_relative will point to the (potentially overwritten) file
     const stored_path_relative = path.join('uploads', filename);
 
-    // Validate project_id if provided
+
     let cleanProjectId = null;
     if (project_id !== undefined && project_id !== null && project_id !== '') {
         cleanProjectId = parseInt(project_id);
         if (isNaN(cleanProjectId)) {
-            // Cleanup uploaded file immediately if project ID is invalid format
-             fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting upload file on invalid project ID:", err); });
+            fs.unlink(stored_path_absolute_original, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting upload on invalid project ID:", err); });
             return res.status(400).json({ success: false, message: "Invalid Project ID format." });
         }
     }
 
     let savedFileRecord;
     let fileIdToUpdate;
+    let originalFileBackupPath = null; // Path for temporary backup during segmentation
+
+    // --- Path Configuration for Segmentation Script ---
+    const projectRootDir = path.resolve(__dirname, '..');
+    const pythonVenvExecutable = process.platform === "win32"
+        ? path.join(projectRootDir, 'venv', 'Scripts', 'python.exe')
+        : path.join(projectRootDir, 'venv', 'bin', 'python');
+    const pythonSegmentScriptName = 'segment.py';
+    const pythonSegmentScriptToExecute = path.join(projectRootDir, pythonSegmentScriptName);
+    const checkpointDirName = 'checkpoints';
+    const checkpointFileName = 'pointnet_sem_seg.pth';
+    const checkpointRelativePath = path.join(checkpointDirName, checkpointFileName);
+    const checkpointAbsolutePathForCheck = path.join(projectRootDir, checkpointDirName, checkpointFileName);
 
     try {
-        // *** ADDED: Check if Project exists if project_id is provided ***
-         if (cleanProjectId !== null) {
+        // --- PRE-DB INSERT VALIDATIONS ---
+        if (cleanProjectId !== null) {
             const projectCheck = await pool.query("SELECT 1 FROM projects WHERE id = $1", [cleanProjectId]);
-             if (projectCheck.rowCount === 0) {
-                 // Cleanup uploaded file
-                 fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting upload file for non-existent project:", err); });
-                 return res.status(404).json({ success: false, message: `Project with ID ${cleanProjectId} not found.` });
-             }
-         }
+            if (projectCheck.rowCount === 0) {
+                fs.unlink(stored_path_absolute_original, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting upload for non-existent project:", err); });
+                return res.status(404).json({ success: false, message: `Project with ID ${cleanProjectId} not found.` });
+            }
+        }
 
-        // *** MODIFIED: Removed division_id from INSERT and RETURNING ***
+        // --- STAGE 1: PERFORM SEGMENTATION (SYNCHRONOUSLY) - OVERWRITING ORIGINAL ---
+        console.log(`Node: Starting segmentation for ${stored_path_absolute_original}. This will overwrite the original if successful.`);
+
+        // Check prerequisite files for segmentation
+        if (!fs.existsSync(pythonVenvExecutable)) throw new Error(`Python venv executable not found for segmentation: ${pythonVenvExecutable}`);
+        if (!fs.existsSync(pythonSegmentScriptToExecute)) throw new Error(`Python segmentation script not found: ${pythonSegmentScriptToExecute}`);
+        if (!fs.existsSync(checkpointAbsolutePathForCheck)) throw new Error(`Segmentation checkpoint file not found: ${checkpointAbsolutePathForCheck}`);
+
+        // Make a temporary backup of the original file
+        originalFileBackupPath = stored_path_absolute_original + ".bak";
+        fs.copyFileSync(stored_path_absolute_original, originalFileBackupPath);
+        console.log(`Node: Created backup of original file at ${originalFileBackupPath}`);
+
+        const segmentArgs = [
+            pythonSegmentScriptName,
+            originalFileBackupPath,        // INPUT is the backup file
+            checkpointRelativePath,
+            '-o',
+            stored_path_absolute_original, // OUTPUT is the ORIGINAL file path (overwrite)
+            '--cpu'
+        ];
+
+        console.log(`Node: Spawning segmentation script SYNC: "${pythonVenvExecutable}" with CWD "${projectRootDir}" and args: ${segmentArgs.join(' ')}`);
+        const segmentationProcess = spawnSync(
+            pythonVenvExecutable,
+            segmentArgs,
+            {
+                cwd: projectRootDir,
+                encoding: 'utf-8',
+                timeout: 300000 // 5 min timeout
+            }
+        );
+
+        if (segmentationProcess.error) {
+            console.error(`Node Error: Failed to start segmentation process. Err: ${segmentationProcess.error.message}`);
+            // Restore original from backup
+            if (fs.existsSync(originalFileBackupPath)) {
+                fs.renameSync(originalFileBackupPath, stored_path_absolute_original);
+                console.log("Node: Restored original file from backup due to segmentation spawn error.");
+            }
+            throw new Error(`Segmentation script spawn error: ${segmentationProcess.error.message}`);
+        }
+
+        if (segmentationProcess.status !== 0) {
+            console.error(`Node Error: Segmentation script failed with code ${segmentationProcess.status}.`);
+            console.error(`Segmentation stderr:\n${segmentationProcess.stderr}`);
+             // Restore original from backup
+            if (fs.existsSync(originalFileBackupPath)) {
+                fs.renameSync(originalFileBackupPath, stored_path_absolute_original);
+                console.log("Node: Restored original file from backup due to segmentation script error.");
+            }
+            throw new Error(`Segmentation script failed. Exit code: ${segmentationProcess.status}.`);
+        }
+
+        // Check if the (now supposedly segmented) original file path exists and is not empty
+        if (!fs.existsSync(stored_path_absolute_original) || fs.statSync(stored_path_absolute_original).size === 0) {
+            console.error(`Node Error: Segmentation script succeeded (code 0) but output (overwritten original) file missing or empty: ${stored_path_absolute_original}`);
+            console.error(`Segmentation stdout:\n${segmentationProcess.stdout}`);
+            console.error(`Segmentation stderr:\n${segmentationProcess.stderr}`);
+            // Restore original from backup
+            if (fs.existsSync(originalFileBackupPath)) {
+                fs.renameSync(originalFileBackupPath, stored_path_absolute_original);
+                console.log("Node: Restored original file from backup due to invalid segmentation output.");
+            }
+            throw new Error("Segmentation completed but output file (overwritten original) is invalid.");
+        }
+
+        console.log(`Node: Segmentation successful. Original file ${stored_path_absolute_original} is now the segmented version.`);
+        console.log(`Segmentation stdout:\n${segmentationProcess.stdout}`);
+        // Segmentation successful, delete the backup
+        if (fs.existsSync(originalFileBackupPath)) {
+            fs.unlinkSync(originalFileBackupPath);
+            console.log("Node: Deleted backup file after successful segmentation.");
+        }
+        originalFileBackupPath = null; // Reset backup path
+
+        // --- STAGE 2: DB INSERT (AFTER SUCCESSFUL SEGMENTATION & OVERWRITE) ---
+        // The file at stored_path_relative is now the segmented version.
         const result = await pool.query(
             `INSERT INTO uploaded_files
-             (original_name, stored_filename, stored_path, mime_type, size_bytes, latitude, longitude, plot_name, project_id)
-             VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7)
-             RETURNING id, original_name, size_bytes, upload_date, stored_path, project_id, plot_name, latitude, longitude`, // Removed division_id
-            [originalname, filename, stored_path_relative, mimetype, size, plot_name || null, cleanProjectId] // Use cleanProjectId (can be null)
+             (original_name, stored_filename, stored_path, mime_type, size_bytes, latitude, longitude, plot_name, project_id, status)
+             VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7, 'processing_coords')
+             RETURNING id, original_name, size_bytes, upload_date, stored_path, project_id, plot_name, latitude, longitude`,
+            [originalname, filename, stored_path_relative, mimetype, size, plot_name || null, cleanProjectId] // size might need re-evaluation if segmentation changes it significantly
         );
 
         if (result.rows.length === 0 || !result.rows[0].id) {
-            fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting orphaned upload file after failed DB insert:", err); });
-            throw new Error("Failed to insert file record or retrieve its ID.");
+            // This is less likely to happen if segmentation was okay, but good to have
+            // The original file is now segmented. If DB insert fails, we might have an orphaned segmented file.
+            // fs.unlink(stored_path_absolute_original, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting (segmented) upload after failed DB insert:", err); });
+            throw new Error("Failed to insert file record or retrieve its ID after segmentation.");
         }
 
         fileIdToUpdate = result.rows[0].id;
-        // *** MODIFIED: Initial format won't have division info unless we query again ***
-        // Format with available data. Division/Project names will be populated later by getFiles etc.
-        savedFileRecord = formatFileRecord({
-             ...result.rows[0],
-             division_id: null, // Not available directly
-             division_name: null, // Not available directly
-             project_name: null // Not available directly (unless we queried project name too)
-        });
+        savedFileRecord = formatFileRecord({ ...result.rows[0] });
 
-        // --- Respond Immediately ---
+        // --- Respond Immediately (Upload Accepted, Coordinates will be processed on SEGMENTED file) ---
         res.status(201).json({
             success: true,
-            message: "File upload accepted, processing coordinates in background.",
-            file: savedFileRecord // Send back what we have
+            message: "File uploaded and segmented. Coordinate processing will occur in background.",
+            file: savedFileRecord
         });
 
-        // --- Trigger Python Script Asynchronously (AFTER RESPONSE) ---
-        const pythonScriptName = 'process_las.py';
-        const pythonScriptPath = path.resolve(__dirname, '..', pythonScriptName);
-        const pythonCommand = 'python'; // Or 'python3'
 
-        if (!fs.existsSync(pythonScriptPath)) {
-             console.error(`Node Error (FileID ${fileIdToUpdate}): Python script not found at ${pythonScriptPath}. Cannot process coordinates.`);
-             return;
+        // --- STAGE 3: Trigger process_las.py Asynchronously (using the OVERWRITTEN/SEGMENTED file) ---
+        const coordPythonScriptName = 'process_las.py';
+        const coordPythonScriptPath = path.resolve(__dirname, '..', coordPythonScriptName);
+        const coordPythonCommand = 'python'; // Or 'python3'
+
+        if (!fs.existsSync(coordPythonScriptPath)) {
+            console.error(`Node Error (FileID ${fileIdToUpdate}): process_las.py script not found at ${coordPythonScriptPath}. Cannot process coordinates.`);
+            // The file is already segmented and in the DB.
+            await pool.query("UPDATE uploaded_files SET status = 'coords_failed', processing_error = $1 WHERE id = $2", ["process_las.py not found", fileIdToUpdate]);
+            return;
         }
 
-        console.log(`Node (FileID ${fileIdToUpdate}): Spawning Python script "${pythonScriptPath}" with arg "${stored_path_absolute}"`);
-        const pythonProcess = spawn(pythonCommand, [pythonScriptPath, stored_path_absolute]);
-        // ... (rest of python spawning logic remains the same) ...
-        let stdoutData = '';
-        let stderrData = '';
-        pythonProcess.stdout.on('data', (data) => { stdoutData += data.toString(); });
-        pythonProcess.stderr.on('data', (data) => {
+        // The file at stored_path_absolute_original is now the segmented one
+        console.log(`Node (FileID ${fileIdToUpdate}): Spawning coord extraction script "${coordPythonScriptPath}" with input "${stored_path_absolute_original}" (which is now segmented)`);
+        const coordPythonProcess = spawn(coordPythonCommand, [coordPythonScriptPath, stored_path_absolute_original]);
+
+        let coordStdoutData = '';
+        let coordStderrData = '';
+        coordPythonProcess.stdout.on('data', (data) => { coordStdoutData += data.toString(); });
+        coordPythonProcess.stderr.on('data', (data) => {
             const errorMsg = data.toString().trim();
-             if (errorMsg) { stderrData += errorMsg + '\n'; console.error(`Python stderr (FileID ${fileIdToUpdate}): ${errorMsg}`); }
+            if (errorMsg) { coordStderrData += errorMsg + '\n'; console.error(`process_las.py stderr (FileID ${fileIdToUpdate}): ${errorMsg}`); }
         });
-        pythonProcess.on('error', (error) => { console.error(`Node Error (FileID ${fileIdToUpdate}): Failed to start Python process. Cmd: ${pythonCommand}. Err: ${error.message}`); });
-        pythonProcess.on('close', async (code) => {
-            console.log(`Node (FileID ${fileIdToUpdate}): Python script exited with code ${code}.`);
-            if (code === 0 && stdoutData) {
+        coordPythonProcess.on('error', async (error) => {
+            console.error(`Node Error (FileID ${fileIdToUpdate}): Failed to start process_las.py. Cmd: ${coordPythonCommand}. Err: ${error.message}`);
+            await pool.query("UPDATE uploaded_files SET status = 'coords_failed', processing_error = $1 WHERE id = $2", [`process_las.py spawn error: ${error.message}`, fileIdToUpdate]);
+        });
+        coordPythonProcess.on('close', async (code) => {
+            console.log(`Node (FileID ${fileIdToUpdate}): process_las.py script exited with code ${code}.`);
+            // NO temporary file to clean up here as we overwrote the original.
+
+            if (code === 0 && coordStdoutData) {
                 try {
-                    const resultData = JSON.parse(stdoutData.trim());
+                    const resultData = JSON.parse(coordStdoutData.trim());
                     if (resultData && (typeof resultData.latitude === 'number' || resultData.latitude === null) && (typeof resultData.longitude === 'number' || resultData.longitude === null)) {
                         const { latitude: calculatedLat, longitude: calculatedLon } = resultData;
                         console.log(`Node (FileID ${fileIdToUpdate}): Received coords Lat: ${calculatedLat}, Lon: ${calculatedLon}. Updating DB...`);
-                        try {
-                           const updateResult = await pool.query( `UPDATE uploaded_files SET latitude = $1, longitude = $2 WHERE id = $3`, [calculatedLat, calculatedLon, fileIdToUpdate] );
-                            if (updateResult.rowCount > 0) console.log(`Node (FileID ${fileIdToUpdate}): DB coord update successful.`);
-                            else console.warn(`Node Warn (FileID ${fileIdToUpdate}): DB coord update affected 0 rows (ID ${fileIdToUpdate} gone?).`);
-                       } catch (dbError) { console.error(`Node DB Error (FileID ${fileIdToUpdate}): Error updating coords:`, dbError); }
-                   } else { console.error(`Node Error (FileID ${fileIdToUpdate}): Invalid JSON from Python: ${stdoutData}`); }
-               } catch (parseError) { console.error(`Node Error (FileID ${fileIdToUpdate}): Error parsing Python JSON: ${parseError}\nRaw: >>>${stdoutData}<<<`); }
-           } else if (code !== 0) { console.error(`Node Error (FileID ${fileIdToUpdate}): Python script error (code ${code}). Check stderr logs.`); }
-            else if (code === 0 && !stdoutData) { console.warn(`Node Warn (FileID ${fileIdToUpdate}): Python script OK (code 0) but no stdout.`); }
-       });
-
-    } catch (error) {
-        console.error("Node Error: Error during initial file upload processing or Python spawn:", error);
-        if (!res.headersSent) {
-            if (stored_path_absolute && fs.existsSync(stored_path_absolute)) {
-                 fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting orphaned upload file on failure:", err); });
+                        await pool.query(
+                            `UPDATE uploaded_files SET latitude = $1, longitude = $2, status = 'processed_coords', processing_error = NULL WHERE id = $3`,
+                            [calculatedLat, calculatedLon, fileIdToUpdate]
+                        );
+                        console.log(`Node (FileID ${fileIdToUpdate}): DB coord update successful.`);
+                    } else {
+                        console.error(`Node Error (FileID ${fileIdToUpdate}): Invalid JSON from process_las.py: ${coordStdoutData}`);
+                        await pool.query("UPDATE uploaded_files SET status = 'coords_failed', processing_error = $1 WHERE id = $2", [`Invalid JSON from process_las.py: ${coordStdoutData.substring(0,250)}`, fileIdToUpdate]);
+                    }
+                } catch (parseError) {
+                    console.error(`Node Error (FileID ${fileIdToUpdate}): Error parsing process_las.py JSON: ${parseError}\nRaw: >>>${coordStdoutData}<<<`);
+                    await pool.query("UPDATE uploaded_files SET status = 'coords_failed', processing_error = $1 WHERE id = $2", [`Error parsing process_las.py JSON: ${parseError.message.substring(0,250)}`, fileIdToUpdate]);
+                }
+            } else if (code !== 0) {
+                console.error(`Node Error (FileID ${fileIdToUpdate}): process_las.py script error (code ${code}). Check stderr logs.`);
+                await pool.query("UPDATE uploaded_files SET status = 'coords_failed', processing_error = $1 WHERE id = $2", [`process_las.py error (code ${code}): ${coordStderrData.substring(0,250)}`, fileIdToUpdate]);
+            } else if (code === 0 && !coordStdoutData) {
+                console.warn(`Node Warn (FileID ${fileIdToUpdate}): process_las.py script OK (code 0) but no stdout.`);
+                await pool.query("UPDATE uploaded_files SET status = 'coords_warning', processing_error = $1 WHERE id = $2", ["process_las.py no stdout", fileIdToUpdate]);
             }
-            // Check for specific foreign key error if project_id was invalid (though we check earlier now)
-             if (error.code === '23503' && error.constraint === 'fk_project') {
+        });
+
+    } catch (error) { // Catches errors from initial checks, segmentation, or DB insert
+        console.error(`Node Error (FileID ${fileIdToUpdate || 'N/A'}): Error during file upload and initial processing:`, error);
+
+        // If segmentation failed and we made a backup, try to restore the original
+        if (originalFileBackupPath && fs.existsSync(originalFileBackupPath)) {
+            try {
+                fs.renameSync(originalFileBackupPath, stored_path_absolute_original);
+                console.log("Node: Restored original file from backup due to error in upload process.");
+            } catch (restoreError) {
+                console.error("Node Error: CRITICAL - Failed to restore original file from backup after an error. Original file might be lost or in a bad state.", restoreError);
+                // The file at stored_path_absolute_original might be a partial segmented output or gone.
+                // The backup at originalFileBackupPath still exists. Manual recovery might be needed.
+            }
+        } else if (fs.existsSync(stored_path_absolute_original)) {
+            // If no backup path (either segmentation was successful then DB failed, or segmentation failed before backup completed)
+            // or if backup path is null but segmentation failed after backup was made (and backup was already handled)
+            // We should delete the uploaded file (which might be partially segmented or the original if seg failed early)
+            // only if the DB record was NOT created or if the error happened before DB insert.
+            if (!fileIdToUpdate) { // Error happened before DB record was created.
+                 fs.unlink(stored_path_absolute_original, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting (potentially modified) upload on failure:", err); });
+            }
+        }
+
+
+        // If file record was created (meaning segmentation was successful), but a later error occurred
+        // (e.g., process_las.py setup or its own error before its status update could happen)
+        // we should update its status.
+        if (fileIdToUpdate) {
+            try {
+                // If the error is from process_las.py starting, it will be handled by its own error handlers.
+                // This is more for errors between segmentation success and process_las.py spawn.
+                // Or if process_las.py errors in a way not caught by its specific on('error') or on('close')
+                const existingRecord = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileIdToUpdate]);
+                if (existingRecord.rows.length > 0 && existingRecord.rows[0].status === 'processing_coords') { // Only update if still in initial processing state
+                    await pool.query("UPDATE uploaded_files SET status = 'upload_processing_failed', processing_error = $1 WHERE id = $2", [error.message.substring(0,250), fileIdToUpdate]);
+                }
+            } catch (dbUpdateError) {
+                console.error(`Node DB Error (FileID ${fileIdToUpdate}): Failed to update status after primary error:`, dbUpdateError);
+            }
+        }
+
+        if (!res.headersSent) {
+            if (error.code === '23503' && error.constraint === 'fk_project') {
                 res.status(404).json({ success: false, message: "Assign failed: Target project does not exist." });
-             } else {
-                 res.status(500).json({ success: false, message: "Server error during file upload process." });
-             }
+            } else {
+                res.status(500).json({ success: false, message: `Server error during file upload: ${error.message}` });
+            }
         } else {
-             console.error(`Node Error occurred after response was sent for file ${filename}. Background processing might be incomplete.`);
+            console.error(`Node Error occurred after 201 response was sent for file ${filename}. Background processing might be incomplete.`);
         }
     }
 };
+
+// --- NEW: Get Recent Files for Timeline ---
+exports.getRecentFiles = async (req, res) => {
+    const { projectId, divisionId } = req.query;
+    const limit = parseInt(req.query.limit, 10) || 5;
+
+    if (limit <= 0) {
+        return res.status(400).json({ message: "Limit must be a positive integer." });
+    }
+
+    let query = `
+        SELECT
+            f.id,
+            f.original_name,
+            f.upload_date,
+            p.name AS project_name,
+            d.name AS division_name
+        FROM uploaded_files f
+        LEFT JOIN projects p ON f.project_id = p.id      -- Join files to projects
+        LEFT JOIN divisions d ON p.division_id = d.id    -- Join projects to divisions
+    `; // <<< --- BASE QUERY ALWAYS INCLUDES JOINS NOW ---
+
+    const queryParams = [];
+    // REMOVED: joins array, as joins are now always included in base query
+    const whereConditions = [];
+
+    // Filter by Division ID (if not 'all')
+    if (divisionId && divisionId !== 'all' && !isNaN(parseInt(divisionId))) {
+        queryParams.push(parseInt(divisionId));
+        whereConditions.push(`p.division_id = $${queryParams.length}`);
+    }
+
+    // Filter by Project ID (if not 'all')
+    if (projectId && projectId !== 'all' && !isNaN(parseInt(projectId))) {
+        queryParams.push(parseInt(projectId));
+        whereConditions.push(`f.project_id = $${queryParams.length}`);
+    } else if (projectId === 'unassigned') {
+        whereConditions.push(`f.project_id IS NULL`);
+    }
+    // --- End of filtering logic ---
+
+    // Append WHERE clause only if there are conditions
+    if (whereConditions.length > 0) {
+        query += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+
+    // Append ORDER BY and LIMIT
+    query += ` ORDER BY f.upload_date DESC LIMIT $${queryParams.length + 1}`; // LIMIT is the next parameter index
+    queryParams.push(limit); // Add limit value to params array
+
+    try {
+        console.log("Executing filtered recent files query:", query); // Log query
+        console.log("Query parameters:", queryParams); // Log params
+
+        const result = await pool.query(query, queryParams);
+
+        // Formatting logic remains the same
+        const formattedTimeline = result.rows.map(row => {
+            const uploadDate = new Date(row.upload_date);
+            return {
+                id: row.id,
+                date: uploadDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }),
+                time: uploadDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: true }),
+                file: row.original_name,
+                context: row.project_name ? `${row.project_name} (${row.division_name || 'No Div'})` : 'Unassigned'
+            };
+        });
+
+        res.json(formattedTimeline);
+
+    } catch (error) {
+        // <<< --- MORE DETAILED LOGGING FOR ERRORS --- >>>
+        console.error("Database error fetching recent files. Query attempted:");
+        console.error("Query:", query);
+        console.error("Parameters:", queryParams);
+        console.error("Full Error:", error); // Log the full error object
+        // <<< ---------------------------------------- >>>
+        res.status(500).json({ message: "Server error fetching recent file list." });
+    }
+};
+
 
 // Get List of Files
 exports.getFiles = async (req, res) => {
@@ -853,5 +1071,70 @@ exports.reassignFileDetails = async (req, res) => {
         if (poolClient) {
             poolClient.release(); // Always release client
         }
+    }
+};
+
+
+// --- NEW: Get File Count ---
+exports.getFileCount = async (req, res) => {
+    const { projectId, divisionId } = req.query;
+
+    // Base query
+    let query = `
+        SELECT COUNT(f.id)
+        FROM uploaded_files f
+    `;
+    const queryParams = [];
+    const joins = []; // To store necessary JOIN clauses
+    const whereConditions = [];
+
+    // Need to join with projects if filtering by divisionId or projectId (to access division_id or project name if needed, although count just needs IDs)
+    // Join is needed for DIVISION filtering
+    if (divisionId && divisionId !== 'all' && !isNaN(parseInt(divisionId))) {
+        // Ensure joins are added only once if needed for multiple conditions
+        if (!joins.includes('LEFT JOIN projects p ON f.project_id = p.id')) {
+            joins.push('LEFT JOIN projects p ON f.project_id = p.id');
+        }
+        // Join to divisions only needed if filtering by division
+        if (!joins.includes('LEFT JOIN divisions d ON p.division_id = d.id')){
+            joins.push('LEFT JOIN divisions d ON p.division_id = d.id');
+        }
+
+        queryParams.push(parseInt(divisionId));
+        // Filter on the division_id associated with the project
+        whereConditions.push(`p.division_id = $${queryParams.length}`);
+    }
+
+    // Filter by Project ID
+    if (projectId && projectId !== 'all' && !isNaN(parseInt(projectId))) {
+         // No extra join needed if already joined for division filter
+        if (!joins.includes('LEFT JOIN projects p ON f.project_id = p.id') && !divisionId ) { // Add join only if not already added
+            joins.push('LEFT JOIN projects p ON f.project_id = p.id');
+        }
+        queryParams.push(parseInt(projectId));
+        whereConditions.push(`f.project_id = $${queryParams.length}`);
+    } else if (projectId === 'unassigned') {
+        whereConditions.push(`f.project_id IS NULL`);
+    }
+
+
+    // Append joins and where conditions to the base query
+    if (joins.length > 0) {
+        query += ` ${joins.join(' ')}`;
+    }
+    if (whereConditions.length > 0) {
+        query += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+
+    try {
+        console.log("Executing file count query:", query, queryParams); // Debug log
+        const result = await pool.query(query, queryParams);
+        const count = parseInt(result.rows[0].count, 10); // Ensure count is a number
+        console.log("File count result:", count); // Debug log
+
+        res.json({ count: count }); // Return count in the expected format
+    } catch (error) {
+        console.error("Database error fetching file count:", error);
+        res.status(500).json({ message: "Server error fetching file count." });
     }
 };

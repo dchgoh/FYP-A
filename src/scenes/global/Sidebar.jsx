@@ -5,7 +5,6 @@ import { Link } from "react-router-dom";
 import "react-pro-sidebar/dist/css/styles.css";
 import { tokens } from "../../theme";
 import MenuOutlinedIcon from "@mui/icons-material/MenuOutlined";
-import ScatterPlotIcon from '@mui/icons-material/ScatterPlot';
 
 const Item = ({ title, to, icon, selected, setSelected }) => {
   const theme = useTheme();
@@ -154,7 +153,7 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
               setSelected={setSelected}
             />
             <Item
-              title="Canopy Map"
+              title="Map Overview"
               to="/map"
               icon={<span className="material-symbols-outlined">map</span>}
               selected={selected}

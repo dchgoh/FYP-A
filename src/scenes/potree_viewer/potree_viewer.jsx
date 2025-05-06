@@ -163,10 +163,13 @@ const PotreeViewer = ({ isCollapsed }) => {
           viewRef.current.setLeftView();
 
           const classificationScheme = {
-            2: { visible: true, name: "Ground", color: [0.545, 0.271, 0.075, 1.0] },
-            3: { visible: true, name: "Trunk", color: [0.627, 0.322, 0.176, 1.0] },
-            5: { visible: true, name: "Vegetation", color: [0.133, 0.545, 0.133, 1.0] },
-            DEFAULT: { visible: true, name: "Unclassified", color: [0.75, 0.75, 0.75, 1.0] }
+            0: { visible: true, name: "Unclassified", color: [0.75, 0.75, 0.75, 1.0] },         // Gray
+            1: { visible: true, name: "Low-vegetation", color: [0.6, 0.8, 0.2, 1.0] },          // Light green
+            2: { visible: true, name: "Terrain", color: [0.545, 0.271, 0.075, 1.0] },           // Brown (Ground)
+            3: { visible: true, name: "Out-points", color: [1.0, 0.0, 1.0, 1.0] },              // Magenta
+            4: { visible: true, name: "Stem", color: [0.627, 0.322, 0.176, 1.0] },              // Dark brown (Trunk)
+            5: { visible: true, name: "Live branches", color: [0.133, 0.545, 0.133, 1.0] },     // Forest green
+            6: { visible: true, name: "Woody branches", color: [0.36, 0.25, 0.2, 1.0] },        // Darker brown-gray
           };
 
           viewRef.current.setClassifications(classificationScheme);

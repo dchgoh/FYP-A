@@ -640,15 +640,6 @@ const FileManagement = ({ isCollapsed }) => {
     }
   };
 
-  const handleOpenAssignProjectModal = (file) => {
-    if (!canPerformAction('assignProject', file)) { showSnackbar("Permission denied for this file's project.", "error"); handleMenuClose(); return; }
-    if (!file) return;
-    setFileToAssignProject(file);
-    setSelectedProjectIdForAssignment(file.project_id ?? ''); // Set current assignment or empty for unassigned
-    setAssignProjectModalOpen(true);
-    handleMenuClose();
-  };
-
   const handleCloseAssignProjectModal = () => {
     if (isAssigningProject) return;
     setAssignProjectModalOpen(false);
@@ -827,9 +818,10 @@ const FileManagement = ({ isCollapsed }) => {
     try {
         const res = await axios.post(`${API_BASE_URL}/divisions`, { name: newDivisionName.trim() }, { headers: { 'Authorization': `Bearer ${token}` } });
         if (res.data.success && res.data.division) {
-            // const createdDivision = res.data.division; // No longer needed unless used elsewhere immediately
+            const createdDivision = res.data.division;
             showSnackbar(`Division "${res.data.division.name}" created!`, "success");
             await fetchDivisionsList(token); // Refresh division list
+            setSelectedDivisionIdForCreation(createdDivision.id);
             // REMOVE THE FOLLOWING LINE:
             // setSelectedDivisionId(createdDivision.id);
             handleCloseCreateDivisionModal();
@@ -876,10 +868,7 @@ const FileManagement = ({ isCollapsed }) => {
             const createdProject = res.data.project;
             showSnackbar(`Project "${createdProject.name}" created!`, "success");
             await fetchProjectsList(token); // Refresh project list
-
-            // Optional: Pre-select the newly created project in the upload modal if it's open?
-            // This requires passing the ID back or finding it in the updated list.
-            // setSelectedProjectId(createdProject.id); // Might auto-select in upload modal if needed
+            setSelectedProjectId(createdProject.id); 
 
             handleCloseCreateProjectModal();
         } else {
