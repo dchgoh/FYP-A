@@ -28,6 +28,7 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
   const [selected, setSelected] = useState("Dashboard");
+  const [actualUserRole, setActualUserRole] = useState(null); // Store the raw role for logic
 
   // Add state for user details
   const [username, setUsername] = useState("User"); // Default value
@@ -44,6 +45,7 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
     if (storedUserRole) {
       // Capitalize the first letter of the role for display
       setUserRole(storedUserRole.charAt(0).toUpperCase() + storedUserRole.slice(1));
+      setActualUserRole(storedUserRole.toLowerCase());
     }
     // No cleanup needed here unless we were subscribing to something
   }, []); // Empty dependency array means this runs once on mount
@@ -138,13 +140,15 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
               selected={selected}
               setSelected={setSelected}
             />
-            <Item
-              title="Manage Team"
-              to="/team"
-              icon={<span className="material-symbols-outlined">group</span>}
-              selected={selected}
-              setSelected={setSelected}
-            />
+            {actualUserRole !== "regular" && (
+              <Item
+                title="Manage Team"
+                to="/team"
+                icon={<span className="material-symbols-outlined">group</span>}
+                selected={selected}
+                setSelected={setSelected}
+              />
+            )}
             <Item
               title="Files Upload"
               to="/upload"
