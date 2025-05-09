@@ -174,6 +174,7 @@ const createFilesTable = async () => {
           -- *** ADDED COLUMNS ***
           status VARCHAR(50) DEFAULT 'uploaded', -- Add the status column with a default value
           processing_error TEXT, -- Add a column to store processing errors
+          tree_midpoints JSONB, 
           -- *********************
           CONSTRAINT fk_project
             FOREIGN KEY(project_id)

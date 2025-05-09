@@ -15,13 +15,15 @@ const formatFileRecord = (dbRecord) => {
         upload_date: dbRecord.upload_date,
         stored_path: dbRecord.stored_path,
         potreeUrl: dbRecord.potree_metadata_path || dbRecord.potreeUrl || null,
-        // division_id: dbRecord.division_id, // Now comes from the project join
         project_id: dbRecord.project_id,
         plot_name: dbRecord.plot_name,
         latitude: dbRecord.latitude,
         longitude: dbRecord.longitude,
-        status: dbRecord.status || 'unknown', 
-        processing_error: dbRecord.processing_error || null, 
+        status: dbRecord.status || 'unknown',
+        processing_error: dbRecord.processing_error || null,
+        // --- CORRECTED LINE ---
+        tree_midpoints: dbRecord.tree_midpoints || null, // Access from dbRecord, default to null
+        // ----------------------
         // Derived fields
         size: dbRecord.size_bytes ? `${(dbRecord.size_bytes / 1024 / 1024).toFixed(2)} MB` : 'N/A',
         uploadDate: dbRecord.upload_date ? new Date(dbRecord.upload_date).toLocaleDateString() : 'N/A',
@@ -29,7 +31,7 @@ const formatFileRecord = (dbRecord) => {
         divisionName: dbRecord.division_name || "Unassigned", // Comes from join
         projectName: dbRecord.project_name || "Unassigned", // Comes from join
         // Pass through raw joined fields if needed elsewhere
-        division_id: dbRecord.division_id || null, // Ensure this exists if needed downstream
+        division_id: dbRecord.division_id || null,
         division_name: dbRecord.division_name || null,
         project_name: dbRecord.project_name || null
     };
@@ -37,24 +39,25 @@ const formatFileRecord = (dbRecord) => {
 
 // --- Controller Functions ---
 
-// File Upload
+// --- File Upload Controller Function ---
 exports.uploadFile = async (req, res) => {
+    // 1. Check if file exists in request
     if (!req.file) {
         return res.status(400).json({ success: false, message: "No file uploaded." });
     }
 
+    // 2. Extract details from request file and body
     const { originalname, filename, path: stored_path_absolute, mimetype, size } = req.file;
-    // *** MODIFIED: Removed division_id extraction ***
     const { plot_name, project_id } = req.body;
-    const stored_path_relative = path.join('uploads', filename);
+    const stored_path_relative = path.join('uploads', filename); // Relative path for DB
 
-    // Validate project_id if provided
+    // 3. Validate project_id input
     let cleanProjectId = null;
     if (project_id !== undefined && project_id !== null && project_id !== '') {
         cleanProjectId = parseInt(project_id);
         if (isNaN(cleanProjectId)) {
-            // Cleanup uploaded file immediately if project ID is invalid format
-             fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting upload file on invalid project ID:", err); });
+            // Cleanup file if ID is invalid and return error
+            fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting upload file on invalid project ID:", err); });
             return res.status(400).json({ success: false, message: "Invalid Project ID format." });
         }
     }
@@ -63,101 +66,227 @@ exports.uploadFile = async (req, res) => {
     let fileIdToUpdate;
 
     try {
-        // *** ADDED: Check if Project exists if project_id is provided ***
-         if (cleanProjectId !== null) {
+        // 4. Check if target Project exists in DB (if provided)
+        if (cleanProjectId !== null) {
             const projectCheck = await pool.query("SELECT 1 FROM projects WHERE id = $1", [cleanProjectId]);
-             if (projectCheck.rowCount === 0) {
-                 // Cleanup uploaded file
-                 fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting upload file for non-existent project:", err); });
-                 return res.status(404).json({ success: false, message: `Project with ID ${cleanProjectId} not found.` });
-             }
-         }
+            if (projectCheck.rowCount === 0) {
+                // Cleanup file if project doesn't exist and return error
+                fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting upload file for non-existent project:", err); });
+                return res.status(404).json({ success: false, message: `Project with ID ${cleanProjectId} not found.` });
+            }
+        }
 
-        // *** MODIFIED: Removed division_id from INSERT and RETURNING ***
+        // 5. Initial Database Insert
+        // Insert the basic file record, setting calculated fields to NULL initially
         const result = await pool.query(
             `INSERT INTO uploaded_files
-             (original_name, stored_filename, stored_path, mime_type, size_bytes, latitude, longitude, plot_name, project_id)
-             VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7)
-             RETURNING id, original_name, size_bytes, upload_date, stored_path, project_id, plot_name, latitude, longitude`, // Removed division_id
-            [originalname, filename, stored_path_relative, mimetype, size, plot_name || null, cleanProjectId] // Use cleanProjectId (can be null)
+             (original_name, stored_filename, stored_path, mime_type, size_bytes, latitude, longitude, plot_name, project_id, tree_midpoints, status)
+             VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7, NULL, 'uploaded')
+             RETURNING id, original_name, size_bytes, upload_date, stored_path, project_id, plot_name, latitude, longitude, status, tree_midpoints`, // Return the newly inserted data, including null tree_midpoints
+            [originalname, filename, stored_path_relative, mimetype, size, plot_name || null, cleanProjectId]
         );
 
+        // Check if insert was successful and returned an ID
         if (result.rows.length === 0 || !result.rows[0].id) {
             fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting orphaned upload file after failed DB insert:", err); });
             throw new Error("Failed to insert file record or retrieve its ID.");
         }
 
-        fileIdToUpdate = result.rows[0].id;
-        // *** MODIFIED: Initial format won't have division info unless we query again ***
-        // Format with available data. Division/Project names will be populated later by getFiles etc.
+        fileIdToUpdate = result.rows[0].id; // Get the ID of the new record
+        // Format the initially saved record (includes tree_midpoints: null)
         savedFileRecord = formatFileRecord({
              ...result.rows[0],
-             division_id: null, // Not available directly
-             division_name: null, // Not available directly
-             project_name: null // Not available directly (unless we queried project name too)
+             division_id: null, // Not available from this query
+             division_name: null,
+             project_name: null
         });
 
-        // --- Respond Immediately ---
+
+        // 6. Respond Immediately to Client (201 Created)
+        // Let the client know the upload was accepted and processing will start
         res.status(201).json({
             success: true,
-            message: "File upload accepted, processing coordinates in background.",
-            file: savedFileRecord // Send back what we have
+            message: "File upload accepted, processing coordinates and tree data in background.",
+            file: savedFileRecord // Send back the initial record data
         });
 
-        // --- Trigger Python Script Asynchronously (AFTER RESPONSE) ---
-        const pythonScriptName = 'process_las.py';
-        const pythonScriptPath = path.resolve(__dirname, '..', pythonScriptName);
+        // ---------------------------------------------------------------------
+        // 7. Trigger Python Script Asynchronously (AFTER RESPONSE HAS BEEN SENT)
+        // ---------------------------------------------------------------------
+        const pythonScriptName = 'process_las.py'; // Keeping the name as requested
+        const pythonScriptPath = path.resolve(__dirname, '..', pythonScriptName); // Adjust path if needed
         const pythonCommand = 'python'; // Or 'python3'
 
+        // Check if the script file exists
         if (!fs.existsSync(pythonScriptPath)) {
-             console.error(`Node Error (FileID ${fileIdToUpdate}): Python script not found at ${pythonScriptPath}. Cannot process coordinates.`);
-             return;
+            console.error(`Node Error (FileID ${fileIdToUpdate}): Python script not found at ${pythonScriptPath}. Cannot process file.`);
+            // Update DB status to 'failed' because the script is missing
+            try {
+                await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2", [`Python script not found: ${pythonScriptName}`, fileIdToUpdate]);
+            } catch (dbErr) { console.error(`Node DB Error (FileID ${fileIdToUpdate}): Failed to update status after script missing error:`, dbErr); }
+            return; // Stop processing for this file
         }
 
         console.log(`Node (FileID ${fileIdToUpdate}): Spawning Python script "${pythonScriptPath}" with arg "${stored_path_absolute}"`);
+        // Spawn the Python process, passing the absolute path to the uploaded file
         const pythonProcess = spawn(pythonCommand, [pythonScriptPath, stored_path_absolute]);
-        // ... (rest of python spawning logic remains the same) ...
-        let stdoutData = '';
-        let stderrData = '';
-        pythonProcess.stdout.on('data', (data) => { stdoutData += data.toString(); });
+
+        let stdoutData = ''; // Buffer for Python's standard output (expected JSON)
+        let stderrData = ''; // Buffer for Python's standard error (logs/errors)
+
+        // Capture standard output
+        pythonProcess.stdout.on('data', (data) => {
+            stdoutData += data.toString();
+        });
+        // Capture standard error
         pythonProcess.stderr.on('data', (data) => {
             const errorMsg = data.toString().trim();
-             if (errorMsg) { stderrData += errorMsg + '\n'; console.error(`Python stderr (FileID ${fileIdToUpdate}): ${errorMsg}`); }
+            if (errorMsg) {
+                stderrData += errorMsg + '\n';
+                // Log Python's stderr messages immediately for debugging
+                console.error(`Python stderr (FileID ${fileIdToUpdate}): ${errorMsg}`);
+            }
         });
-        pythonProcess.on('error', (error) => { console.error(`Node Error (FileID ${fileIdToUpdate}): Failed to start Python process. Cmd: ${pythonCommand}. Err: ${error.message}`); });
+
+        // Handle errors related to *starting* the Python process itself
+        pythonProcess.on('error', async (error) => {
+            console.error(`Node Error (FileID ${fileIdToUpdate}): Failed to start Python process. Cmd: ${pythonCommand}. Err: ${error.message}`);
+            // Update DB status to 'failed'
+            try {
+                await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2", [`Failed to start Python process: ${error.message}`, fileIdToUpdate]);
+            } catch (dbErr) { console.error(`Node DB Error (FileID ${fileIdToUpdate}): Failed to update status after spawn error:`, dbErr); }
+        });
+
+        // --- Handle Python Process Completion ---
         pythonProcess.on('close', async (code) => {
-            console.log(`Node (FileID ${fileIdToUpdate}): Python script exited with code ${code}.`);
+            console.log(`Node (FileID ${fileIdToUpdate}): Python script (${pythonScriptName}) exited with code ${code}.`);
+
+            let updateQuery = ''; // To build the final SQL UPDATE statement
+            let queryParams = []; // Parameters for the SQL query
+            let finalStatus = 'failed'; // Default status assumes failure
+            let processingError = `Python script exited with code ${code}. Check Python stderr logs.`; // Default error message
+
+            // --- Process Python Output if Exit Code is 0 (Success) AND stdout has data ---
             if (code === 0 && stdoutData) {
                 try {
+                    // Attempt to parse the JSON output from Python's stdout
                     const resultData = JSON.parse(stdoutData.trim());
-                    if (resultData && (typeof resultData.latitude === 'number' || resultData.latitude === null) && (typeof resultData.longitude === 'number' || resultData.longitude === null)) {
-                        const { latitude: calculatedLat, longitude: calculatedLon } = resultData;
-                        console.log(`Node (FileID ${fileIdToUpdate}): Received coords Lat: ${calculatedLat}, Lon: ${calculatedLon}. Updating DB...`);
-                        try {
-                           const updateResult = await pool.query( `UPDATE uploaded_files SET latitude = $1, longitude = $2 WHERE id = $3`, [calculatedLat, calculatedLon, fileIdToUpdate] );
-                            if (updateResult.rowCount > 0) console.log(`Node (FileID ${fileIdToUpdate}): DB coord update successful.`);
-                            else console.warn(`Node Warn (FileID ${fileIdToUpdate}): DB coord update affected 0 rows (ID ${fileIdToUpdate} gone?).`);
-                       } catch (dbError) { console.error(`Node DB Error (FileID ${fileIdToUpdate}): Error updating coords:`, dbError); }
-                   } else { console.error(`Node Error (FileID ${fileIdToUpdate}): Invalid JSON from Python: ${stdoutData}`); }
-               } catch (parseError) { console.error(`Node Error (FileID ${fileIdToUpdate}): Error parsing Python JSON: ${parseError}\nRaw: >>>${stdoutData}<<<`); }
-           } else if (code !== 0) { console.error(`Node Error (FileID ${fileIdToUpdate}): Python script error (code ${code}). Check stderr logs.`); }
-            else if (code === 0 && !stdoutData) { console.warn(`Node Warn (FileID ${fileIdToUpdate}): Python script OK (code 0) but no stdout.`); }
-       });
+                    console.log(`Node (FileID ${fileIdToUpdate}): Received and parsed JSON from Python.`);
 
-    } catch (error) {
-        console.error("Node Error: Error during initial file upload processing or Python spawn:", error);
-        if (!res.headersSent) {
-            if (stored_path_absolute && fs.existsSync(stored_path_absolute)) {
-                 fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting orphaned upload file on failure:", err); });
+                    // Safely extract all expected data fields from the parsed JSON
+                    const calculatedLat = resultData.latitude !== undefined ? resultData.latitude : null;
+                    const calculatedLon = resultData.longitude !== undefined ? resultData.longitude : null;
+                    const midpointsWGS84 = resultData.tree_midpoints_wgs84 !== undefined ? resultData.tree_midpoints_wgs84 : null;
+                    const pythonWarnings = resultData.warnings || [];
+                    const pythonErrors = resultData.errors || [];
+
+                    // Log any warnings or non-fatal errors reported *within* the JSON by Python
+                    if (pythonWarnings.length > 0) console.warn(`Node Warn (FileID ${fileIdToUpdate}): Python reported warnings:`, pythonWarnings);
+                    if (pythonErrors.length > 0) console.error(`Node Error (FileID ${fileIdToUpdate}): Python reported errors:`, pythonErrors);
+
+                    // --- Print Midpoints to Node.js Console (as requested) ---
+                    if (midpointsWGS84 && typeof midpointsWGS84 === 'object' && Object.keys(midpointsWGS84).length > 0) {
+                        console.info(`--- Calculated Tree Midpoints (WGS84 Lon/Lat) for File ID: ${fileIdToUpdate} ---`);
+                        const sortedTreeIds = Object.keys(midpointsWGS84).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+                        for (const treeId of sortedTreeIds) {
+                            const midpoint = midpointsWGS84[treeId];
+                            if (midpoint && midpoint.longitude !== null && midpoint.latitude !== null) {
+                                console.info(`  Tree ID ${treeId}: Lon=${midpoint.longitude.toFixed(6)}, Lat=${midpoint.latitude.toFixed(6)} (Z Orig=${midpoint.z_original.toFixed(2)})`);
+                            } else if (midpoint && midpoint.error) {
+                                console.warn(`  Tree ID ${treeId}: Midpoint transformation failed (${midpoint.error})`);
+                            } else {
+                                console.warn(`  Tree ID ${treeId}: Midpoint data incomplete or missing.`);
+                            }
+                        }
+                        console.info(`---------------------------------------------------------------`);
+                    } else {
+                        console.info(`Node (FileID ${fileIdToUpdate}): No tree midpoints were calculated or returned by Python.`);
+                    }
+                    // --- End of Printing Midpoints ---
+
+                    // Prepare midpoints data for DB (stringify the object, handle null)
+                    const midpointsJsonString = midpointsWGS84 ? JSON.stringify(midpointsWGS84) : null;
+
+                    // Determine the final database status based on Python's internal errors
+                    if (pythonErrors.length > 0) {
+                        finalStatus = 'processed_with_errors'; // Python finished but reported problems
+                        processingError = `Python completed with errors: ${pythonErrors.join('; ')}`;
+                    } else {
+                        finalStatus = 'processed'; // Python finished cleanly
+                        // If Potree conversion is a separate step, 'processed' is appropriate here.
+                        // If this IS the final step, you might use 'ready'.
+                        processingError = null; // Clear any previous errors
+                    }
+
+                    // Construct the final UPDATE query
+                    updateQuery = `UPDATE uploaded_files
+                                   SET latitude = $1,
+                                       longitude = $2,
+                                       tree_midpoints = $3,
+                                       status = $4,
+                                       processing_error = $5
+                                   WHERE id = $6`;
+                    queryParams = [calculatedLat, calculatedLon, midpointsJsonString, finalStatus, processingError, fileIdToUpdate];
+
+                } catch (parseError) {
+                    // Handle cases where Python's stdout wasn't valid JSON
+                    console.error(`Node Error (FileID ${fileIdToUpdate}): Error parsing Python JSON output: ${parseError}\nRaw Python stdout: >>>${stdoutData}<<<`);
+                    processingError = `Failed to parse Python output: ${parseError.message}`;
+                    finalStatus = 'failed';
+                    // Prepare query to only update status and error message
+                    updateQuery = `UPDATE uploaded_files SET status = $1, processing_error = $2 WHERE id = $3`;
+                    queryParams = [finalStatus, processingError, fileIdToUpdate];
+                }
+            } else {
+                // Handle cases where Python exited non-zero or produced no stdout data
+                if (code !== 0) {
+                    processingError = `Python script failed (exit code ${code}). Stderr: ${stderrData.substring(0, 500)}...`; // Include captured stderr
+                    console.error(`Node Error (FileID ${fileIdToUpdate}): ${processingError}`);
+                } else { // code === 0 but no stdoutData
+                    processingError = `Python script finished successfully but produced no JSON output.`;
+                    console.warn(`Node Warn (FileID ${fileIdToUpdate}): ${processingError}`);
+                }
+                finalStatus = 'failed';
+                // Prepare query to only update status and error message
+                updateQuery = `UPDATE uploaded_files SET status = $1, processing_error = $2 WHERE id = $3`;
+                queryParams = [finalStatus, processingError, fileIdToUpdate];
             }
-            // Check for specific foreign key error if project_id was invalid (though we check earlier now)
-             if (error.code === '23503' && error.constraint === 'fk_project') {
+
+            // --- Execute the Database Update Query ---
+            if (updateQuery) {
+                try {
+                    const updateResult = await pool.query(updateQuery, queryParams);
+                    if (updateResult.rowCount > 0) {
+                        console.log(`Node (FileID ${fileIdToUpdate}): DB status/data update successful (Status: ${finalStatus}).`);
+                    } else {
+                        // This might happen if the file record was deleted manually between steps
+                        console.warn(`Node Warn (FileID ${fileIdToUpdate}): DB status/data update affected 0 rows (ID ${fileIdToUpdate} might have been deleted?).`);
+                    }
+                } catch (dbError) {
+                    // Log errors during the final database update attempt
+                    console.error(`Node DB Error (FileID ${fileIdToUpdate}): Error updating status/data after Python script:`, dbError);
+                    console.error(`Attempted Query: ${updateQuery}`); // Log the query
+                    console.error(`Attempted Params:`, queryParams); // Log the parameters
+                }
+            }
+        }); // --- End of pythonProcess.on('close') ---
+
+    } catch (error) { // Catch errors from the initial synchronous part (DB insert, checks, etc.)
+        console.error("Node Error: Error during initial file upload processing or Python spawn setup:", error);
+        // Attempt cleanup only if the file path was determined
+        if (stored_path_absolute && fs.existsSync(stored_path_absolute)) {
+            fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting orphaned upload file on initial failure:", err); });
+        }
+        // Send error response if not already sent
+        if (!res.headersSent) {
+             if (error.code === '23503' && error.constraint === 'fk_project') { // Specific FK error
                 res.status(404).json({ success: false, message: "Assign failed: Target project does not exist." });
-             } else {
+             } else { // Generic server error
                  res.status(500).json({ success: false, message: "Server error during file upload process." });
              }
         } else {
-             console.error(`Node Error occurred after response was sent for file ${filename}. Background processing might be incomplete.`);
+             // Log error if response was already sent (background processing failed)
+             console.error(`Node Error occurred after response was sent for file ${filename || 'unknown'}. Background processing failed.`);
         }
     }
 };
@@ -260,6 +389,9 @@ exports.getFiles = async (req, res) => {
           f.project_id,
           f.latitude,
           f.longitude,
+          f.status,             
+          f.processing_error,   
+          f.tree_midpoints,     
           p.name AS project_name,
           p.division_id,        -- Get division_id from the project
           d.name AS division_name -- Get division_name via the project's division_id
