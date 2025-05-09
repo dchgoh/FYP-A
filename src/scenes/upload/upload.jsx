@@ -571,7 +571,7 @@ const FileManagement = ({ isCollapsed }) => {
             const lcFileName = originalFileName.toLowerCase();
             const isConvertible = lcFileName.endsWith('.las') || lcFileName.endsWith('.laz');
 
-            if (isConvertible && uploadedFileId) {
+            if (isConvertible && uploadedFileId || uploadedFile.status == 'processed_coords') {
                 console.log(`Attempting to auto-trigger conversion for File ID: ${uploadedFileId}`);
 
                 // *** Optimistic Update: Show "Converting..." immediately ***

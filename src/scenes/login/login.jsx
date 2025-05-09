@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import "./login.css"; // Assuming you have this CSS file
 import { FaEnvelope, FaEye, FaSpinner } from "react-icons/fa";
+import { CircularProgress } from "@mui/material";
 
 const Login = ({ onLoginSuccess }) => {
   const [showPassword, setShowPassword] = useState(false);
@@ -194,7 +195,7 @@ const Login = ({ onLoginSuccess }) => {
                 disabled={isMfaLoading || !mfaCode || mfaCode.length !== 6} // Basic validation
             >
               {/* Show spinner *inside* button text area */}
-              {isMfaLoading ? <FaSpinner className="spinner"/> : "Verify MFA"}
+              {isMfaLoading ? <CircularProgress color="inherit" size={24} /> : "Verify MFA"}
             </button>
           ) : (
             <button
@@ -203,7 +204,7 @@ const Login = ({ onLoginSuccess }) => {
                 disabled={isLoading || !email || !password}
             >
                {/* Show spinner *inside* button text area */}
-              {isLoading ? <FaSpinner className="spinner"/> : "Login"}
+              {isLoading ? <CircularProgress color="inherit" size={24} /> : "Login"}
             </button>
           )}
         </div>
