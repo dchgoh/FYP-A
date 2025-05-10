@@ -3,6 +3,9 @@ const path = require('path');
 const { execSync, spawn } = require("child_process");
 const { pool } = require('../config/db'); // Adjust path relative to controllers/
 const ROLES = require('../config/roles'); // Adjust path relative to controllers/
+const segmentationService = require('../services/segmentationService');
+const lasProcessingService = require('../services/lasProcessingService');
+const potreeConversionService = require('../services/potreeConversionService');
 // Optional: Import the utility if you created it
 // const { processLasFile } = require('../utils/processLas'); // Adjust path
 
@@ -38,256 +41,233 @@ const formatFileRecord = (dbRecord) => {
 };
 
 // --- Controller Functions ---
-
-// --- File Upload Controller Function ---
 exports.uploadFile = async (req, res) => {
-    // 1. Check if file exists in request
     if (!req.file) {
         return res.status(400).json({ success: false, message: "No file uploaded." });
     }
 
-    // 2. Extract details from request file and body
     const { originalname, filename, path: stored_path_absolute, mimetype, size } = req.file;
     const { plot_name, project_id } = req.body;
     const stored_path_relative = path.join('uploads', filename); // Relative path for DB
 
-    // 3. Validate project_id input
+    // --- IMPORTANT: Define projectRootDir correctly ---
+    // This assumes your controllers are in 'src/controllers/' and project root is 'FYP (change)'
+    // So, from 'src/controllers/', going up two levels gets you to 'FYP (change)'
+    const projectRootDir = path.resolve(__dirname, '..');
+    // If 'FYP (change)' is your 'src' directory, and controllers are in 'FYP (change)/controllers/':
+    // const projectRootDir = path.resolve(__dirname, '..');
+    // Verify this path carefully.
+    console.log(`[Controller] projectRootDir determined as: ${projectRootDir}`);
+
+
     let cleanProjectId = null;
     if (project_id !== undefined && project_id !== null && project_id !== '') {
         cleanProjectId = parseInt(project_id);
         if (isNaN(cleanProjectId)) {
-            // Cleanup file if ID is invalid and return error
-            fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting upload file on invalid project ID:", err); });
+            fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting upload on invalid project ID:", err); });
             return res.status(400).json({ success: false, message: "Invalid Project ID format." });
         }
     }
 
-    let savedFileRecord;
     let fileIdToUpdate;
+    let savedFileRecordData; // To hold the data for formatFileRecord
 
     try {
-        // 4. Check if target Project exists in DB (if provided)
+        // 1. Validate project_id if provided
         if (cleanProjectId !== null) {
-            const projectCheck = await pool.query("SELECT 1 FROM projects WHERE id = $1", [cleanProjectId]);
+            const projectCheck = await pool.query("SELECT id, name FROM projects WHERE id = $1", [cleanProjectId]);
             if (projectCheck.rowCount === 0) {
-                // Cleanup file if project doesn't exist and return error
-                fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting upload file for non-existent project:", err); });
+                fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting upload for non-existent project:", err); });
                 return res.status(404).json({ success: false, message: `Project with ID ${cleanProjectId} not found.` });
             }
+            // You might want to attach project_name to savedFileRecordData here if not joining later
         }
 
-        // 5. Initial Database Insert
-        // Insert the basic file record, setting calculated fields to NULL initially
-        const result = await pool.query(
+        // 2. Initial Database Insert
+        const insertResult = await pool.query(
             `INSERT INTO uploaded_files
-             (original_name, stored_filename, stored_path, mime_type, size_bytes, latitude, longitude, plot_name, project_id, tree_midpoints, status)
-             VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7, NULL, 'uploaded')
-             RETURNING id, original_name, size_bytes, upload_date, stored_path, project_id, plot_name, latitude, longitude, status, tree_midpoints`, // Return the newly inserted data, including null tree_midpoints
+             (original_name, stored_filename, stored_path, mime_type, size_bytes, plot_name, project_id, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'uploaded')
+             RETURNING id, original_name, size_bytes, upload_date, stored_path, project_id, plot_name, status, 
+                       (SELECT name FROM projects WHERE id = $7) AS project_name, 
+                       (SELECT d.name FROM divisions d JOIN projects p ON p.division_id = d.id WHERE p.id = $7) AS division_name`,
             [originalname, filename, stored_path_relative, mimetype, size, plot_name || null, cleanProjectId]
         );
 
-        // Check if insert was successful and returned an ID
-        if (result.rows.length === 0 || !result.rows[0].id) {
-            fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting orphaned upload file after failed DB insert:", err); });
+        if (insertResult.rows.length === 0 || !insertResult.rows[0].id) {
+            fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting orphaned upload after failed DB insert:", err); });
             throw new Error("Failed to insert file record or retrieve its ID.");
         }
 
-        fileIdToUpdate = result.rows[0].id; // Get the ID of the new record
-        // Format the initially saved record (includes tree_midpoints: null)
-        savedFileRecord = formatFileRecord({
-             ...result.rows[0],
-             division_id: null, // Not available from this query
-             division_name: null,
-             project_name: null
-        });
+        fileIdToUpdate = insertResult.rows[0].id;
+        savedFileRecordData = insertResult.rows[0]; // Data from RETURNING for formatting
 
-
-        // 6. Respond Immediately to Client (201 Created)
-        // Let the client know the upload was accepted and processing will start
+        // 3. Respond Immediately to Client (201 Created)
         res.status(201).json({
             success: true,
-            message: "File upload accepted, processing coordinates and tree data in background.",
-            file: savedFileRecord // Send back the initial record data
+            message: "File upload accepted. Full processing pipeline initiated in background.",
+            file: formatFileRecord(savedFileRecordData)
         });
 
-        // ---------------------------------------------------------------------
-        // 7. Trigger Python Script Asynchronously (AFTER RESPONSE HAS BEEN SENT)
-        // ---------------------------------------------------------------------
-        const pythonScriptName = 'process_las.py'; // Keeping the name as requested
-        const pythonScriptPath = path.resolve(__dirname, '..', pythonScriptName); // Adjust path if needed
-        const pythonCommand = 'python'; // Or 'python3'
-
-        // Check if the script file exists
-        if (!fs.existsSync(pythonScriptPath)) {
-            console.error(`Node Error (FileID ${fileIdToUpdate}): Python script not found at ${pythonScriptPath}. Cannot process file.`);
-            // Update DB status to 'failed' because the script is missing
+        // 4. Asynchronous Background Processing Chain
+        (async () => {
             try {
-                await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2", [`Python script not found: ${pythonScriptName}`, fileIdToUpdate]);
-            } catch (dbErr) { console.error(`Node DB Error (FileID ${fileIdToUpdate}): Failed to update status after script missing error:`, dbErr); }
-            return; // Stop processing for this file
-        }
+                console.log(`[Controller] (FileID ${fileIdToUpdate}): Initiating segmentation service.`);
+                // The segmentationService.runSegmentation will set status to 'segmenting',
+                // then to 'segmented_ready_for_las' or 'failed'.
+                // await segmentationService.runSegmentation(fileIdToUpdate, stored_path_absolute, projectRootDir);
+                //const statusAfterSegmentation = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileIdToUpdate]);
+                //if (statusAfterSegmentation.rows[0]?.status !== 'segmented_ready_for_las') {
+                //    console.warn(`[Controller] (FileID ${fileIdToUpdate}): Segmentation did not result in 'segmented_ready_for_las'. Current status: ${statusAfterSegmentation.rows[0]?.status}. Halting pipeline.`);
+                //    return; // Stop if segmentation didn't prepare for LAS processing
+                //}
+                // console.log(`[Controller] (FileID ${fileIdToUpdate}): Segmentation complete. Initiating LAS processing service.`);
 
-        console.log(`Node (FileID ${fileIdToUpdate}): Spawning Python script "${pythonScriptPath}" with arg "${stored_path_absolute}"`);
-        // Spawn the Python process, passing the absolute path to the uploaded file
-        const pythonProcess = spawn(pythonCommand, [pythonScriptPath, stored_path_absolute]);
+                // The lasProcessingService.processLasData will set status to 'processing_las_data',
+                // then 'processed_ready_for_potree' (and trigger Potree) or 'failed'.
+                await lasProcessingService.processLasData(fileIdToUpdate, stored_path_absolute);
 
-        let stdoutData = ''; // Buffer for Python's standard output (expected JSON)
-        let stderrData = ''; // Buffer for Python's standard error (logs/errors)
+                console.log(`[Controller] (FileID ${fileIdToUpdate}): LAS processing (and subsequent auto-Potree) service call completed/initiated.`);
 
-        // Capture standard output
-        pythonProcess.stdout.on('data', (data) => {
-            stdoutData += data.toString();
-        });
-        // Capture standard error
-        pythonProcess.stderr.on('data', (data) => {
-            const errorMsg = data.toString().trim();
-            if (errorMsg) {
-                stderrData += errorMsg + '\n';
-                // Log Python's stderr messages immediately for debugging
-                console.error(`Python stderr (FileID ${fileIdToUpdate}): ${errorMsg}`);
-            }
-        });
+                await potreeConversionService.initiatePotree(fileIdToUpdate, stored_path_absolute, projectRootDir);
 
-        // Handle errors related to *starting* the Python process itself
-        pythonProcess.on('error', async (error) => {
-            console.error(`Node Error (FileID ${fileIdToUpdate}): Failed to start Python process. Cmd: ${pythonCommand}. Err: ${error.message}`);
-            // Update DB status to 'failed'
-            try {
-                await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2", [`Failed to start Python process: ${error.message}`, fileIdToUpdate]);
-            } catch (dbErr) { console.error(`Node DB Error (FileID ${fileIdToUpdate}): Failed to update status after spawn error:`, dbErr); }
-        });
-
-        // --- Handle Python Process Completion ---
-        pythonProcess.on('close', async (code) => {
-            console.log(`Node (FileID ${fileIdToUpdate}): Python script (${pythonScriptName}) exited with code ${code}.`);
-
-            let updateQuery = ''; // To build the final SQL UPDATE statement
-            let queryParams = []; // Parameters for the SQL query
-            let finalStatus = 'failed'; // Default status assumes failure
-            let processingError = `Python script exited with code ${code}. Check Python stderr logs.`; // Default error message
-
-            // --- Process Python Output if Exit Code is 0 (Success) AND stdout has data ---
-            if (code === 0 && stdoutData) {
+            } catch (pipelineError) {
+                console.error(`[Controller] Error (FileID ${fileIdToUpdate}): Background processing pipeline failed: ${pipelineError.message}`);
+                // Services should ideally handle their own 'failed' status updates.
+                // This is a fallback or for errors not caught by services.
                 try {
-                    // Attempt to parse the JSON output from Python's stdout
-                    const resultData = JSON.parse(stdoutData.trim());
-                    console.log(`Node (FileID ${fileIdToUpdate}): Received and parsed JSON from Python.`);
-
-                    // Safely extract all expected data fields from the parsed JSON
-                    const calculatedLat = resultData.latitude !== undefined ? resultData.latitude : null;
-                    const calculatedLon = resultData.longitude !== undefined ? resultData.longitude : null;
-                    const midpointsWGS84 = resultData.tree_midpoints_wgs84 !== undefined ? resultData.tree_midpoints_wgs84 : null;
-                    const pythonWarnings = resultData.warnings || [];
-                    const pythonErrors = resultData.errors || [];
-
-                    // Log any warnings or non-fatal errors reported *within* the JSON by Python
-                    if (pythonWarnings.length > 0) console.warn(`Node Warn (FileID ${fileIdToUpdate}): Python reported warnings:`, pythonWarnings);
-                    if (pythonErrors.length > 0) console.error(`Node Error (FileID ${fileIdToUpdate}): Python reported errors:`, pythonErrors);
-
-                    // --- Print Midpoints to Node.js Console (as requested) ---
-                    if (midpointsWGS84 && typeof midpointsWGS84 === 'object' && Object.keys(midpointsWGS84).length > 0) {
-                        console.info(`--- Calculated Tree Midpoints (WGS84 Lon/Lat) for File ID: ${fileIdToUpdate} ---`);
-                        const sortedTreeIds = Object.keys(midpointsWGS84).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
-                        for (const treeId of sortedTreeIds) {
-                            const midpoint = midpointsWGS84[treeId];
-                            if (midpoint && midpoint.longitude !== null && midpoint.latitude !== null) {
-                                console.info(`  Tree ID ${treeId}: Lon=${midpoint.longitude.toFixed(6)}, Lat=${midpoint.latitude.toFixed(6)} (Z Orig=${midpoint.z_original.toFixed(2)})`);
-                            } else if (midpoint && midpoint.error) {
-                                console.warn(`  Tree ID ${treeId}: Midpoint transformation failed (${midpoint.error})`);
-                            } else {
-                                console.warn(`  Tree ID ${treeId}: Midpoint data incomplete or missing.`);
-                            }
-                        }
-                        console.info(`---------------------------------------------------------------`);
-                    } else {
-                        console.info(`Node (FileID ${fileIdToUpdate}): No tree midpoints were calculated or returned by Python.`);
+                    const { rows } = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileIdToUpdate]);
+                    if (rows.length > 0 && rows[0].status !== 'failed') { // Avoid overwriting specific error
+                        const errMsgForDb = (pipelineError.message || "Unknown background pipeline error").substring(0, 250);
+                        await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2",
+                            [errMsgForDb, fileIdToUpdate]);
+                        console.log(`[Controller] (FileID ${fileIdToUpdate}): Set status to 'failed' due to pipeline error.`);
                     }
-                    // --- End of Printing Midpoints ---
-
-                    // Prepare midpoints data for DB (stringify the object, handle null)
-                    const midpointsJsonString = midpointsWGS84 ? JSON.stringify(midpointsWGS84) : null;
-
-                    // Determine the final database status based on Python's internal errors
-                    if (pythonErrors.length > 0) {
-                        finalStatus = 'processed_with_errors'; // Python finished but reported problems
-                        processingError = `Python completed with errors: ${pythonErrors.join('; ')}`;
-                    } else {
-                        finalStatus = 'processed'; // Python finished cleanly
-                        // If Potree conversion is a separate step, 'processed' is appropriate here.
-                        // If this IS the final step, you might use 'ready'.
-                        processingError = null; // Clear any previous errors
-                    }
-
-                    // Construct the final UPDATE query
-                    updateQuery = `UPDATE uploaded_files
-                                   SET latitude = $1,
-                                       longitude = $2,
-                                       tree_midpoints = $3,
-                                       status = $4,
-                                       processing_error = $5
-                                   WHERE id = $6`;
-                    queryParams = [calculatedLat, calculatedLon, midpointsJsonString, finalStatus, processingError, fileIdToUpdate];
-
-                } catch (parseError) {
-                    // Handle cases where Python's stdout wasn't valid JSON
-                    console.error(`Node Error (FileID ${fileIdToUpdate}): Error parsing Python JSON output: ${parseError}\nRaw Python stdout: >>>${stdoutData}<<<`);
-                    processingError = `Failed to parse Python output: ${parseError.message}`;
-                    finalStatus = 'failed';
-                    // Prepare query to only update status and error message
-                    updateQuery = `UPDATE uploaded_files SET status = $1, processing_error = $2 WHERE id = $3`;
-                    queryParams = [finalStatus, processingError, fileIdToUpdate];
-                }
-            } else {
-                // Handle cases where Python exited non-zero or produced no stdout data
-                if (code !== 0) {
-                    processingError = `Python script failed (exit code ${code}). Stderr: ${stderrData.substring(0, 500)}...`; // Include captured stderr
-                    console.error(`Node Error (FileID ${fileIdToUpdate}): ${processingError}`);
-                } else { // code === 0 but no stdoutData
-                    processingError = `Python script finished successfully but produced no JSON output.`;
-                    console.warn(`Node Warn (FileID ${fileIdToUpdate}): ${processingError}`);
-                }
-                finalStatus = 'failed';
-                // Prepare query to only update status and error message
-                updateQuery = `UPDATE uploaded_files SET status = $1, processing_error = $2 WHERE id = $3`;
-                queryParams = [finalStatus, processingError, fileIdToUpdate];
-            }
-
-            // --- Execute the Database Update Query ---
-            if (updateQuery) {
-                try {
-                    const updateResult = await pool.query(updateQuery, queryParams);
-                    if (updateResult.rowCount > 0) {
-                        console.log(`Node (FileID ${fileIdToUpdate}): DB status/data update successful (Status: ${finalStatus}).`);
-                    } else {
-                        // This might happen if the file record was deleted manually between steps
-                        console.warn(`Node Warn (FileID ${fileIdToUpdate}): DB status/data update affected 0 rows (ID ${fileIdToUpdate} might have been deleted?).`);
-                    }
-                } catch (dbError) {
-                    // Log errors during the final database update attempt
-                    console.error(`Node DB Error (FileID ${fileIdToUpdate}): Error updating status/data after Python script:`, dbError);
-                    console.error(`Attempted Query: ${updateQuery}`); // Log the query
-                    console.error(`Attempted Params:`, queryParams); // Log the parameters
+                } catch (dbErr) {
+                    console.error(`[Controller] DB Error (FileID ${fileIdToUpdate}): Failed to update status after pipeline error:`, dbErr);
                 }
             }
-        }); // --- End of pythonProcess.on('close') ---
+        })(); // End of async IIFE
 
-    } catch (error) { // Catch errors from the initial synchronous part (DB insert, checks, etc.)
-        console.error("Node Error: Error during initial file upload processing or Python spawn setup:", error);
+    } catch (initialError) {
+        console.error("[Controller] Initial file upload/DB error:", initialError);
         // Attempt cleanup only if the file path was determined
         if (stored_path_absolute && fs.existsSync(stored_path_absolute)) {
-            fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting orphaned upload file on initial failure:", err); });
+            fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting orphaned upload on initial failure:", err); });
         }
         // Send error response if not already sent
         if (!res.headersSent) {
-             if (error.code === '23503' && error.constraint === 'fk_project') { // Specific FK error
+             if (initialError.code === '23503' && initialError.constraint === 'fk_project') { // Specific FK error
                 res.status(404).json({ success: false, message: "Assign failed: Target project does not exist." });
              } else { // Generic server error
-                 res.status(500).json({ success: false, message: "Server error during file upload process." });
+                 res.status(500).json({ success: false, message: initialError.message || "Server error during file upload process." });
              }
-        } else {
-             // Log error if response was already sent (background processing failed)
-             console.error(`Node Error occurred after response was sent for file ${filename || 'unknown'}. Background processing failed.`);
         }
+    }
+};
+
+
+// --- Manual Potree Conversion Endpoint ---
+exports.convertFile = async (req, res) => {
+    const fileId = parseInt(req.params.id);
+    if (isNaN(fileId)) {
+        return res.status(400).json({ success: false, message: "Invalid file ID." });
+    }
+
+    // --- IMPORTANT: Define projectRootDir correctly (same as in uploadFile) ---
+    const projectRootDir = path.resolve(__dirname, '..');
+    console.log(`[Controller] (convertFile) projectRootDir determined as: ${projectRootDir}`);
+
+    let poolClient; // For transaction during initial checks
+
+    try {
+        // --- Step 1: Initial Checks and Status (within transaction) ---
+        poolClient = await pool.connect();
+        await poolClient.query('BEGIN');
+
+        const fileRes = await poolClient.query(
+            "SELECT stored_path, potree_metadata_path, status FROM uploaded_files WHERE id = $1 FOR UPDATE", // Lock row
+            [fileId]
+        );
+
+        if (fileRes.rows.length === 0) {
+            await poolClient.query('ROLLBACK');
+            poolClient.release();
+            return res.status(404).json({ success: false, message: "File not found." });
+        }
+
+        const file = fileRes.rows[0];
+        if (file.potree_metadata_path) {
+            await poolClient.query('ROLLBACK');
+            poolClient.release();
+            return res.status(400).json({ success: false, message: "File already converted." });
+        }
+        // Check against all active processing states
+        const activeProcessingStates = ['segmenting', 'segmented_ready_for_las', 'processing_las_data', 'processed_ready_for_potree', 'converting_potree'];
+        if (activeProcessingStates.includes(file.status)) {
+             await poolClient.query('ROLLBACK');
+             poolClient.release();
+             return res.status(400).json({ success: false, message: `File is already in the processing pipeline (status: ${file.status}). Cannot start manual conversion.` });
+        }
+        if (!file.stored_path) {
+             await poolClient.query('ROLLBACK');
+             poolClient.release();
+             return res.status(500).json({ success: false, message: `File record (ID: ${fileId}) exists but has no stored path for conversion.` });
+        }
+        // If status is 'failed', but the failure was not related to Potree itself, user might want to retry Potree.
+        // If status is 'processed' (meaning LAS data extracted, but auto-Potree was skipped or failed before 'converting_potree' stage), allow manual.
+
+        // Commit transaction for checks if all good
+        await poolClient.query('COMMIT');
+        poolClient.release(); // Release client from this transaction
+        poolClient = null;    // Nullify to prevent issues in outer catch
+
+        // Resolve the absolute path to the LAS file using projectRootDir
+        // Assumes file.stored_path is relative to projectRootDir (e.g., 'uploads/filename.las')
+        const lasPath = path.resolve(projectRootDir, file.stored_path);
+
+        if (!fs.existsSync(lasPath)) {
+            // Update DB status to failed if file is missing, as conversion can't proceed.
+            await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = 'LAS file missing on disk for manual conversion' WHERE id = $1", [fileId]);
+            return res.status(500).json({ success: false, message: `Input LAS file missing on disk for manual conversion: ${lasPath}` });
+        }
+
+        // --- Step 2: Send 202 Accepted Response ---
+        res.status(202).json({
+            success: true,
+            message: "Manual Potree conversion accepted. Processing in background.",
+            fileId: fileId
+        });
+
+        // --- Step 3: Call Potree Conversion Service Asynchronously ---
+        // The potreeConversionService.initiatePotree will:
+        // 1. Set status to 'converting_potree'
+        // 2. Spawn PotreeConverter.exe
+        // 3. On completion, set status to 'ready' or 'failed'
+        potreeConversionService.initiatePotree(fileId, lasPath, projectRootDir)
+            .then(conversionResult => {
+                console.log(`[Controller] (FileID ${fileId}): Manual Potree conversion via service successful. Message: ${conversionResult.message}`);
+                // DB updates are handled by the service
+            })
+            .catch(conversionError => {
+                console.error(`[Controller] Error (FileID ${fileId}): Manual Potree conversion via service failed. Err: ${conversionError.message}`);
+                // DB updates for failure are handled by the service
+            });
+
+    } catch (error) {
+        if (poolClient) { // If error occurred during the transaction
+             try { await poolClient.query('ROLLBACK'); } catch (rbErr) { console.error("Rollback error in convertFile:", rbErr); }
+             finally { poolClient.release(); }
+        }
+        console.error(`[Controller] Error during manual Potree conversion setup (FileID: ${fileId}):`, error.message);
+         if (!res.headersSent) {
+            let statusCode = 500;
+            let responseMessage = error.message || "Server error during Potree conversion setup.";
+            if (error.message.includes("File not found")) statusCode = 404;
+            else if (error.message.includes("already converted") || error.message.includes("already in processing pipeline")) statusCode = 400;
+
+            res.status(statusCode).json({ success: false, message: responseMessage });
+         }
     }
 };
 

@@ -20,6 +20,8 @@ L.Icon.Default.mergeOptions({
 // Constants
 const API_BASE_URL = "http://localhost:5000/api";
 const ZOOM_THRESHOLD_FOR_MIDPOINTS = 14; // Adjust as needed
+const MAX_MAP_AND_TILE_ZOOM = 21;//Or whatever OSM's maxNativeZoom is for your area if it varies slightly
+const DECLUSTER_AT_ZOOM = 18; // Ensure this is <= MAX_MAP_AND_TILE_ZOOM
 
 const MapComponent = ({ isCollapsed }) => {
   // --- State Variables ---
@@ -220,6 +222,7 @@ const MapComponent = ({ isCollapsed }) => {
                 // REMOVED the dynamic key to prevent aggressive re-mounts
                 center={mapCenterToUse} // Initial center
                 zoom={mapZoomToUse}     // Initial zoom
+                maxZoom={MAX_MAP_AND_TILE_ZOOM}
                 style={{ height: '100%', width: '100%' }}
                 zoomControl={true}
                 scrollWheelZoom={true}
@@ -227,6 +230,8 @@ const MapComponent = ({ isCollapsed }) => {
                 <TileLayer
                     attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    maxZoom={MAX_MAP_AND_TILE_ZOOM}     // Layer stops rendering tiles beyond this
+                    maxNativeZoom={20}// Explicitly state OSM's native max
                 />
                 <MapEvents /> {/* Handles zoom state update */}
 
@@ -251,7 +256,7 @@ const MapComponent = ({ isCollapsed }) => {
                                     <Typography variant="body2">Division: {file.divisionName}</Typography>
                                     <Typography variant="body2">Project: {file.projectName}</Typography>
                                     {potreeViewPath ? (
-                                       <Link to={potreeViewPath} style={{ textDecoration: 'none', color: '#3388cc', fontWeight: 'bold', display: 'block', marginTop: '8px' }} target="_blank" rel="noopener noreferrer">
+                                       <Link to={potreeViewPath} style={{ textDecoration: 'none', color: '#3388cc', fontWeight: 'bold', display: 'block', marginTop: '8px' }}>
                                          View Point Cloud
                                        </Link>
                                     ) : (
@@ -276,7 +281,8 @@ const MapComponent = ({ isCollapsed }) => {
                              spiderfyOnMaxZoom={true}
                              showCoverageOnHover={true}
                              zoomToBoundsOnClick={true} // This can cause the map to pan/zoom to fit cluster
-                             maxClusterRadius={60}     // Default is 80, smaller might feel less jumpy
+                             maxClusterRadius={1}   // Default is 80, smaller might feel less jumpy
+                             disableClusteringAtZoom={DECLUSTER_AT_ZOOM}
                         >
                             {mapFiles
                                 .filter(file => file.tree_midpoints && Object.keys(file.tree_midpoints).length > 0)
