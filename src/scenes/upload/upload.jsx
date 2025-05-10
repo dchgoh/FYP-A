@@ -509,7 +509,7 @@ const FileManagement = ({ isCollapsed }) => {
   };
 
   const handleFileUpload = async () => {
-    console.log('--- handleFileUpload START ---');
+    console.log('--- handleFileUpload START (Frontend for FULLY AUTOMATED Backend Pipeline) ---');
     // 1. Basic checks
     if (!canPerformAction('upload')) {
       showSnackbar("Permission denied.", "error");
@@ -531,17 +531,15 @@ const FileManagement = ({ isCollapsed }) => {
     if (plotName.trim()) {
         fd.append('plot_name', plotName.trim());
     }
-    // Ensure selectedProjectId is handled correctly (can be empty string or number)
-    // Backend expects null or integer. Send '' if not selected, backend will handle.
-    fd.append('project_id', selectedProjectId || ''); // Send empty string if not selected
+    fd.append('project_id', selectedProjectId || ''); // Backend handles empty string as null
 
     console.log('FormData prepared. Keys:', [...fd.keys()]);
-    console.log('Project ID being sent (via FormData):', selectedProjectId || 'Not selected');
+    console.log('Project ID being sent:', selectedProjectId || 'Not selected (will be null on backend)');
 
     // 3. Start upload state
     setIsUploading(true);
     setUploadProgress(0);
-    let uploadedFileId = null; // Use a clearer name
+    // let uploadedFileId = null; // Not strictly needed here if not manually triggering anything after upload
 
     try {
         // --- Step 1: Upload the file ---
@@ -554,89 +552,51 @@ const FileManagement = ({ isCollapsed }) => {
         });
         console.log('<<< axios.post FINISHED. Status:', uploadRes.status);
 
-        // 4. Handle successful upload response
+        // 4. Handle successful upload response from backend
         if (uploadRes.data.success && uploadRes.data.file && uploadRes.data.file.id) {
-            const uploadedFile = uploadRes.data.file;
-            uploadedFileId = uploadedFile.id; // Store the ID from the backend response
-            const originalFileName = uploadedFile.name || newFile.name; // Use response name if available
+            // const uploadedFile = uploadRes.data.file; // Can use for more specific snackbar if needed
+            // const originalFileName = uploadedFile.name || newFile.name;
 
-            showSnackbar("File upload complete.", "success"); // Shortened message
+            showSnackbar(`File "${newFile.name}" uploaded. Backend processing pipeline initiated.`, "success");
             handleCloseUploadModal();
 
-            // Fetch files to get the new file in the list with its initial status (e.g., 'uploaded')
-            // This is important for the table to show the new file.
+            // Fetch files to get the new file in the list with its initial status (e.g., 'uploaded').
+            // The backend will then progress it through segmentation, LAS processing, and auto-Potree.
+            // Our polling mechanism (useEffect with setInterval calling fetchFiles) will pick up subsequent status changes.
             await fetchFiles();
 
-            // --- Step 2: Automatically trigger conversion (if applicable) ---
-            const lcFileName = originalFileName.toLowerCase();
-            const isConvertible = lcFileName.endsWith('.las') || lcFileName.endsWith('.laz');
-
-            if (isConvertible && uploadedFileId || uploadedFile.status == 'processed_coords') {
-                console.log(`Attempting to auto-trigger conversion for File ID: ${uploadedFileId}`);
-
-                // *** Optimistic Update: Show "Converting..." immediately ***
-                // Add the file ID to the set of files being processed.
-                setFilesBeingProcessed(prev => new Set(prev).add(uploadedFileId));
-                // Show a snackbar indicating conversion started.
-                // Note: The UI will *not* block here because the backend request is async.
-                showSnackbar(`Conversion requested for "${originalFileName}". Processing in background...`, "info");
-
-                // *** Trigger conversion ASYNCHRONOUSLY ***
-                // We do NOT 'await' this call. We fire it off and handle its immediate response/error.
-                axios.get(`${API_BASE_URL}/files/potreeconverter/${uploadedFileId}`, {
-                     headers: { 'Authorization': `Bearer ${token}` }
-                 })
-                 .then(response => {
-                     // This block runs when the backend *responds* to the trigger request.
-                     // With the async backend, this response (status 202) is quick.
-                     console.log(`Auto-conversion trigger successful for File ID: ${uploadedFileId}. Backend returned ${response.status}.`);
-                     // At this point, the backend has updated the DB status to 'processing' and started the external tool.
-                     // The frontend relies on periodic fetchFiles calls to get the final status ('ready' or 'failed').
-                     // No need to call fetchFiles() *here*. The UI should already show "Converting..."
-                     // due to the optimistic update above, and the next periodic fetch will update it.
-                 })
-                 .catch(convErr => {
-                     // This block runs if the *initial conversion trigger request itself* fails.
-                     // e.g., backend returns 400, 404, or 500 due to setup/pre-check errors.
-                     console.error(`Error triggering conversion for File ID ${uploadedFileId}:`, convErr.response?.data || convErr.message);
-
-                     // Remove from optimistic state as the conversion didn't even successfully start.
-                     setFilesBeingProcessed(prev => { const next = new Set(prev); next.delete(uploadedFileId); return next; });
-
-                     // Show an error snackbar specific to the trigger failure.
-                     showSnackbar(convErr.response?.data?.message || `Failed to start conversion for "${originalFileName}". Server error.`, "error");
-
-                     // It might be useful to re-fetch files here too, in case the backend
-                     // updated the status to 'failed' immediately (e.g., missing converter).
-                     fetchFiles(); // This will update the table row to show the 'failed' status if set by backend
-                 });
-
-                // The handleFileUpload function continues execution immediately after the axios.get promise chain is set up.
-
-            } else {
-                 console.log(`Skipping auto-conversion for ${originalFileName} (ID: ${uploadedFileId}) - Not LAS/LAZ file.`);
-            }
+            // --- NO MORE FRONTEND-INITIATED AUTO-CONVERSION TRIGGER ---
+            // The backend now handles the entire automated pipeline:
+            // Upload -> Segmentation -> LAS Data Processing -> Auto Potree Conversion (if applicable)
+            // The frontend's role is to upload and then display the status updates received via fetchFiles.
+            console.log(`Frontend: File uploaded. Backend will handle the automated processing pipeline.`);
 
         } else {
-            // 5. Handle upload failure (backend returned success: false or missing file/id in response)
-            showSnackbar(uploadRes.data.message || "File upload failed.", "error");
-            setUploadProgress(null);
+            // 5. Handle upload failure reported by the backend (e.g., success: false in response)
+            showSnackbar(uploadRes.data.message || "File upload failed. Please check details or server logs.", "error");
+            setUploadProgress(null); // Reset progress bar
         }
     } catch (e) {
-        // 6. Handle errors during the *upload* API call itself (network error, CORS, unhandled backend 500 during upload)
-        console.error("Upload error:", e);
-        showSnackbar(e.response?.data?.message || "Server error during upload.", "error");
-        setUploadProgress(null);
-        // Ensure no optimistic state remains if an ID was somehow obtained before a catchable error
-        // (less likely for upload but good practice)
-         if (uploadedFileId) {
-             setFilesBeingProcessed(prev => { const next = new Set(prev); next.delete(uploadedFileId); return next; });
-         }
+        // 6. Handle errors during the axios.post call itself (network error, CORS, unhandled 500, etc.)
+        console.error("Critical upload error:", e);
+        let errorMessage = "Server error during upload.";
+        if (e.response) {
+            // We have a response from the server
+            errorMessage = e.response.data?.message || `Server responded with ${e.response.status}`;
+        } else if (e.request) {
+            // The request was made but no response was received
+            errorMessage = "No response from server. Check network or server status.";
+        } else {
+            // Something happened in setting up the request that triggered an Error
+            errorMessage = e.message || "Error setting up upload request.";
+        }
+        showSnackbar(errorMessage, "error");
+        setUploadProgress(null); // Reset progress bar
     } finally {
         // 7. Final cleanup regardless of upload success/failure
         console.log('--- handleFileUpload FINALLY block ---');
         setIsUploading(false);
-        // Resetting other fields happens in handleCloseUploadModal if called
+        // newFile, plotName, selectedProjectId are reset in handleCloseUploadModal
     }
   };
 
