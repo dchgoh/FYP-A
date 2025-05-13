@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react'; // Import useMemo
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import { Link } from 'react-router-dom';
 import 'leaflet/dist/leaflet.css';
@@ -19,14 +19,14 @@ L.Icon.Default.mergeOptions({
 
 // Constants
 const API_BASE_URL = "http://localhost:5000/api";
-const ZOOM_THRESHOLD_FOR_MIDPOINTS = 14; // Adjust as needed
-const MAX_MAP_AND_TILE_ZOOM = 21;//Or whatever OSM's maxNativeZoom is for your area if it varies slightly
-const DECLUSTER_AT_ZOOM = 18; // Ensure this is <= MAX_MAP_AND_TILE_ZOOM
+const ZOOM_THRESHOLD_FOR_MIDPOINTS = 14;
+const MAX_MAP_AND_TILE_ZOOM = 21;
+const DECLUSTER_AT_ZOOM = 18;
 
 const MapComponent = ({ isCollapsed }) => {
   // --- State Variables ---
   const [mapFiles, setMapFiles] = useState([]);
-  const [projects, setProjects] = useState([]);
+  const [projects, setProjects] = useState([]); // Holds ALL projects fetched initially
   const [divisions, setDivisions] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('all');
   const [selectedDivisionId, setSelectedDivisionId] = useState('all');
@@ -36,9 +36,9 @@ const MapComponent = ({ isCollapsed }) => {
   const [errorFiles, setErrorFiles] = useState(null);
   const [errorProjects, setErrorProjects] = useState(null);
   const [errorDivisions, setErrorDivisions] = useState(null);
-  const [currentZoom, setCurrentZoom] = useState(5); // Initialize with a default
+  const [currentZoom, setCurrentZoom] = useState(5);
 
-  const initialPosition = [1.55, 110.35]; // Default map center if no data
+  const initialPosition = [1.55, 110.35];
   const initialZoomLevel = 5;
 
   // --- Helper for Fetching Dropdown Data ---
@@ -51,6 +51,8 @@ const MapComponent = ({ isCollapsed }) => {
         throw new Error(`HTTP error! Status: ${response.status}, Endpoint: ${url.replace(API_BASE_URL,'')}, Details: ${errorText.substring(0,100)}`);
       }
       const data = await response.json();
+      // *** IMPORTANT: Ensure project data has division_id here ***
+      // Example: console.log('Fetched Projects:', data);
       setDataFunc(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(`Fetch error for ${url}:`, err);
@@ -70,6 +72,7 @@ const MapComponent = ({ isCollapsed }) => {
       setIsLoadingProjects(false); setIsLoadingDivisions(false);
       return;
     }
+    // Fetch ALL projects (assuming they include division_id)
     fetchDropdownData(`${API_BASE_URL}/projects`, storedToken, setProjects, setIsLoadingProjects, setErrorProjects);
     fetchDropdownData(`${API_BASE_URL}/divisions`, storedToken, setDivisions, setIsLoadingDivisions, setErrorDivisions);
   }, [fetchDropdownData]);
@@ -109,7 +112,7 @@ const MapComponent = ({ isCollapsed }) => {
             projectName: f.projectName || (f.project_id ? `Project ID ${f.project_id}` : 'Unassigned'),
             divisionName: f.divisionName || (f.division_id ? `Division ID ${f.division_id}` : 'N/A'),
        }));
-       console.log("Processed Files for Map:", processedFiles);
+      // console.log("Processed Files for Map:", processedFiles); // Keep for debugging if needed
       setMapFiles(processedFiles);
 
     } catch (err) {
@@ -119,28 +122,49 @@ const MapComponent = ({ isCollapsed }) => {
     } finally {
       setIsLoadingFiles(false);
     }
-  }, [selectedProjectId, selectedDivisionId]);
+  }, [selectedProjectId, selectedDivisionId]); // Dependencies are correct here
 
-  // --- Effect to Fetch Files ---
+  // --- Effect to Fetch Files when filters change ---
   useEffect(() => { fetchMapFiles(); }, [fetchMapFiles]);
 
+  // --- Calculate Filtered Projects for Dropdown ---
+  const filteredProjects = useMemo(() => {
+    if (selectedDivisionId === 'all' || !projects || projects.length === 0) {
+      return projects || []; // Show all projects if 'All Divisions' is selected or projects haven't loaded
+    }
+    // Filter projects based on selectedDivisionId
+    // *** IMPORTANT: Adjust 'project.division_id' and the comparison logic
+    // based on your actual data structure and ID types (number vs string) ***
+    const divisionIdToCompare = parseInt(selectedDivisionId, 10); // Example if IDs are numbers
+    // const divisionIdToCompare = selectedDivisionId; // Example if IDs are strings
+
+    return projects.filter(project => project.division_id === divisionIdToCompare);
+
+  }, [selectedDivisionId, projects]); // Recalculate when division or project list changes
+
   // --- Handle Dropdown Changes ---
-  const handleProjectChange = (event) => { setSelectedProjectId(event.target.value); };
-  const handleDivisionChange = (event) => { setSelectedDivisionId(event.target.value); };
+  const handleDivisionChange = (event) => {
+    const newDivisionId = event.target.value;
+    setSelectedDivisionId(newDivisionId);
+    // Reset project selection when division changes
+    setSelectedProjectId('all');
+  };
+
+  const handleProjectChange = (event) => {
+    setSelectedProjectId(event.target.value);
+  };
 
   // --- Map View Logic ---
   let mapCenterToUse = initialPosition;
-  let mapZoomToUse = currentZoom; // Use currentZoom state which is updated by MapEvents
+  let mapZoomToUse = currentZoom;
 
   const filesWithMainCoords = mapFiles.filter(file =>
     file.latitude !== null && typeof file.latitude === 'number' &&
     file.longitude !== null && typeof file.longitude === 'number'
   );
 
-  // Adjust map center based on current data and zoom, primarily for initial load or filter changes
-  // This logic might still cause some "jumps" if not carefully managed with map.setView/flyTo
-  // For this version, we'll keep it simpler for initial centering.
-  if (currentZoom < ZOOM_THRESHOLD_FOR_MIDPOINTS && filesWithMainCoords.length > 0) {
+  // Adjust map center (simplified for clarity, could be more sophisticated)
+  if (filesWithMainCoords.length > 0 && currentZoom < ZOOM_THRESHOLD_FOR_MIDPOINTS) {
       mapCenterToUse = [filesWithMainCoords[0].latitude, filesWithMainCoords[0].longitude];
   } else if (currentZoom >= ZOOM_THRESHOLD_FOR_MIDPOINTS) {
       const firstFileWithMidpoints = mapFiles.find(f => f.tree_midpoints && Object.keys(f.tree_midpoints).length > 0);
@@ -150,8 +174,11 @@ const MapComponent = ({ isCollapsed }) => {
           if (firstMidpoint && typeof firstMidpoint.latitude === 'number' && typeof firstMidpoint.longitude === 'number') {
               mapCenterToUse = [firstMidpoint.latitude, firstMidpoint.longitude];
           }
+      } else if (filesWithMainCoords.length > 0) {
+          // Fallback to main coord if zoomed in but no midpoints found in filtered data
+           mapCenterToUse = [filesWithMainCoords[0].latitude, filesWithMainCoords[0].longitude];
       }
-  } // else it remains initialPosition or what user panned to
+  }
 
 
   const error = errorFiles || errorProjects || errorDivisions;
@@ -162,10 +189,9 @@ const MapComponent = ({ isCollapsed }) => {
     useEffect(() => {
       const onZoomEnd = () => { setCurrentZoom(map.getZoom()); };
       map.on('zoomend', onZoomEnd);
-      // Set currentZoom based on the map's actual initial zoom after it's created
       setCurrentZoom(map.getZoom());
       return () => { map.off('zoomend', onZoomEnd); };
-    }, [map]); // map instance is a dependency
+    }, [map]);
     return null;
   };
 
@@ -173,12 +199,17 @@ const MapComponent = ({ isCollapsed }) => {
   const hasAnyMarkersToShow =
     (currentZoom < ZOOM_THRESHOLD_FOR_MIDPOINTS && filesWithMainCoords.length > 0) ||
     (currentZoom >= ZOOM_THRESHOLD_FOR_MIDPOINTS && (
-        mapFiles.some(f => f.tree_midpoints && Object.keys(f.tree_midpoints).length > 0) || // Has midpoints
-        mapFiles.some(f => // Has main coord but NO midpoints (to show main marker when zoomed in)
+        mapFiles.some(f => f.tree_midpoints && Object.keys(f.tree_midpoints).length > 0) ||
+        mapFiles.some(f =>
             filesWithMainCoords.find(fwc => fwc.id === f.id) &&
             (!f.tree_midpoints || Object.keys(f.tree_midpoints).length === 0)
         )
     ));
+
+  const selectedDivisionName = selectedDivisionId === 'all'
+    ? ''
+    : divisions.find(d => d.id.toString() === selectedDivisionId)?.name || '';
+
 
   return (
     <Box sx={{
@@ -190,25 +221,73 @@ const MapComponent = ({ isCollapsed }) => {
       <Box sx={{ marginBottom: '10px', flexShrink: 0 }}>
          <Grid container spacing={2} alignItems="center">
              <Grid item xs={12} sm={6} md={4}>
-                <FormControl fullWidth size="small" variant="outlined">
+                <FormControl fullWidth size="small" variant="outlined" sx={{ position: 'relative' }}>
                     <InputLabel id="division-filter-label">Filter by Division</InputLabel>
-                    <Select labelId="division-filter-label" id="division-filter-select" value={selectedDivisionId} label="Filter by Division" onChange={handleDivisionChange} disabled={isLoadingDivisions || isLoadingFiles} MenuProps={{ PaperProps: { sx: { maxHeight: 300 } } }} >
+                    <Select
+                        labelId="division-filter-label"
+                        id="division-filter-select"
+                        value={selectedDivisionId}
+                        label="Filter by Division"
+                        onChange={handleDivisionChange} // Updated handler
+                        disabled={isLoadingDivisions || isLoadingFiles}
+                        MenuProps={{ PaperProps: { sx: { maxHeight: 300 } } }}
+                     >
                         <MenuItem value="all">All Divisions</MenuItem>
-                        {divisions.map((division) => ( <MenuItem key={`div-${division.id}`} value={division.id.toString()}>{division.name}</MenuItem> ))}
+                        {divisions.map((division) => (
+                            <MenuItem key={`div-${division.id}`} value={division.id.toString()}>{division.name}</MenuItem>
+                         ))}
                     </Select>
+                    {isLoadingDivisions && <CircularProgress size={20} sx={{ position: 'absolute', right: 35, top: '50%', transform: 'translateY(-50%)', zIndex: 1 }} />}
                 </FormControl>
-                {isLoadingDivisions && <CircularProgress size={20} sx={{ position: 'absolute', right: 35, top: '50%', transform: 'translateY(-50%)', zIndex: 1 }} />}
              </Grid>
              <Grid item xs={12} sm={6} md={4}>
-                <FormControl fullWidth size="small" variant="outlined">
+                 <FormControl fullWidth size="small" variant="outlined" sx={{ position: 'relative' }}>
                     <InputLabel id="project-filter-label">Filter by Project</InputLabel>
-                    <Select labelId="project-filter-label" id="project-filter-select" value={selectedProjectId} label="Filter by Project" onChange={handleProjectChange} disabled={isLoadingProjects || isLoadingFiles} MenuProps={{ PaperProps: { sx: { maxHeight: 300 } } }} >
-                        <MenuItem value="all">All Projects</MenuItem>
-                        <MenuItem value="unassigned"><em>Unassigned Files</em></MenuItem>
-                        {projects.map((project) => ( <MenuItem key={`proj-${project.id}`} value={project.id.toString()}>{project.name}</MenuItem> ))}
+                    <Select
+                        labelId="project-filter-label"
+                        id="project-filter-select"
+                        value={selectedProjectId} // Stays the same
+                        label="Filter by Project"
+                        onChange={handleProjectChange} // Stays the same
+                        disabled={isLoadingProjects || isLoadingFiles || filteredProjects.length === 0 && selectedDivisionId !== 'all'} // Disable if loading or no projects for selected division
+                        MenuProps={{ PaperProps: { sx: { maxHeight: 300 } } }}
+                     >
+                         {/* Dynamic "All Projects" label */}
+                        <MenuItem value="all">
+                            All Projects {selectedDivisionName ? `in ${selectedDivisionName}` : ''}
+                        </MenuItem>
+                        {/* Iterate over the FILTERED list */}
+                        {filteredProjects.map((project) => {
+                            let projectDisplayName = project.name || `Project ID ${project.id}`; // Fallback name
+
+                            // Add Division Name in parentheses ONLY if 'All Divisions' is selected
+                            // and the project actually has a division_id
+                            if (selectedDivisionId === 'all' && project.division_id != null) {
+                                // Find the division based on project's division_id
+                                // *** Ensure consistent ID type comparison (number vs string) ***
+                                // Assuming project.division_id is number and division.id could be string/number
+                                const division = divisions.find(d => d.id?.toString() === project.division_id.toString());
+
+                                if (division && division.name) {
+                                    projectDisplayName = `${projectDisplayName} (${division.name})`;
+                                } else {
+                                    // Optional: Handle if division name not found for the ID
+                                    // projectDisplayName = `${projectDisplayName} (Unknown Division)`;
+                                    // Or just leave it as the project name if division lookup fails
+                                }
+                            }
+                            // If a specific division IS selected, filteredProjects only contains
+                            // projects for that division, so we just use project.name (already set in projectDisplayName)
+
+                            return (
+                                <MenuItem key={`proj-${project.id}`} value={project.id.toString()}>
+                                    {projectDisplayName}
+                                </MenuItem>
+                            );
+                        })}
                     </Select>
+                    {isLoadingProjects && <CircularProgress size={20} sx={{ position: 'absolute', right: 35, top: '50%', transform: 'translateY(-50%)', zIndex: 1 }} />}
                 </FormControl>
-                 {isLoadingProjects && <CircularProgress size={20} sx={{ position: 'absolute', right: 35, top: '50%', transform: 'translateY(-50%)', zIndex: 1 }} />}
              </Grid>
          </Grid>
          {isLoadingFiles && <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 1 }}>Loading map data...</Typography>}
@@ -217,11 +296,24 @@ const MapComponent = ({ isCollapsed }) => {
 
       {/* --- Map Container --- */}
       <Box className="map-container" sx={{ flexGrow: 1, width: '100%', position: 'relative', border: '1px solid #ccc', borderRadius: '4px', overflow: 'hidden' }}>
+         {/* Loading overlay for map area */}
+         {isLoadingFiles && (
+             <Box sx={{
+                 position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                 backgroundColor: 'rgba(255,255,255,0.7)', display: 'flex',
+                 justifyContent: 'center', alignItems: 'center', zIndex: 1100 // Ensure it's above map controls
+             }}>
+                 <CircularProgress />
+             </Box>
+         )}
+        {/* Conditionally render MapContainer only when not loading files to avoid issues with initial state */}
         {!isLoadingFiles && !errorFiles && (
             <MapContainer
-                // REMOVED the dynamic key to prevent aggressive re-mounts
-                center={mapCenterToUse} // Initial center
-                zoom={mapZoomToUse}     // Initial zoom
+                // Use a key that changes ONLY when absolutely necessary, e.g., initial load maybe,
+                // but NOT on every filter change if possible.
+                // key={mapFiles.length > 0 ? 'map-with-data' : 'map-no-data'} // Example minimal key change
+                center={mapCenterToUse}
+                zoom={mapZoomToUse}
                 maxZoom={MAX_MAP_AND_TILE_ZOOM}
                 style={{ height: '100%', width: '100%' }}
                 zoomControl={true}
@@ -230,102 +322,102 @@ const MapComponent = ({ isCollapsed }) => {
                 <TileLayer
                     attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    maxZoom={MAX_MAP_AND_TILE_ZOOM}     // Layer stops rendering tiles beyond this
-                    maxNativeZoom={20}// Explicitly state OSM's native max
+                    maxZoom={MAX_MAP_AND_TILE_ZOOM}
+                    maxNativeZoom={19} // Set OSM's actual max native zoom
                 />
-                <MapEvents /> {/* Handles zoom state update */}
+                <MapEvents />
 
-                {/* --- CONDITIONAL MARKER RENDERING BASED ON ZOOM --- */}
-
-                {/* 1. Display overview markers if zoomed OUT */}
+                {/* --- CONDITIONAL MARKER RENDERING --- */}
                 {currentZoom < ZOOM_THRESHOLD_FOR_MIDPOINTS && filesWithMainCoords.map(file => {
-                    const potreeViewPath = file.potreeUrl && typeof file.potreeUrl === 'string' && file.potreeUrl !== 'pending_refresh'
-                        ? `/potree?url=${encodeURIComponent(file.potreeUrl)}`
-                        : null;
-                    return (
-                        <Marker
-                            position={[file.latitude, file.longitude]}
-                            key={`file-main-overview-${file.id}`}
-                        >
-                            <Popup minWidth={200}>
-                                <div style={{ lineHeight: 1.5 }}>
-                                    <Typography variant="subtitle2" component="strong" gutterBottom>
-                                        {file.name || 'Unnamed File'} (Overview)
-                                    </Typography>
-                                    <Typography variant="body2">Coords: {file.latitude.toFixed(5)}, {file.longitude.toFixed(5)}</Typography>
-                                    <Typography variant="body2">Division: {file.divisionName}</Typography>
-                                    <Typography variant="body2">Project: {file.projectName}</Typography>
-                                    {potreeViewPath ? (
-                                       <Link to={potreeViewPath} style={{ textDecoration: 'none', color: '#3388cc', fontWeight: 'bold', display: 'block', marginTop: '8px' }}>
-                                         View Point Cloud
-                                       </Link>
-                                    ) : (
-                                       <Typography variant="caption" style={{color: '#999', fontStyle: 'italic', display: 'block', marginTop: '8px'}}>
-                                          Potree data not ready or file not converted.
-                                       </Typography>
-                                    )}
-                                    <Typography variant="caption" sx={{ color: 'gray', display: 'block', mt: 1 }}>
-                                        Zoom in to see individual tree midpoints.
-                                    </Typography>
-                                </div>
-                            </Popup>
-                        </Marker>
-                    );
+                    /* ... existing overview marker code ... */
+                      const potreeViewPath = file.potreeUrl && typeof file.potreeUrl === 'string' && file.potreeUrl !== 'pending_refresh'
+                          ? `/potree?url=${encodeURIComponent(file.potreeUrl)}`
+                          : null;
+                      return (
+                          <Marker
+                              position={[file.latitude, file.longitude]}
+                              key={`file-main-overview-${file.id}`}
+                          >
+                              <Popup minWidth={200}>
+                                  <div style={{ lineHeight: 1.5 }}>
+                                      <Typography variant="subtitle2" component="strong" gutterBottom>
+                                          {file.name || 'Unnamed File'} (Overview)
+                                      </Typography>
+                                      <Typography variant="body2">Coords: {file.latitude.toFixed(5)}, {file.longitude.toFixed(5)}</Typography>
+                                      <Typography variant="body2">Division: {file.divisionName}</Typography>
+                                      <Typography variant="body2">Project: {file.projectName}</Typography>
+                                      {potreeViewPath ? (
+                                         <Link to={potreeViewPath} style={{ textDecoration: 'none', color: '#3388cc', fontWeight: 'bold', display: 'block', marginTop: '8px' }} target="_blank" rel="noopener noreferrer">
+                                           View Point Cloud
+                                         </Link>
+                                      ) : (
+                                         <Typography variant="caption" style={{color: '#999', fontStyle: 'italic', display: 'block', marginTop: '8px'}}>
+                                            Potree data not ready or file not converted.
+                                         </Typography>
+                                      )}
+                                      <Typography variant="caption" sx={{ color: 'gray', display: 'block', mt: 1 }}>
+                                          Zoom in to see individual tree midpoints.
+                                      </Typography>
+                                  </div>
+                              </Popup>
+                          </Marker>
+                      );
                 })}
 
-                {/* 2. Display detailed markers if zoomed IN */}
                 {currentZoom >= ZOOM_THRESHOLD_FOR_MIDPOINTS && (
                     <>
-                        {/* 2a. Midpoints (clustered) for files that HAVE them */}
+                        {/* 2a. Midpoints (clustered) */}
                         <MarkerClusterGroup
                              spiderfyOnMaxZoom={true}
                              showCoverageOnHover={true}
-                             zoomToBoundsOnClick={true} // This can cause the map to pan/zoom to fit cluster
-                             maxClusterRadius={1}   // Default is 80, smaller might feel less jumpy
+                             zoomToBoundsOnClick={true}
+                             maxClusterRadius={40} // Smaller radius can feel less jumpy
                              disableClusteringAtZoom={DECLUSTER_AT_ZOOM}
                         >
                             {mapFiles
                                 .filter(file => file.tree_midpoints && Object.keys(file.tree_midpoints).length > 0)
                                 .flatMap(file =>
                                     Object.entries(file.tree_midpoints).map(([treeId, midpoint]) => {
-                                        if (midpoint && typeof midpoint.latitude === 'number' && typeof midpoint.longitude === 'number') {
-                                            return (
-                                                <Marker
-                                                    position={[midpoint.latitude, midpoint.longitude]}
-                                                    key={`file-${file.id}-tree-${treeId}`}
-                                                >
-                                                    <Popup minWidth={200}>
-                                                        <div style={{ lineHeight: 1.5 }}>
-                                                            <Typography variant="subtitle2" component="strong" gutterBottom>Tree ID: {treeId}</Typography>
-                                                            <Typography variant="body2">File: {file.name || 'Unnamed File'}</Typography>
-                                                            <Typography variant="body2">Midpoint: {midpoint.latitude.toFixed(5)}, {midpoint.longitude.toFixed(5)}</Typography>
-                                                            {midpoint.z_original !== undefined && (<Typography variant="body2">Original Z: {midpoint.z_original.toFixed(2)}</Typography>)}
-                                                            <Typography variant="body2">Division: {file.divisionName}</Typography>
-                                                            <Typography variant="body2">Project: {file.projectName}</Typography>
-                                                        </div>
-                                                    </Popup>
-                                                </Marker>
-                                            );
-                                        }
-                                        return null;
+                                        /* ... existing midpoint marker code ... */
+                                          if (midpoint && typeof midpoint.latitude === 'number' && typeof midpoint.longitude === 'number') {
+                                              return (
+                                                  <Marker
+                                                      position={[midpoint.latitude, midpoint.longitude]}
+                                                      key={`file-${file.id}-tree-${treeId}`}
+                                                  >
+                                                      <Popup minWidth={200}>
+                                                          <div style={{ lineHeight: 1.5 }}>
+                                                              <Typography variant="subtitle2" component="strong" gutterBottom>Tree ID: {treeId}</Typography>
+                                                              <Typography variant="body2">File: {file.name || 'Unnamed File'}</Typography>
+                                                              <Typography variant="body2">Midpoint: {midpoint.latitude.toFixed(5)}, {midpoint.longitude.toFixed(5)}</Typography>
+                                                              {midpoint.z_original !== undefined && (<Typography variant="body2">Original Z: {midpoint.z_original.toFixed(2)}</Typography>)}
+                                                              <Typography variant="body2">Division: {file.divisionName}</Typography>
+                                                              <Typography variant="body2">Project: {file.projectName}</Typography>
+                                                          </div>
+                                                      </Popup>
+                                                  </Marker>
+                                              );
+                                          }
+                                          return null;
                                     }).filter(Boolean)
                                 )}
                         </MarkerClusterGroup>
 
-                        {/* 2b. Main file marker for files WITHOUT midpoints but with main coords */}
+                        {/* 2b. Main file marker for files WITHOUT midpoints */}
                         {mapFiles
                             .filter(file =>
-                                filesWithMainCoords.some(fwc => fwc.id === file.id) && // Has main coords
-                                (!file.tree_midpoints || Object.keys(file.tree_midpoints).length === 0) // And NO midpoints
+                                filesWithMainCoords.some(fwc => fwc.id === file.id) &&
+                                (!file.tree_midpoints || Object.keys(file.tree_midpoints).length === 0)
                             )
                             .map(file => {
+                                /* ... existing main marker code for zoomed-in view ... */
                                 const potreeViewPath = file.potreeUrl && typeof file.potreeUrl === 'string' && file.potreeUrl !== 'pending_refresh'
                                     ? `/potree?url=${encodeURIComponent(file.potreeUrl)}`
                                     : null;
                                 return (
                                     <Marker
                                         position={[file.latitude, file.longitude]}
-                                        key={`file-main-zoomed-${file.id}`} // Different key
+                                        key={`file-main-zoomed-${file.id}`}
                                     >
                                         <Popup minWidth={200}>
                                             <div style={{ lineHeight: 1.5 }}>
@@ -356,25 +448,10 @@ const MapComponent = ({ isCollapsed }) => {
                 )}
             </MapContainer>
         )}
-        {/* --- Message for no markers found --- */}
+         {/* --- Message for no markers found --- */}
          {!hasAnyMarkersToShow && !isLoadingFiles && !errorFiles && (
-           <Box sx={{
-               textAlign: 'center', padding: '10px', color: '#555', position: 'absolute',
-               top: '10px', left: '50%', transform: 'translateX(-50%)',
-               background: 'rgba(255,255,255,0.8)', zIndex: 1000,
-               borderRadius: '4px', pointerEvents: 'none'
-           }}>
-             No data points found matching the current filters and zoom level.
-           </Box>
-         )}
-         {/* Loading overlay for map area */}
-         {isLoadingFiles && (
-             <Box sx={{
-                 position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-                 backgroundColor: 'rgba(255,255,255,0.7)', display: 'flex',
-                 justifyContent: 'center', alignItems: 'center', zIndex: 1100
-             }}>
-                 <CircularProgress />
+             <Box sx={{ /* ... existing styles ... */ }}>
+                 No data points found matching the current filters and zoom level.
              </Box>
          )}
       </Box>
