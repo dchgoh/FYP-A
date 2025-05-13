@@ -171,11 +171,10 @@ const createFilesTable = async () => {
           plot_name VARCHAR(255), -- Allow NULL if plot name is optional during upload
           latitude DOUBLE PRECISION,
           longitude DOUBLE PRECISION,
-          -- *** ADDED COLUMNS ***
           status VARCHAR(50) DEFAULT 'uploaded', -- Add the status column with a default value
           processing_error TEXT, -- Add a column to store processing errors
           tree_midpoints JSONB, 
-          -- *********************
+          tree_count INTEGER,
           CONSTRAINT fk_project
             FOREIGN KEY(project_id)
             REFERENCES projects(id)

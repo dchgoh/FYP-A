@@ -24,6 +24,9 @@ router.get('/recent', fileController.getRecentFiles);
 // *** NEW: Get File Count ***
 router.get('/count', fileController.getFileCount);
 
+// --- NEW: Get Total Tree Count ---
+router.get('/count/trees', fileController.getTreeCount); 
+
 // Download: All logged-in users (Frontend gates further)
 router.get('/download/:id', fileController.downloadFile);
 
