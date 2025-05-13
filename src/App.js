@@ -1,17 +1,16 @@
 import { useState, React, useEffect } from "react"; // Import useEffect
 import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { jwtDecode } from "jwt-decode";
-import Topbar from "./scenes/global/Topbar";
-import Sidebar from "./scenes/global/Sidebar";
-import Dashboard from "./scenes/dashboard";
-import Team from "./scenes/team";
-import Upload from "./scenes/upload";
+import Topbar from "./scenes/global/topbar";
+import Sidebar from "./scenes/global/sidebar";
+import Dashboard from "./scenes/dashboard/dashboard";
+import Team from "./scenes/team/team";
+import Upload from "./scenes/upload/upload";
 import Login from "./scenes/login/login";
-import TreeCountDashboard from "./scenes/treecount";
-import AreaDataDashboard from "./scenes/area";
-import MapDashboard from "./scenes/map";
-import PotreeDashboard from "./scenes/view_potree";
-import PotreeViewer from './PotreeViewer';
+import TreeCountDashboard from "./scenes/treecount/treecount";
+import AreaDataDashboard from "./scenes/area/area";
+import MapDashboard from "./scenes/map/map";
+import PotreeViewer from './scenes/potree_viewer/potree_viewer';
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { ColorModeContext, useMode } from "./theme";
 
@@ -95,15 +94,14 @@ function App() {
   }, [isCollapsed]);
 
   // Determine if the sidebar should be shown based on the current route
-  const showSidebar = isAuthenticated && !location.pathname.startsWith("/potree");
-  const showTopbar = isAuthenticated && !location.pathname.startsWith("/potree");
+  const showSidebar = isAuthenticated;
+  const showTopbar = isAuthenticated;
 
   return (
     <ColorModeContext.Provider value={colorMode}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <div className="app">
-          {/* Render Sidebar only if authenticated and not on the Potree page */}
           {showSidebar && (
             <Sidebar
               isSidebar={isSidebar}
@@ -112,7 +110,6 @@ function App() {
             />
           )}
           <main className="content" style={{ marginLeft: showSidebar ? undefined : 0 }}>
-            {/* Render Topbar only if authenticated and not on the Potree page */}
             {showTopbar && (
               <Topbar
                 setIsSidebar={setIsSidebar}
@@ -161,12 +158,8 @@ function App() {
                 element={isAuthenticated ? <MapDashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
               />
               <Route
-                path="/view_potree"
-                element={isAuthenticated ? <PotreeDashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
-              />
-              <Route
                 path="/potree"
-                element={isAuthenticated ? <PotreeViewer /> : <Navigate to="/login" replace />}
+                element={isAuthenticated ? <PotreeViewer isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
               />
 
               {/* Fallback Route for unknown paths */}

@@ -1,9 +1,8 @@
 import React, { useState } from "react";
 import "./login.css"; // Assuming you have this CSS file
 import { FaEnvelope, FaEye, FaSpinner } from "react-icons/fa";
-// Removed useNavigate here, navigation is handled by App.js after successful login
+import { CircularProgress } from "@mui/material";
 
-// Renamed prop: receive onLoginSuccess from App.js
 const Login = ({ onLoginSuccess }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
@@ -22,7 +21,7 @@ const Login = ({ onLoginSuccess }) => {
     setMfaRequired(false); // Reset MFA state on new login attempt
 
     try {
-      const response = await fetch("http://localhost:5000/api/login", {
+      const response = await fetch("http://localhost:5000/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -75,7 +74,7 @@ const Login = ({ onLoginSuccess }) => {
     setIsError(false);
 
     try {
-        const response = await fetch("http://localhost:5000/api/verify-mfa", {
+        const response = await fetch("http://localhost:5000/api/auth/verify-mfa", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             // Send email to identify user, and the code they entered
@@ -196,7 +195,7 @@ const Login = ({ onLoginSuccess }) => {
                 disabled={isMfaLoading || !mfaCode || mfaCode.length !== 6} // Basic validation
             >
               {/* Show spinner *inside* button text area */}
-              {isMfaLoading ? <FaSpinner className="spinner"/> : "Verify MFA"}
+              {isMfaLoading ? <CircularProgress color="inherit" size={24} /> : "Verify MFA"}
             </button>
           ) : (
             <button
@@ -205,7 +204,7 @@ const Login = ({ onLoginSuccess }) => {
                 disabled={isLoading || !email || !password}
             >
                {/* Show spinner *inside* button text area */}
-              {isLoading ? <FaSpinner className="spinner"/> : "Login"}
+              {isLoading ? <CircularProgress color="inherit" size={24} /> : "Login"}
             </button>
           )}
         </div>
