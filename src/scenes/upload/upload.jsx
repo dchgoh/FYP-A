@@ -5,7 +5,7 @@ import {
   DialogTitle, DialogContent, DialogActions, Snackbar, Alert, CircularProgress,
   LinearProgress, ListItemIcon, ListItemText, Select, FormControl, InputLabel,
   TextField, Grid, Accordion, AccordionSummary, AccordionDetails, List, ListItem,
-  Divider, Chip, Tooltip
+  Divider, Chip, Tooltip, Checkbox // Added Checkbox
 } from "@mui/material";
 // Icons
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -35,74 +35,89 @@ const ROLES = {
   REGULAR: 'Regular',
 };
 
+// Define active processing states that make a file non-interactive for certain actions
+const ACTIVE_PIPELINE_PROCESSING_STATUSES = [
+    'segmenting',
+    'processing_las_data',
+    'converting_potree',
+    'processing' // General/manual conversion status
+];
+
+
 // --- COMPONENT DEFINITION ---
 const FileManagement = ({ isCollapsed }) => {
 
-  // --- HOOKS ---
-  const theme = useTheme();
-  const colors = tokens(theme.palette.mode);
-  const navigate = useNavigate();
-  const fileInputRef = useRef(null);
+    // --- HOOKS ---
+    const theme = useTheme();
+    const colors = tokens(theme.palette.mode);
+    const navigate = useNavigate();
+    const fileInputRef = useRef(null);
 
-  // State Management
-  const [files, setFiles] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [anchorEl, setAnchorEl] = useState(null);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [openUploadModal, setOpenUploadModal] = useState(false);
-  const [newFile, setNewFile] = useState(null);
-  const [uploadProgress, setUploadProgress] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [convertingFileId, setConvertingFileId] = useState(null);
-  const [filterProjectId, setFilterProjectId] = useState('all');
-  const [filterDivisionId, setFilterDivisionId] = useState('all');
-  const [assignProjectModalOpen, setAssignProjectModalOpen] = useState(false);
-  const [fileToAssignProject, setFileToAssignProject] = useState(null);
-  const [selectedProjectIdForAssignment, setSelectedProjectIdForAssignment] = useState('');
-  const [isAssigningProject, setIsAssigningProject] = useState(false);
-  const [createProjectModalOpen, setCreateProjectModalOpen] = useState(false);
-  const [createDivisionModalOpen, setCreateDivisionModalOpen] = useState(false);
-  const [newProjectName, setNewProjectName] = useState('');
-  const [newDivisionName, setNewDivisionName] = useState('');
-  const [isCreatingDivision, setIsCreatingDivision] = useState(false);
-  const [isCreatingProject, setIsCreatingProject] = useState(false);
-  const [userRole, setUserRole] = useState(null);
-  const [userId, setUserId] = useState(null);
-  const [assignedProjectIdsForDM, setAssignedProjectIdsForDM] = useState([]);
-  const [isLoadingPermissions, setIsLoadingPermissions] = useState(true);
-  const [isProjectSettingsModalOpen, setIsProjectSettingsModalOpen] = useState(false);
-  const [divisionsList, setDivisionsList] = useState([]);
-  const [projectsList, setProjectsList] = useState([]);
-  const [allDataManagers, setAllDataManagers] = useState([]);
-  const [assignmentsInModal, setAssignmentsInModal] = useState({});
-  const [selectedManagerToAddInModal, setSelectedManagerToAddInModal] = useState({});
-  const [loadingDivisionsList, setLoadingDivisionsList] = useState(false);
-  const [loadingProjectsList, setLoadingProjectsList] = useState(false);
-  const [loadingModalDMs, setLoadingModalDMs] = useState(false);
-  const [loadingAssignmentsForProjectId, setLoadingAssignmentsForProjectId] = useState(null);
-  const [processingAssignmentInModal, setProcessingAssignmentInModal] = useState(null);
-  const [snackbarOpen, setSnackbarOpen] = useState(false);
-  const [snackbarMessage, setSnackbarMessage] = useState("");
-  const [snackbarSeverity, setSnackbarSeverity] = useState("success");
-  const [deletingProjectId, setDeletingProjectId] = useState(null);
-  const [plotName, setPlotName] = useState('');
-  const [selectedProjectId, setSelectedProjectId] = useState('');
-  const [selectedDivisionIdForCreation, setSelectedDivisionIdForCreation] = useState('');
-  const [isDivisionProjectSettingsModalOpen, setIsDivisionProjectSettingsModalOpen] = useState(false);
-  const [deletingDivisionId, setDeletingDivisionId] = useState(null); // State for division deletion
-  const [reassignModalOpen, setReassignModalOpen] = useState(false);
-  const [fileToReassign, setFileToReassign] = useState(null);
-  const [selectedProjectIdForReassign, setSelectedProjectIdForReassign] = useState('');
-  const [newPlotNameForReassign, setNewPlotNameForReassign] = useState('');
-  const [isReassigning, setIsReassigning] = useState(false);
-  const [filesBeingProcessed, setFilesBeingProcessed] = useState(new Set());
+    // State Management
+    const [files, setFiles] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [anchorEl, setAnchorEl] = useState(null);
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [openUploadModal, setOpenUploadModal] = useState(false);
+    const [newFile, setNewFile] = useState(null);
+    const [uploadProgress, setUploadProgress] = useState(null);
+    const [isUploading, setIsUploading] = useState(false);
+    // const [convertingFileId, setConvertingFileId] = useState(null); // Replaced by filesBeingProcessed for optimistic UI
+    const [filterProjectId, setFilterProjectId] = useState('all');
+    const [filterDivisionId, setFilterDivisionId] = useState('all');
+    const [assignProjectModalOpen, setAssignProjectModalOpen] = useState(false);
+    const [fileToAssignProject, setFileToAssignProject] = useState(null);
+    const [selectedProjectIdForAssignment, setSelectedProjectIdForAssignment] = useState('');
+    const [isAssigningProject, setIsAssigningProject] = useState(false);
+    const [createProjectModalOpen, setCreateProjectModalOpen] = useState(false);
+    const [createDivisionModalOpen, setCreateDivisionModalOpen] = useState(false);
+    const [newProjectName, setNewProjectName] = useState('');
+    const [newDivisionName, setNewDivisionName] = useState('');
+    const [isCreatingDivision, setIsCreatingDivision] = useState(false);
+    const [isCreatingProject, setIsCreatingProject] = useState(false);
+    const [userRole, setUserRole] = useState(null);
+    const [userId, setUserId] = useState(null);
+    const [assignedProjectIdsForDM, setAssignedProjectIdsForDM] = useState([]);
+    const [isLoadingPermissions, setIsLoadingPermissions] = useState(true);
+    const [isProjectSettingsModalOpen, setIsProjectSettingsModalOpen] = useState(false);
+    const [divisionsList, setDivisionsList] = useState([]);
+    const [projectsList, setProjectsList] = useState([]);
+    const [allDataManagers, setAllDataManagers] = useState([]);
+    const [assignmentsInModal, setAssignmentsInModal] = useState({});
+    const [selectedManagerToAddInModal, setSelectedManagerToAddInModal] = useState({});
+    const [loadingDivisionsList, setLoadingDivisionsList] = useState(false);
+    const [loadingProjectsList, setLoadingProjectsList] = useState(false);
+    const [loadingModalDMs, setLoadingModalDMs] = useState(false);
+    const [loadingAssignmentsForProjectId, setLoadingAssignmentsForProjectId] = useState(null);
+    const [processingAssignmentInModal, setProcessingAssignmentInModal] = useState(null);
+    const [snackbarOpen, setSnackbarOpen] = useState(false);
+    const [snackbarMessage, setSnackbarMessage] = useState("");
+    const [snackbarSeverity, setSnackbarSeverity] = useState("success");
+    const [deletingProjectId, setDeletingProjectId] = useState(null);
+    const [plotName, setPlotName] = useState('');
+    const [selectedProjectId, setSelectedProjectId] = useState('');
+    const [selectedDivisionIdForCreation, setSelectedDivisionIdForCreation] = useState('');
+    const [isDivisionProjectSettingsModalOpen, setIsDivisionProjectSettingsModalOpen] = useState(false);
+    const [deletingDivisionId, setDeletingDivisionId] = useState(null); 
+    const [reassignModalOpen, setReassignModalOpen] = useState(false);
+    const [fileToReassign, setFileToReassign] = useState(null);
+    const [selectedProjectIdForReassign, setSelectedProjectIdForReassign] = useState('');
+    const [newPlotNameForReassign, setNewPlotNameForReassign] = useState('');
+    const [isReassigning, setIsReassigning] = useState(false);
+    const [filesBeingProcessed, setFilesBeingProcessed] = useState(new Set());
+    const [isPolling, setIsPolling] = useState(false);
+
+    // --- NEW STATE FOR BULK ACTIONS ---
+    const [selectedFileIds, setSelectedFileIds] = useState(new Set());
+    const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+
 
   // --- UTILITY FUNCTIONS ---
   const showSnackbar = useCallback((message, severity = "success") => {
     setSnackbarMessage(message);
     setSnackbarSeverity(severity);
     setSnackbarOpen(true);
-  }, []); // <-- Add useCallback with empty dependency array
+  }, []); 
 
   const handleSnackbarClose = (event, reason) => {
     if (reason === "clickaway") return;
@@ -113,32 +128,36 @@ const FileManagement = ({ isCollapsed }) => {
   const canPerformAction = useCallback((action, file = null) => {
     if (isLoadingPermissions || !userRole) return false;
 
-    const requiresFileContext = ['download', 'delete', 'convert', 'assignProject', 'view'];
+    const requiresFileContext = ['download', 'delete', 'convert', 'assignProject', 'view', 'reassign']; // Added reassign
     if (requiresFileContext.includes(action) && !file) {
-         if (action !== 'upload' && action !== 'manageAssignments') {
+         if (action !== 'upload' && action !== 'manageAssignments' && action !== 'createProject' && action !== 'createDivision') { // Added createProject, createDivision
              console.warn(`canPerformAction denied - missing file object for action: ${action}`);
             return false;
          }
      }
 
     if (userRole === ROLES.ADMIN) {
-        return action !== 'manageAssignments';
+        // Admin can do almost anything except be assigned (that's for DMs)
+        return action !== 'manageAssignments'; // This seems to be for a specific modal button, not a general permission
     }
 
     if (userRole === ROLES.DATA_MANAGER) {
         switch (action) {
             case 'upload':
-            case 'view':
-            case 'download':
+            case 'view': // View any ready file
+            case 'download': // Download any file
                 return true;
-            case 'assignProject':
-                return file?.project_id === null || assignedProjectIdsForDM.includes(file?.project_id);
-            case 'delete':
-                return file?.project_id !== null || assignedProjectIdsForDM.includes(file.project_id);
-            case 'reassign':
-                return file?.project_id !== null || assignedProjectIdsForDM.includes(file.project_id);
-            case 'manageAssignments':
-            case 'createProject':
+            case 'convert': // DM can convert any file not yet converted or failed
+                 return file && (!file.potreeUrl || file.status === 'failed');
+            case 'assignProject': // DM can assign unassigned files or re-assign files from projects they manage
+                 return file && (file.project_id === null || assignedProjectIdsForDM.includes(file.project_id));
+            case 'delete': // DM can delete unassigned files or files from projects they manage
+                 return file && (file.project_id === null || assignedProjectIdsForDM.includes(file.project_id));
+            case 'reassign': // DM can reassign plot name/project for files they manage or unassigned
+                 return file && (file.project_id === null || assignedProjectIdsForDM.includes(file.project_id));
+            case 'createProject': // DMs typically don't create projects
+            case 'createDivision': // DMs typically don't create divisions
+            case 'manageAssignments': // This refers to the admin modal for assigning DMs to projects
                 return false;
             default:
                 return false;
@@ -146,9 +165,16 @@ const FileManagement = ({ isCollapsed }) => {
     }
 
     if (userRole === ROLES.REGULAR) {
-        return ['view', 'convert'].includes(action);
+        // Regular users can only view ready files or trigger conversion for non-ready files
+        switch (action) {
+            case 'view':
+                return file && !!file.potreeUrl;
+            case 'convert':
+                return file && (!file.potreeUrl || file.status === 'failed');
+            default:
+                return false;
+        }
     }
-
     return false;
   }, [isLoadingPermissions, userRole, assignedProjectIdsForDM]);
 
@@ -183,20 +209,16 @@ const FileManagement = ({ isCollapsed }) => {
       }
   }, [showSnackbar ]);
 
-    // Add filesBeingProcessed state if you haven't already:
-  // const [filesBeingProcessed, setFilesBeingProcessed] = useState(new Set());
-
   const fetchFiles = useCallback(async (
     projectIdToFilter = filterProjectId,
     divisionIdToFilter = filterDivisionId
   ) => {
-      // Check permissions and authentication token first
       if (isLoadingPermissions || !userRole) {
-          setFiles([]); // Clear files if not authorized
+          setFiles([]); 
           setIsLoading(false);
           return;
       }
-      setIsLoading(true); // Set loading state for the table
+      setIsLoading(true); 
       const token = localStorage.getItem('authToken');
       if (!token) {
           showSnackbar("Authentication required to fetch files.", "error");
@@ -205,7 +227,6 @@ const FileManagement = ({ isCollapsed }) => {
       }
 
       try {
-          // Prepare parameters for the API request
           const params = {};
           if (projectIdToFilter && projectIdToFilter !== 'all') {
               params.projectId = projectIdToFilter;
@@ -214,82 +235,54 @@ const FileManagement = ({ isCollapsed }) => {
               params.divisionId = divisionIdToFilter;
           }
 
-          // Make the API call to fetch files
           const res = await axios.get(`${API_BASE_URL}/files`, {
               headers: { 'Authorization': `Bearer ${token}` },
               params: params
           });
-
-          // Process the response data
           const filesData = Array.isArray(res.data) ? res.data : [];
-
-          // Format the file data for display
           const formatted = filesData.map(f => ({
-              ...f, // Spread existing file properties from backend
-              // Frontend calculated/formatted fields:
+              ...f, 
               size: f.size_bytes ? (f.size_bytes / 1024 / 1024).toFixed(2) + ' MB' : 'N/A',
               uploadDate: f.upload_date ? new Date(f.upload_date).toLocaleDateString() : 'N/A',
-              // potreeUrl comes directly from backend (null or path string)
               potreeUrl: f.potreeUrl || null,
               projectName: f.projectName || "Unassigned",
               divisionName: f.divisionName || "N/A"
           }));
-
-          // Update the main file list state
           setFiles(formatted);
 
-          // *** ADDED: Cleanup Optimistic State ***
-          // Remove IDs from filesBeingProcessed if the fetched data now shows a potreeUrl
-          // (meaning conversion completed) or if the file is no longer in the list.
           setFilesBeingProcessed(currentProcessing => {
-              // Create a mutable copy of the current processing set
               const stillProcessing = new Set(currentProcessing);
-              // Create a set of IDs from the files just fetched for efficient lookup
               const fetchedFileIds = new Set(formatted.map(f => f.id));
-
-              // Iterate through the IDs that were previously marked as processing
               currentProcessing.forEach(id => {
-                  // Find the file details in the newly fetched data corresponding to the processing ID
                   const fileInData = formatted.find(f => f.id === id);
-
-                  // Check if the file should no longer be considered processing:
-                  // 1. The file ID is no longer present in the fetched data (deleted, filtered out)
-                  // OR
-                  // 2. The file exists in the fetched data AND it now has a potreeUrl (conversion is done)
                   if (!fetchedFileIds.has(id) || (fileInData && fileInData.potreeUrl)) {
-                       // If the ID is still in our 'stillProcessing' set, remove it
                        if (stillProcessing.has(id)) {
                           console.log(`Optimistic state cleanup: Removing File ${id} from processing set.`);
                           stillProcessing.delete(id);
                        }
                   }
               });
-              // Return the cleaned-up set to update the state
               return stillProcessing;
           });
-          // *** END OF ADDED BLOCK ***
+          // Clear selections if files list changes significantly (e.g. due to filter)
+          // setSelectedFileIds(new Set()); // Or be more selective if needed
 
       } catch (e) {
-          // Handle errors during the fetch operation
           console.error("Error fetching files:", e);
-          // Avoid showing snackbar for auth errors (handled elsewhere), show for others
           if (!(e.response?.status === 401 || e.response?.status === 403)) {
               showSnackbar("Failed to load files.", "error");
           }
-          setFiles([]); // Clear files on error
+          setFiles([]); 
+          setSelectedFileIds(new Set()); // Clear selection on error too
       } finally {
-          // Ensure loading state is turned off regardless of success or error
           setIsLoading(false);
       }
   }, [
-      // Dependencies for useCallback: Re-create function if these change
       filterProjectId,
       filterDivisionId,
       isLoadingPermissions,
       userRole,
-      showSnackbar // Assuming showSnackbar is stable (defined with useCallback)
-      // filesBeingProcessed is intentionally NOT listed here to avoid infinite loops
-      // setFilesBeingProcessed is also stable and doesn't need to be listed
+      showSnackbar 
   ]);
 
   const fetchAllDataManagersForModal = useCallback(async (token) => {
@@ -322,7 +315,41 @@ const FileManagement = ({ isCollapsed }) => {
   }, [showSnackbar]);
 
   // --- EFFECTS ---
-  // Fetch User Info and Permissions on Mount
+
+    useEffect(() => {
+        const activeProcessingStatesForPolling = ACTIVE_PIPELINE_PROCESSING_STATUSES.concat(['uploaded']); // Add 'uploaded' for polling
+        const shouldPoll = files.some(file =>
+            activeProcessingStatesForPolling.includes(file.status) && !file.potreeUrl
+        );
+
+        if (shouldPoll && !isPolling) {
+            setIsPolling(true);
+        } else if (!shouldPoll && isPolling) {
+            setIsPolling(false);
+        }
+    }, [files, isPolling]); 
+
+    useEffect(() => {
+        let intervalId;
+        if (isPolling && !isLoadingPermissions && userRole && !isLoading) { 
+            console.log("FileManagement: Starting polling interval.");
+            intervalId = setInterval(() => {
+                console.log("FileManagement: Polling for file status updates...");
+                fetchFiles(); 
+            }, 7000); // Poll every 7 seconds 
+        } else if (intervalId) {
+            console.log("FileManagement: Clearing polling interval (polling stopped or component unmounting).");
+            clearInterval(intervalId);
+        }
+        return () => {
+            if (intervalId) {
+                console.log("FileManagement: Clearing polling interval on cleanup.");
+                clearInterval(intervalId);
+            }
+        };
+    }, [isPolling, isLoadingPermissions, userRole, fetchFiles, isLoading]);
+
+
   useEffect(() => {
     const fetchUserAndPermissions = async () => {
       setIsLoadingPermissions(true);
@@ -337,7 +364,7 @@ const FileManagement = ({ isCollapsed }) => {
         setUserRole(role); setUserId(uId);
 
         await fetchDivisionsList(token);
-        await fetchProjectsList(token); // Always fetch projects
+        await fetchProjectsList(token); 
 
         if (role === ROLES.DATA_MANAGER) {
           try {
@@ -362,20 +389,20 @@ const FileManagement = ({ isCollapsed }) => {
       }
     };
     fetchUserAndPermissions();
-  }, [fetchProjectsList, fetchAllDataManagersForModal,fetchDivisionsList]); // Added dependencies
+  }, [fetchProjectsList, fetchAllDataManagersForModal,fetchDivisionsList]); 
 
-  // Fetch Files when Permissions Loaded or Filters Change
   useEffect(() => {
       if (!isLoadingPermissions && userRole) {
           fetchFiles();
       } else {
-          setFiles([]); // Clear files if not authenticated/authorized
+          setFiles([]); 
+          setSelectedFileIds(new Set()); // Clear selection
       }
-  }, [isLoadingPermissions, userRole, fetchFiles]); // Dependencies already include filterProjectId via fetchFiles
+  }, [isLoadingPermissions, userRole, fetchFiles]); 
 
   // --- ACTION HANDLERS ---
   const handleMenuClick = (event, file) => { setAnchorEl(event.currentTarget); setSelectedFile(file); };
-  const handleMenuClose = () => { setAnchorEl(null); /* Keep selectedFile for potential async actions */ };
+  const handleMenuClose = () => { setAnchorEl(null); /* setSelectedFile(null) potentially later if needed */ };
 
   const handleDownload = async (fileToDownload) => {
     if (!canPerformAction('download', fileToDownload)) { showSnackbar("Permission denied.", "error"); handleMenuClose(); return; }
@@ -408,9 +435,11 @@ const FileManagement = ({ isCollapsed }) => {
     if (!canPerformAction('delete', fileToRemove)) { showSnackbar("Permission denied.", "error"); handleMenuClose(); return; }
     const fileId = fileToRemove?.id;
     if (!fileId) { handleMenuClose(); return; }
-    handleMenuClose();
+    handleMenuClose(); // Close menu before confirmation
+    
     const conf = window.confirm(`Delete "${fileToRemove.name}" and associated Potree data?`);
     if (!conf) return;
+
     const token = localStorage.getItem('authToken');
     if (!token) { showSnackbar("Auth required.", "error"); return; }
     try {
@@ -418,6 +447,11 @@ const FileManagement = ({ isCollapsed }) => {
         if (res.status === 200 || res.status === 204) {
             showSnackbar(`"${fileToRemove.name}" removed.`, "success");
             fetchFiles(); // Refresh file list
+            setSelectedFileIds(prev => { // Remove from selection if it was selected
+                const next = new Set(prev);
+                next.delete(fileId);
+                return next;
+            });
         } else { showSnackbar(res.data?.message || "Remove failed.", "warning"); }
     } catch (e) {
         console.error("Remove error:", e);
@@ -429,45 +463,37 @@ const FileManagement = ({ isCollapsed }) => {
     if (!canPerformAction('convert', fileToConvert)) { showSnackbar("Permission denied.", "error"); handleMenuClose(); return; }
     const fileId = fileToConvert?.id;
 
-    // *** ADDED: Prevent triggering if already optimistically processing ***
-    if (fileToConvert?.potreeUrl || filesBeingProcessed.has(fileId)) {
-        showSnackbar(filesBeingProcessed.has(fileId) ? "Conversion already in progress." : "Already converted.", "info");
+    if (fileToConvert?.potreeUrl || filesBeingProcessed.has(fileId) || ACTIVE_PIPELINE_PROCESSING_STATUSES.includes(fileToConvert?.status)) {
+        showSnackbar(filesBeingProcessed.has(fileId) || ACTIVE_PIPELINE_PROCESSING_STATUSES.includes(fileToConvert?.status) ? "Conversion already in progress or queued." : "Already converted.", "info");
         handleMenuClose();
         return;
     }
-    // ----------------------------------------------------------------------
     if (!fileId) { handleMenuClose(); return; }
 
     handleMenuClose();
     const token = localStorage.getItem('authToken');
     if (!token) { showSnackbar("Auth required.", "error"); return; }
 
-    // *** Optimistic Update ***
     setFilesBeingProcessed(prev => new Set(prev).add(fileId));
-    showSnackbar(`Starting conversion: "${fileToConvert.name}"... (UI may block)`, "info"); // Warn about blocking
+    showSnackbar(`Starting conversion: "${fileToConvert.name}"...`, "info"); 
 
     try {
-        // *** Call the backend (this will block until backend finishes) ***
         const res = await axios.get(`${API_BASE_URL}/files/potreeconverter/${fileId}`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
         if (res.data.success) {
-            showSnackbar(`"${fileToConvert.name}" converted! Refreshing...`, "success");
-            // *** Fetch updated list to get the potreeUrl & clear optimistic state ***
-            fetchFiles();
+            showSnackbar(`Conversion for "${fileToConvert.name}" initiated. Refreshing status...`, "info"); 
+            fetchFiles(); // This will also update filesBeingProcessed if conversion is done quickly
         } else {
             showSnackbar(res.data.message || `Conversion failed: ${fileToConvert.name}.`, "error");
-             // *** Remove from optimistic state on failure ***
              setFilesBeingProcessed(prev => { const next = new Set(prev); next.delete(fileId); return next; });
         }
     } catch (e) {
         console.error("Conversion error:", e);
         showSnackbar(e.response?.data?.message || `Server error during conversion.`, "error");
-         // *** Remove from optimistic state on error ***
          setFilesBeingProcessed(prev => { const next = new Set(prev); next.delete(fileId); return next; });
     }
-    // Note: No 'finally' block needed to clear state here, as fetchFiles() or error handling does it.
 };
 
   const handleViewPotree = (fileToView) => {
@@ -490,17 +516,17 @@ const FileManagement = ({ isCollapsed }) => {
   };
 
   const handleCloseUploadModal = () => {
-    if (isUploading) return; // Prevent closing during upload
+    if (isUploading) return; 
     setOpenUploadModal(false);
     setNewFile(null);
     setUploadProgress(null);
-    if (fileInputRef.current) fileInputRef.current.value = ''; // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = ''; 
   };
 
   const handleFileChange = (e) => {
     if (e.target.files?.[0]) {
         setNewFile(e.target.files[0]);
-        setUploadProgress(null); // Reset progress if a new file is selected
+        setUploadProgress(null); 
     }
   };
 
@@ -509,8 +535,6 @@ const FileManagement = ({ isCollapsed }) => {
   };
 
   const handleFileUpload = async () => {
-    console.log('--- handleFileUpload START (Frontend for FULLY AUTOMATED Backend Pipeline) ---');
-    // 1. Basic checks
     if (!canPerformAction('upload')) {
       showSnackbar("Permission denied.", "error");
       return;
@@ -525,85 +549,52 @@ const FileManagement = ({ isCollapsed }) => {
       return;
     }
 
-    // 2. Prepare FormData
     const fd = new FormData();
     fd.append('file', newFile);
     if (plotName.trim()) {
         fd.append('plot_name', plotName.trim());
     }
-    fd.append('project_id', selectedProjectId || ''); // Backend handles empty string as null
+    fd.append('project_id', selectedProjectId || ''); 
 
-    console.log('FormData prepared. Keys:', [...fd.keys()]);
-    console.log('Project ID being sent:', selectedProjectId || 'Not selected (will be null on backend)');
-
-    // 3. Start upload state
     setIsUploading(true);
     setUploadProgress(0);
-    // let uploadedFileId = null; // Not strictly needed here if not manually triggering anything after upload
-
+    
     try {
-        // --- Step 1: Upload the file ---
-        console.log(`>>> Making axios.post to: ${API_BASE_URL}/files/upload`);
         const uploadRes = await axios.post(`${API_BASE_URL}/files/upload`, fd, {
             headers: { 'Content-Type': 'multipart/form-data', 'Authorization': `Bearer ${token}` },
             onUploadProgress: (pe) => {
                 setUploadProgress(pe.total ? Math.round((pe.loaded * 100) / pe.total) : 0);
             }
         });
-        console.log('<<< axios.post FINISHED. Status:', uploadRes.status);
 
-        // 4. Handle successful upload response from backend
         if (uploadRes.data.success && uploadRes.data.file && uploadRes.data.file.id) {
-            // const uploadedFile = uploadRes.data.file; // Can use for more specific snackbar if needed
-            // const originalFileName = uploadedFile.name || newFile.name;
-
             showSnackbar(`File "${newFile.name}" uploaded. Backend processing pipeline initiated.`, "success");
             handleCloseUploadModal();
-
-            // Fetch files to get the new file in the list with its initial status (e.g., 'uploaded').
-            // The backend will then progress it through segmentation, LAS processing, and auto-Potree.
-            // Our polling mechanism (useEffect with setInterval calling fetchFiles) will pick up subsequent status changes.
-            await fetchFiles();
-
-            // --- NO MORE FRONTEND-INITIATED AUTO-CONVERSION TRIGGER ---
-            // The backend now handles the entire automated pipeline:
-            // Upload -> Segmentation -> LAS Data Processing -> Auto Potree Conversion (if applicable)
-            // The frontend's role is to upload and then display the status updates received via fetchFiles.
-            console.log(`Frontend: File uploaded. Backend will handle the automated processing pipeline.`);
-
+            await fetchFiles(); // This will refresh and potentially show the new file in "processing" state
         } else {
-            // 5. Handle upload failure reported by the backend (e.g., success: false in response)
             showSnackbar(uploadRes.data.message || "File upload failed. Please check details or server logs.", "error");
-            setUploadProgress(null); // Reset progress bar
+            setUploadProgress(null); 
         }
     } catch (e) {
-        // 6. Handle errors during the axios.post call itself (network error, CORS, unhandled 500, etc.)
         console.error("Critical upload error:", e);
         let errorMessage = "Server error during upload.";
         if (e.response) {
-            // We have a response from the server
             errorMessage = e.response.data?.message || `Server responded with ${e.response.status}`;
         } else if (e.request) {
-            // The request was made but no response was received
             errorMessage = "No response from server. Check network or server status.";
         } else {
-            // Something happened in setting up the request that triggered an Error
             errorMessage = e.message || "Error setting up upload request.";
         }
         showSnackbar(errorMessage, "error");
-        setUploadProgress(null); // Reset progress bar
+        setUploadProgress(null); 
     } finally {
-        // 7. Final cleanup regardless of upload success/failure
-        console.log('--- handleFileUpload FINALLY block ---');
         setIsUploading(false);
-        // newFile, plotName, selectedProjectId are reset in handleCloseUploadModal
     }
   };
 
   const handleCloseAssignProjectModal = () => {
     if (isAssigningProject) return;
     setAssignProjectModalOpen(false);
-    // Delay reset to allow fade-out animation
     setTimeout(() => {
         setFileToAssignProject(null);
         setSelectedProjectIdForAssignment('');
@@ -618,7 +609,6 @@ const FileManagement = ({ isCollapsed }) => {
     const token = localStorage.getItem('authToken');
     if (!token) { showSnackbar("Auth required.", "error"); return; }
     const pId = selectedProjectIdForAssignment === '' ? null : Number(selectedProjectIdForAssignment);
-    // Prevent API call if assignment hasn't changed
     if (pId === fileToAssignProject.project_id) {
         showSnackbar("No change made.", "info");
         return;
@@ -630,7 +620,7 @@ const FileManagement = ({ isCollapsed }) => {
             const name = res.data.file.projectName || "Unassigned";
             showSnackbar(`File assigned to "${name}"!`, "success");
             handleCloseAssignProjectModal();
-            fetchFiles(); // Refresh list
+            fetchFiles(); 
         } else { showSnackbar(res.data.message || "Assignment failed.", "error"); }
     } catch (e) {
         console.error("Assign project error:", e);
@@ -641,12 +631,11 @@ const FileManagement = ({ isCollapsed }) => {
   };
 
   const handleDeleteProject = async (projectId, projectName) => {
-    // No specific 'deleteProject' in canPerformAction, check Admin role directly
     if (userRole !== ROLES.ADMIN) {
         showSnackbar("Permission denied.", "error");
         return;
     }
-    if (deletingProjectId) {
+    if (deletingProjectId || isDeletingBulk) {
         showSnackbar("Deletion already in progress.", "warning");
         return;
     }
@@ -669,7 +658,7 @@ const FileManagement = ({ isCollapsed }) => {
         return;
     }
 
-    setDeletingProjectId(projectId); // Set loading state for this specific project
+    setDeletingProjectId(projectId); 
     try {
         const response = await axios.delete(`${API_BASE_URL}/projects/${projectId}`, {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -677,18 +666,15 @@ const FileManagement = ({ isCollapsed }) => {
 
         if (response.data.success) {
             showSnackbar(`Project "${projectName}" deleted successfully.`, "success");
-            // Refresh lists
-            await fetchProjectsList(token); // Update the project list immediately
-            // Clear assignments for the deleted project from modal state if present
+            await fetchProjectsList(token); 
             setAssignmentsInModal(prev => {
                 const newState = {...prev};
                 delete newState[projectId];
                 return newState;
             });
-            // Refresh the main file list (files might become unassigned)
-            // Fetch with current filter or reset to 'all'? Resetting might be clearer UX.
-            await fetchFiles('all'); // Fetch all to see unassigned files
-            setFilterProjectId('all'); // Reset filter dropdown
+            await fetchFiles('all'); 
+            setFilterProjectId('all'); 
+            setSelectedFileIds(new Set()); // Clear selection as project context changed
         } else {
             showSnackbar(response.data.message || "Failed to delete project.", "error");
         }
@@ -696,55 +682,46 @@ const FileManagement = ({ isCollapsed }) => {
         console.error("Error deleting project:", error);
         showSnackbar(error.response?.data?.message || "Server error deleting project.", "error");
     } finally {
-        setDeletingProjectId(null); // Clear loading state
+        setDeletingProjectId(null); 
     }
   };
 
-  const handleProjectFilterChange = (event) => { // <-- RENAMED from handleFilterChange
+  const handleProjectFilterChange = (event) => { 
     setFilterProjectId(event.target.value);
+    setSelectedFileIds(new Set()); // Clear selection when filter changes
   };
 
   const handleDivisionFilterChange = (event) => {
     const newDivisionId = event.target.value;
     setFilterDivisionId(newDivisionId);
+    setSelectedFileIds(new Set()); // Clear selection when filter changes
 
-    // --- Reset Project Filter if necessary ---
     if (newDivisionId === 'all') {
-      // No need to reset project filter if 'All Divisions' is selected
       return;
     }
 
-    // If a specific division is selected, check the current project filter
     const currentProjectId = filterProjectId;
     if (currentProjectId !== 'all' && currentProjectId !== 'unassigned') {
       const numericProjectId = parseInt(currentProjectId, 10);
       const numericDivisionId = parseInt(newDivisionId, 10);
-
-      // Find the currently selected project in the *full* list
       const projectStillValid = projectsList.find(
         p => p.id === numericProjectId && p.division_id === numericDivisionId
       );
-
-      // If the project is not found or doesn't belong to the new division, reset project filter
       if (!projectStillValid) {
-        setFilterProjectId('all'); // Reset to 'All Projects'
-        // Note: fetchFiles will be triggered by useEffect due to filterProjectId change
+        setFilterProjectId('all'); 
       }
     }
-    // --- End Reset Logic ---
-    // fetchFiles is triggered by useEffect dependency on filterDivisionId
   };
 
   const handleOpenCreateProjectModal = () => {
-    // Rely on Admin role check for now, or add 'createProject' to canPerformAction
     if (userRole !== ROLES.ADMIN) { showSnackbar("Permission denied.", "error"); return; }
     setNewProjectName('');
-    setSelectedDivisionIdForCreation(''); // *** Reset division selection for new project
+    setSelectedDivisionIdForCreation(''); 
     setCreateProjectModalOpen(true);
   };
 
   const handleOpenCreateDivisionModal = () => {
-    if (!canPerformAction('createDivision')) { showSnackbar("Permission denied.", "error"); return; }
+    if (userRole !== ROLES.ADMIN) { showSnackbar("Permission denied.", "error"); return; } // Or canPerformAction('createDivision')
     setNewDivisionName('');
     setCreateDivisionModalOpen(true);
   };
@@ -759,12 +736,11 @@ const FileManagement = ({ isCollapsed }) => {
     if (isCreatingProject) return;
     setCreateProjectModalOpen(false);
     setNewProjectName('');
-    setSelectedDivisionIdForCreation(''); // *** Reset on close
+    setSelectedDivisionIdForCreation(''); 
   };
 
   const handleCreateDivision = async () => {
-    // Add a specific check for Admin role or a dedicated 'createDivision' permission
-    if (userRole !== ROLES.ADMIN) { // Or use: !canPerformAction('createDivision') if defined
+    if (userRole !== ROLES.ADMIN) { 
         showSnackbar("Permission denied.", "error");
         return;
     }
@@ -780,10 +756,8 @@ const FileManagement = ({ isCollapsed }) => {
         if (res.data.success && res.data.division) {
             const createdDivision = res.data.division;
             showSnackbar(`Division "${res.data.division.name}" created!`, "success");
-            await fetchDivisionsList(token); // Refresh division list
-            setSelectedDivisionIdForCreation(createdDivision.id);
-            // REMOVE THE FOLLOWING LINE:
-            // setSelectedDivisionId(createdDivision.id);
+            await fetchDivisionsList(token); 
+            setSelectedDivisionIdForCreation(createdDivision.id); // Pre-select in create project modal if open
             handleCloseCreateDivisionModal();
         } else {
              showSnackbar(res.data.message || "Create division failed.", "error");
@@ -803,7 +777,6 @@ const FileManagement = ({ isCollapsed }) => {
         if (!newProjectName.trim()) showSnackbar("Project name required.", "warning");
         return;
     }
-    // *** ADDED: Check if division is selected ***
     if (!selectedDivisionIdForCreation) {
         showSnackbar("Please select a Division for the project.", "warning");
         return;
@@ -814,12 +787,11 @@ const FileManagement = ({ isCollapsed }) => {
 
     setIsCreatingProject(true);
     try {
-        // *** MODIFIED: Send divisionId in the request body ***
         const res = await axios.post(
             `${API_BASE_URL}/projects`,
             {
                 name: newProjectName.trim(),
-                divisionId: selectedDivisionIdForCreation // Send selected division ID
+                divisionId: selectedDivisionIdForCreation 
             },
             { headers: { 'Authorization': `Bearer ${token}` } }
         );
@@ -827,8 +799,10 @@ const FileManagement = ({ isCollapsed }) => {
         if (res.data.success && res.data.project) {
             const createdProject = res.data.project;
             showSnackbar(`Project "${createdProject.name}" created!`, "success");
-            await fetchProjectsList(token); // Refresh project list
-            setSelectedProjectId(createdProject.id); 
+            await fetchProjectsList(token); 
+            // setSelectedProjectId(createdProject.id); // Optionally pre-select in upload form
+            setSelectedProjectIdForReassign(createdProject.id); // Pre-select if reassign modal was the trigger
+            setSelectedProjectIdForAssignment(createdProject.id); // Pre-select if assign modal was the trigger
 
             handleCloseCreateProjectModal();
         } else {
@@ -837,7 +811,6 @@ const FileManagement = ({ isCollapsed }) => {
     } catch (e) {
         console.error("Create project error:", e);
         let msg = "Server error creating project.";
-        // Check for unique constraint violation (project name within division)
         if (e.response?.status === 409 && e.response?.data?.message?.includes('already exists in this division')) {
             msg = `Project "${newProjectName.trim()}" already exists in the selected division.`;
         } else if (e.response?.status === 404 && e.response?.data?.message?.includes('Division')) {
@@ -852,34 +825,29 @@ const FileManagement = ({ isCollapsed }) => {
   };
 
   const handleOpenDivisionProjectSettingsModal = () => {
-     // Only Admins can open this modal
      if (userRole !== ROLES.ADMIN) {
          showSnackbar("Permission denied. Administrator role required.", "error");
          return;
      }
-     setDeletingDivisionId(null); // Reset deletion states on open
+     setDeletingDivisionId(null); 
      setDeletingProjectId(null);
      setIsDivisionProjectSettingsModalOpen(true);
-     // Lists (divisions, projects) are already fetched on mount/login
  };
 
  const handleCloseDivisionProjectSettingsModal = () => {
-     // Prevent closing if a deletion is actively in progress
-     if (deletingDivisionId || deletingProjectId) {
-         showSnackbar("Please wait for the current deletion to complete.", "warning");
+     if (deletingDivisionId || deletingProjectId || isDeletingBulk) {
+         showSnackbar("Please wait for the current operation to complete.", "warning");
          return;
      }
      setIsDivisionProjectSettingsModalOpen(false);
  };
 
  const handleDeleteDivision = async (divisionId, divisionName) => {
-     // Double-check Admin role (though modal open should prevent non-admins)
      if (userRole !== ROLES.ADMIN) {
          showSnackbar("Permission denied.", "error");
          return;
      }
-     // Prevent concurrent deletions
-     if (deletingDivisionId || deletingProjectId) {
+     if (deletingDivisionId || deletingProjectId || isDeletingBulk) {
          showSnackbar("Another deletion is already in progress.", "warning");
          return;
      }
@@ -902,21 +870,20 @@ const FileManagement = ({ isCollapsed }) => {
          return;
      }
 
-     setDeletingDivisionId(divisionId); // Set loading state for this division
+     setDeletingDivisionId(divisionId); 
      try {
          const response = await axios.delete(`${API_BASE_URL}/divisions/${divisionId}`, {
              headers: { 'Authorization': `Bearer ${token}` }
          });
 
-         if (response.data.success) { // Check success flag or status code
+         if (response.data.success) { 
              showSnackbar(`Division "${divisionName}" deleted successfully.`, "success");
-             // Refresh lists
-             await fetchDivisionsList(token); // Update the division list
+             await fetchDivisionsList(token); 
              await fetchProjectsList(token);
-             // Refresh the main file list (files might become unassigned)
-             await fetchFiles('all', 'all'); // Fetch all files, regardless of previous filter
-             setFilterDivisionId('all'); // Reset division filter dropdown
+             await fetchFiles('all', 'all'); 
+             setFilterDivisionId('all'); 
              setFilterProjectId('all');
+             setSelectedFileIds(new Set()); // Clear selection as division context changed
          } else {
              showSnackbar(response.data.message || "Failed to delete division.", "error");
          }
@@ -924,26 +891,24 @@ const FileManagement = ({ isCollapsed }) => {
          console.error("Error deleting division:", error);
          showSnackbar(error.response?.data?.message || "Server error deleting division.", "error");
      } finally {
-         setDeletingDivisionId(null); // Clear loading state
+         setDeletingDivisionId(null); 
      }
  };
 
   const handleOpenProjectSettingsModal = () => {
-    setAssignmentsInModal({}); // Reset assignments state
+    setAssignmentsInModal({}); 
     setLoadingAssignmentsForProjectId(null);
     setProcessingAssignmentInModal(null);
     setIsProjectSettingsModalOpen(true);
-    // Fetching assignments will happen on accordion expand
   };
 
   const handleCloseProjectSettingsModal = () => {
-    if (processingAssignmentInModal) return;
+    if (processingAssignmentInModal || isDeletingBulk) return;
     setIsProjectSettingsModalOpen(false);
   };
 
   const handleModalAccordionChange = (projectId) => (e, isExpanded) => {
     const token = localStorage.getItem('authToken');
-    // Fetch assignments only if expanding, not already loaded, not currently loading, and token exists
     if (isExpanded && !assignmentsInModal[projectId] && loadingAssignmentsForProjectId !== projectId && token) {
         fetchAssignmentsForModal(projectId, token);
     }
@@ -962,13 +927,12 @@ const FileManagement = ({ isCollapsed }) => {
     try {
         await axios.post(`${API_BASE_URL}/projects/${projectId}/datamanagers`, { userId: userIdToAssign }, { headers: { 'Authorization': `Bearer ${token}` } });
         showSnackbar("Assigned.", "success");
-        setSelectedManagerToAddInModal(prev => ({ ...prev, [projectId]: '' })); // Clear selection
-        await fetchAssignmentsForModal(projectId, token); // Refresh assignments for this project
+        setSelectedManagerToAddInModal(prev => ({ ...prev, [projectId]: '' })); 
+        await fetchAssignmentsForModal(projectId, token); 
     } catch (e) {
         console.error("Err assign modal:", e);
         showSnackbar(e.response?.data?.message || "Assign fail.", "error");
     } finally {
-        // Clear processing state only if it matches the current operation
         setProcessingAssignmentInModal(curr => (curr?.type === 'assign' && curr.projectId === projectId && curr.userId === userIdToAssign ? null : curr));
     }
   };
@@ -983,7 +947,7 @@ const FileManagement = ({ isCollapsed }) => {
     try {
         await axios.delete(`${API_BASE_URL}/projects/${projectId}/datamanagers/${userIdToRemove}`, { headers: { 'Authorization': `Bearer ${token}` } });
         showSnackbar("Manager removed.", "success");
-        await fetchAssignmentsForModal(projectId, token); // Refresh assignments
+        await fetchAssignmentsForModal(projectId, token); 
     } catch (e) {
         console.error("Err remove modal:", e);
         showSnackbar(e.response?.data?.message || "Removal failed.", "error");
@@ -999,18 +963,17 @@ const FileManagement = ({ isCollapsed }) => {
 
   const filteredProjectsForDropdown = useMemo (() => {
     if (filterDivisionId === 'all') {
-      return projectsList; // Show all projects if 'All Divisions' is selected
+      return projectsList; 
     }
     if (!filterDivisionId) {
-      return []; // No division selected yet
+      return []; 
     }
     const numericDivisionId = parseInt(filterDivisionId, 10);
     if (isNaN(numericDivisionId)) {
-      return []; // Should not happen with select, but safety check
+      return []; 
     }
-    // Filter projects based on the selected division ID
     return projectsList.filter(p => p.division_id === numericDivisionId);
-  }, [projectsList, filterDivisionId]); // Recalculate when projectsList or filterDivisionId changes
+  }, [projectsList, filterDivisionId]); 
 
   const handleOpenReassignModal = (file) => {
     if (!canPerformAction('reassign', file)) {
@@ -1020,17 +983,15 @@ const FileManagement = ({ isCollapsed }) => {
     }
     if (!file) return;
     setFileToReassign(file);
-    // Initialize modal state with current file values
-    setSelectedProjectIdForReassign(file.project_id ?? ''); // Use current project or '' if null
-    setNewPlotNameForReassign(file.plot_name || ''); // Use current plot name or empty string
+    setSelectedProjectIdForReassign(file.project_id ?? ''); 
+    setNewPlotNameForReassign(file.plot_name || ''); 
     setReassignModalOpen(true);
-    handleMenuClose(); // Close the action menu
+    handleMenuClose(); 
 };
 
 const handleCloseReassignModal = () => {
-    if (isReassigning) return; // Prevent closing during operation
+    if (isReassigning) return; 
     setReassignModalOpen(false);
-    // Use timeout for smoother transition before clearing state
     setTimeout(() => {
         setFileToReassign(null);
         setSelectedProjectIdForReassign('');
@@ -1043,13 +1004,11 @@ const handleReassignFile = async () => {
         showSnackbar("Permission denied.", "error");
         return;
     }
-    // Validate plot name locally
     if (!newPlotNameForReassign.trim()) {
         showSnackbar("Plot name cannot be empty.", "warning");
         return;
     }
-
-    if (isReassigning) return; // Prevent double submission
+    if (isReassigning) return; 
 
     const token = localStorage.getItem('authToken');
     if (!token) {
@@ -1057,15 +1016,11 @@ const handleReassignFile = async () => {
         return;
     }
 
-    // Prepare data payload
     const targetProjectId = selectedProjectIdForReassign === '' ? null : Number(selectedProjectIdForReassign);
     const targetPlotName = newPlotNameForReassign.trim();
 
-    // Optional: Check if anything actually changed
     if (targetProjectId === fileToReassign.project_id && targetPlotName === fileToReassign.plot_name) {
         showSnackbar("No changes detected.", "info");
-        // Optionally close modal here if desired
-        // handleCloseReassignModal();
         return;
     }
 
@@ -1074,7 +1029,7 @@ const handleReassignFile = async () => {
         const response = await axios.patch(
             `${API_BASE_URL}/files/${fileToReassign.id}/reassign`,
             {
-                projectId: targetProjectId, // Send null or number
+                projectId: targetProjectId, 
                 plotName: targetPlotName
             },
             { headers: { 'Authorization': `Bearer ${token}` } }
@@ -1083,7 +1038,7 @@ const handleReassignFile = async () => {
         if (response.data.success) {
             showSnackbar("File details updated successfully!", "success");
             handleCloseReassignModal();
-            fetchFiles(); // Refresh the main file list
+            fetchFiles(); 
         } else {
             showSnackbar(response.data.message || "Failed to update file details.", "error");
         }
@@ -1095,13 +1050,148 @@ const handleReassignFile = async () => {
     }
 };
 
-const CREATE_NEW_DIVISION_VALUE = "__CREATE_NEW_DIVISION__"; // Special value for Division Select
-const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value for Project Select
+const CREATE_NEW_DIVISION_VALUE = "__CREATE_NEW_DIVISION__"; 
+const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   
+
+
+// --- BULK ACTION HANDLERS ---
+const numTotalSelectableForDelete = useMemo(() => {
+    return files.reduce((count, file) => {
+        const isOptimisticallyProcessing = filesBeingProcessed.has(file.id);
+        const backendFileStatus = file.status;
+        const isFileCurrentlyConverting = ACTIVE_PIPELINE_PROCESSING_STATUSES.includes(backendFileStatus) || isOptimisticallyProcessing;
+
+        if (!isFileCurrentlyConverting && canPerformAction('delete', file)) {
+            return count + 1;
+        }
+        return count;
+    }, 0);
+}, [files, filesBeingProcessed, canPerformAction]); // canPerformAction needs to be stable
+
+const handleSelectAllClick = (event) => {
+    if (event.target.checked) {
+        const newSelectedIds = new Set();
+        files.forEach(file => {
+            const isOptimisticallyProcessing = filesBeingProcessed.has(file.id);
+            const backendFileStatus = file.status;
+            const isFileCurrentlyConverting = ACTIVE_PIPELINE_PROCESSING_STATUSES.includes(backendFileStatus) || isOptimisticallyProcessing;
+
+            if (!isFileCurrentlyConverting && canPerformAction('delete', file)) {
+                newSelectedIds.add(file.id);
+            }
+        });
+        setSelectedFileIds(newSelectedIds);
+    } else {
+        setSelectedFileIds(new Set());
+    }
+};
+
+const handleRowCheckboxClick = (event, fileId) => {
+    const newSelectedFileIds = new Set(selectedFileIds);
+    if (event.target.checked) {
+        newSelectedFileIds.add(fileId);
+    } else {
+        newSelectedFileIds.delete(fileId);
+    }
+    setSelectedFileIds(newSelectedFileIds);
+};
+
+const handleBulkDelete = async () => {
+    if (selectedFileIds.size === 0) {
+        showSnackbar("No files selected for deletion.", "warning");
+        return;
+    }
+
+    // Close action menu if open
+    setAnchorEl(null);
+    setSelectedFile(null);
+
+    const filesToDeleteObjects = files.filter(file => selectedFileIds.has(file.id)); // Get full objects
+    const actuallyDeletableFiles = filesToDeleteObjects.filter(file => {
+        const isOptimisticallyProcessing = filesBeingProcessed.has(file.id);
+        const backendFileStatus = file.status;
+        const isFileCurrentlyConverting = ACTIVE_PIPELINE_PROCESSING_STATUSES.includes(backendFileStatus) || isOptimisticallyProcessing;
+        return !isFileCurrentlyConverting && canPerformAction('delete', file);
+    });
+
+
+    if (actuallyDeletableFiles.length === 0) {
+        showSnackbar("None of the selected files can be deleted due to permissions or current status.", "warning");
+        // Optionally clear selection if desired, or leave it for user to uncheck
+        // setSelectedFileIds(new Set());
+        return;
+    }
+
+    const numSelectedTotal = selectedFileIds.size;
+    const numActuallyDeletable = actuallyDeletableFiles.length;
+    const numNonDeletableInSelection = numSelectedTotal - numActuallyDeletable;
+
+    let confirmMessage = `Are you sure you want to delete ${numActuallyDeletable} selected file(s)?`;
+    if (numNonDeletableInSelection > 0) {
+        confirmMessage += `\n(${numNonDeletableInSelection} other selected file(s) cannot be deleted at this time due to permissions or their current processing state.)`;
+    }
+
+    if (!window.confirm(confirmMessage)) {
+        return;
+    }
+
+    setIsDeletingBulk(true);
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+        showSnackbar("Authentication required.", "error");
+        setIsDeletingBulk(false);
+        return;
+    }
+
+    let successCount = 0;
+    let errorCount = 0;
+    const deletionPromises = [];
+
+    for (const file of actuallyDeletableFiles) {
+        deletionPromises.push(
+            axios.delete(`${API_BASE_URL}/files/${file.id}`, { headers: { 'Authorization': `Bearer ${token}` } })
+                .then(res => {
+                    if (res.status === 200 || res.status === 204) {
+                        successCount++;
+                    } else {
+                        errorCount++;
+                        console.warn(`Failed to delete ${file.name}: ${res.data?.message || 'Unknown error'}`);
+                    }
+                })
+                .catch(err => {
+                    errorCount++;
+                    console.error(`Error deleting ${file.name}:`, err.response?.data?.message || err.message);
+                })
+        );
+    }
+
+    await Promise.allSettled(deletionPromises);
+
+    let snackbarMsg = "";
+    if (successCount > 0) snackbarMsg += `${successCount} file(s) deleted successfully. `;
+    if (errorCount > 0) snackbarMsg += `${errorCount} file(s) failed to delete. `;
+    if (numNonDeletableInSelection > 0 && successCount > 0 && errorCount === 0) snackbarMsg += `(${numNonDeletableInSelection} file(s) were not eligible for deletion).`;
+
+
+    if (!snackbarMsg && numSelectedTotal > 0) { // Edge case if all failed or were non-deletable
+        if (numNonDeletableInSelection === numSelectedTotal) {
+            snackbarMsg = "No selected files were eligible for deletion.";
+        } else {
+             snackbarMsg = "Bulk deletion process completed. Check console for details if errors occurred.";
+        }
+    }
+
+
+    showSnackbar(snackbarMsg, errorCount > 0 && successCount === 0 ? "error" : (errorCount > 0 ? "warning" : "success"));
+
+    setSelectedFileIds(new Set()); // Clear selection
+    setIsDeletingBulk(false);
+    fetchFiles(); // Refresh the file list
+};
+
 
   // --- STYLES ---
-  // (Keep the exact styles object as provided)
   const styles = {
-    // --- Page Layout ---
     container: {
       display: "flex",
       minHeight: "100vh",
@@ -1115,8 +1205,6 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
       p: 3,
       overflowY: 'auto'
     },
-
-    // --- Top Controls Row ---
     controlsRow: {
       marginBottom: theme.spacing(3)
     },
@@ -1131,8 +1219,6 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
         '& .MuiSelect-icon': { color: colors.grey[300] },
       }
     },
-
-    // --- General Dialog Styles ---
     dialogPaper: {
       backgroundColor: colors.grey[800] || theme.palette.background.paper,
       color: colors.grey[100] || theme.palette.text.primary
@@ -1142,7 +1228,7 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
       backgroundColor: colors.primary[700] || theme.palette.action.hover,
       borderTop: `1px solid ${colors.grey[700] || theme.palette.divider}`
     },
-    dialogSelectControl: { // Used in Assign Project Dialog
+    dialogSelectControl: { 
       marginTop: theme.spacing(1),
       '& .MuiInputLabel-root': { color: colors.grey[300], '&.Mui-focused': { color: colors.blueAccent[300] } },
       '& .MuiOutlinedInput-root': {
@@ -1153,7 +1239,7 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
         '& .MuiSelect-icon': { color: colors.grey[300] },
       }
     },
-    dialogTextField: { // Used in Create Project Dialog
+    dialogTextField: { 
       '& label.Mui-focused': { color: colors.blueAccent[300] },
       '& .MuiOutlinedInput-root': {
         color: colors.grey[100],
@@ -1178,8 +1264,6 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
       paddingBottom: theme.spacing(1),
       color: colors.grey?.[100] ?? "#000"
     },
-
-    // --- Upload Dialog Specific ---
     fileDisplay: {
       textAlign: "center",
       padding: "15px",
@@ -1199,13 +1283,11 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
       width: '80%',
       marginTop: theme.spacing(2)
     },
-
-    // --- File Table Styles ---
     tableContainer: {
-      marginTop: theme.spacing(3),
+      marginTop: theme.spacing(1), // Reduced margin if bulk actions bar is present
       backgroundColor: colors.grey[900],
       borderRadius: 2,
-      maxHeight: 'calc(100vh - 250px)',
+      maxHeight: 'calc(100vh - 280px)', // Adjust if bulk bar takes space
       overflow: 'auto',
       position: 'relative',
       "&::-webkit-scrollbar": { width: "8px" },
@@ -1218,7 +1300,7 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
       }
     },
     table: {
-      minWidth: 650,
+      minWidth: 750, // Increased minWidth for checkbox
       width: '100%',
       tableLayout: 'fixed'
     },
@@ -1232,16 +1314,19 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
       color: colors.grey?.[100] ?? "white",
       fontWeight: "bold",
       whiteSpace: 'nowrap',
-      borderBottom: `1px solid ${colors.grey[700]}`
+      borderBottom: `1px solid ${colors.grey[700]}`,
+      padding: '10px 8px', // Adjusted padding
     },
     bodyCell: {
       color: colors.grey?.[100] ?? "white",
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
-      borderBottom: `1px solid ${colors.grey[800]}`
+      borderBottom: `1px solid ${colors.grey[800]}`,
+      padding: '8px 8px', // Adjusted padding
     },
-    actionButton: { // Button within table cell for actions menu
+
+    actionButton: { 
       color: colors.grey?.[300] ?? '#cccccc',
       padding: '4px',
       '&:hover': {
@@ -1252,14 +1337,12 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
         color: colors.grey?.[600] ?? '#777777',
       }
     },
-    statusText: { // Potree status text/icon container
+    statusText: { 
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       gap: '4px'
     },
-
-    // --- Action Menu Item Styles ---
     menuItemIcon: {
       minWidth: '36px',
       color: 'inherit'
@@ -1270,8 +1353,6 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
         color: `${colors.grey[600]} !important`,
       }
     },
-
-    // --- Loading Overlay ---
     loadingOverlay: {
       position: 'absolute',
       top: 0,
@@ -1283,11 +1364,9 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
       justifyContent: 'center',
       alignItems: 'center',
       zIndex: 2,
-      borderRadius: 'inherit' // Inherit border radius from parent (table container)
+      borderRadius: 'inherit' 
     },
-
-    // --- Project Settings (Assignments) Modal Styles ---
-    modalDialogPaper: { // Different background for this modal
+    modalDialogPaper: { 
       backgroundColor: colors.grey[800],
       color: colors.grey[100],
       minWidth: '600px',
@@ -1300,7 +1379,7 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
     },
     modalDialogActions: {
       padding: theme.spacing(1, 3),
-      backgroundColor: colors.primary[700], // Slightly different from regular dialog actions
+      backgroundColor: colors.primary[700], 
       borderTop: `1px solid ${colors.grey[700]}`
     },
     modalAccordion: {
@@ -1310,10 +1389,10 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
       '&.Mui-expanded': { margin: '8px 0' }
     },
     modalAccordionDetails: {
-      backgroundColor: colors.grey[800], // Match action bar
+      backgroundColor: colors.grey[800], 
       p: 2
     },
-    modalListItemIcon: { // Used for remove button in assignments modal
+    modalListItemIcon: { 
       color: colors.redAccent[400],
       minWidth: 'auto',
       '&:hover': {
@@ -1321,46 +1400,42 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
       }
     },
     settingsModalDeleteButton: {
-      color: colors.redAccent[400], // Use red color
-      marginLeft: 'auto', // Push it to the right
+      color: colors.redAccent[400], 
+      marginLeft: 'auto', 
       padding: '4px',
       '&:hover': {
-        backgroundColor: 'rgba(255, 0, 0, 0.1)', // Reddish hover
+        backgroundColor: 'rgba(255, 0, 0, 0.1)', 
       },
        '&.Mui-disabled': {
-          color: colors.grey[600], // Disabled color
+          color: colors.grey[600], 
        }
     },
   };
 
   // --- RENDER LOGIC ---
-  // Loading State
   if (isLoadingPermissions) {
     return (
       <Box sx={{ ...styles.container, justifyContent: "center", alignItems: "center", ml: 0 }}>
         <CircularProgress />
-        <Typography sx={{ ml: 2, color: colors.grey[300] }}>Converting Point Cloud</Typography>
+        <Typography sx={{ ml: 2, color: colors.grey[300] }}>Loading Permissions...</Typography>
       </Box>
     );
   }
 
-  // Authentication Failed State
   if (!userRole || !userId) {
     return (
       <Box sx={{ ...styles.container, justifyContent: "center", alignItems: "center", ml: 0 }}>
         <Alert severity={snackbarSeverity || "error"} variant="filled" sx={{ maxWidth: '80%' }}>
-          {snackbarMessage || "Auth failed."}
+          {snackbarMessage || "Authentication failed. Please log in."}
         </Alert>
         <Button variant="contained" onClick={() => navigate('/login')} sx={{ mt: 2 }}>Login</Button>
       </Box>
     );
   }
 
-  // Main Component Render
   return (
-    <Box sx={styles.container}> {/* Adjusted to use original key */}
-      <Box sx={styles.content}> {/* Adjusted to use original key */}
-        {/* --- Controls Row --- */}
+    <Box sx={styles.container}> 
+      <Box sx={styles.content}> 
         <Grid container spacing={2} sx={styles.controlsRow} alignItems="center" justifyContent="space-between">
           <Grid item>
             {canPerformAction('upload') && (
@@ -1369,7 +1444,7 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                 startIcon={<UploadFileIcon />}
                 sx={{ backgroundColor: colors.primary[700], color: "white", "&:hover": { backgroundColor: colors.primary[400] }, textTransform: 'none' }}
                 onClick={handleOpenUploadModal}
-                disabled={isUploading || isLoading || loadingProjectsList || !!convertingFileId || !!deletingProjectId} // Added deletingProjectId check
+                disabled={isUploading || isLoading || loadingProjectsList || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId } 
               >
                 Upload File
               </Button>
@@ -1378,13 +1453,13 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
           <Grid item container xs spacing={2} justifyContent="flex-end" alignItems="center">
           {userRole === ROLES.ADMIN && (
                 <Grid item>
-                    <Tooltip title="Manage Division and Project">
+                    <Tooltip title="Manage Division and Project Settings">
                         <Button
                             variant="outlined"
                             startIcon={<SettingsIcon />}
                             sx={{ borderColor: colors.blueAccent[500], color: colors.blueAccent[400], '&:hover': { borderColor: colors.blueAccent[300], backgroundColor: 'rgba(75, 165, 248, 0.1)' }, textTransform: 'none' }}
                             onClick={handleOpenDivisionProjectSettingsModal}
-                            disabled={loadingProjectsList || loadingModalDMs || isLoading || !!deletingProjectId} // Added deletingProjectId check
+                            disabled={loadingProjectsList || loadingDivisionsList || isLoading || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId} 
                         >
                             Manage Division & Project
                         </Button>
@@ -1393,13 +1468,13 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
              )}
              {userRole === ROLES.ADMIN && (
                 <Grid item>
-                    <Tooltip title="Manage Assignments">
+                    <Tooltip title="Manage Data Manager Assignments">
                         <Button
                             variant="outlined"
-                            startIcon={<SettingsIcon />}
+                            startIcon={<AdminPanelSettingsIcon />} // Changed icon
                             sx={{ borderColor: colors.blueAccent[500], color: colors.blueAccent[400], '&:hover': { borderColor: colors.blueAccent[300], backgroundColor: 'rgba(75, 165, 248, 0.1)' }, textTransform: 'none' }}
                             onClick={handleOpenProjectSettingsModal}
-                            disabled={loadingProjectsList || loadingModalDMs || isLoading || !!deletingProjectId} // Added deletingProjectId check
+                            disabled={loadingProjectsList || loadingModalDMs || isLoading || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId} 
                         >
                             Assignments
                         </Button>
@@ -1415,11 +1490,11 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                         value={filterDivisionId}
                         label="Filter Division"
                         onChange={handleDivisionFilterChange}
-                        disabled={isLoading || loadingDivisionsList || !!convertingFileId || !!deletingProjectId} // Added deletingProjectId check
+                        disabled={isLoading || loadingDivisionsList || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId} 
                         MenuProps={{ PaperProps: { sx: { color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.primary[500] }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: colors.blueAccent[700]+'!important', color:colors.grey[100] }}} }}
                     >
-                        <MenuItem value="all"><em>All Division</em></MenuItem>
-                        {divisionsList.map(p=>(<MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>))}
+                        <MenuItem value="all"><em>All Divisions</em></MenuItem>
+                        {divisionsList.map(d=>(<MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>))}
                     </Select>
                 </FormControl>
              </Grid>
@@ -1432,28 +1507,19 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                   value={filterProjectId}
                   label="Filter Project"
                   onChange={handleProjectFilterChange}
-                  // Disable if loading or depending actions are running
-                  disabled={isLoading || loadingProjectsList || !!convertingFileId || !!deletingProjectId}
+                  disabled={isLoading || loadingProjectsList || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId}
                   MenuProps={{ PaperProps: { sx: { color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.primary[500] }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: colors.blueAccent[700]+'!important', color:colors.grey[100] }}} }}
                 >
                   <MenuItem value="all"><em>All Projects</em></MenuItem>
-                  {/* Optional: Only show unassigned if relevant filter selected? */}
-                  {/* <MenuItem value="unassigned" sx={{fontStyle:'italic'}}>Unassigned</MenuItem> */}
-
-                  {/* Render options from the DERIVED filtered list */}
                   {loadingProjectsList
                     ? <MenuItem disabled><CircularProgress size={20} sx={{mr: 1}}/> Loading...</MenuItem>
-                    // Use filteredProjectsForDropdown here
                     : filteredProjectsForDropdown.map(p => (
                         <MenuItem key={p.id} value={p.id}>
-                            {/* Show project name. Division name context might be redundant now */}
                             {p.name}
-                            {/* Optionally show division name if 'All Divisions' is selected */}
                             {filterDivisionId === 'all' && ` (${p.division_name || 'No Div'})`}
                         </MenuItem>
                       ))
                   }
-                   {/* Show a message if a division is selected but has no projects */}
                     {!loadingProjectsList && filterDivisionId !== 'all' && filteredProjectsForDropdown.length === 0 && (
                         <MenuItem disabled sx={{ fontStyle: 'italic' }}>No projects in this division</MenuItem>
                     )}
@@ -1462,6 +1528,47 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
             </Grid>
           </Grid>
         </Grid>
+
+        {/* --- Bulk Actions Bar --- */}
+        {selectedFileIds.size > 0 && (
+            <Paper 
+                elevation={3}
+                sx={{ 
+                    padding: theme.spacing(1.5, 2), 
+                    marginBottom: 2, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'space-between', 
+                    backgroundColor: colors.primary[600],
+                    borderRadius: '4px',
+                }}
+            >
+                <Typography sx={{ color: colors.grey[100], fontWeight: 'bold' }}>
+                    {selectedFileIds.size} file(s) selected
+                </Typography>
+                <Tooltip title="Delete Selected Files">
+                    <span> {/* Span for Tooltip when button is disabled */}
+                        <Button
+                            variant="contained"
+                            startIcon={isDeletingBulk ? <CircularProgress size={20} color="inherit" /> : <DeleteIcon />}
+                            onClick={handleBulkDelete}
+                            disabled={isDeletingBulk || isLoading || !!deletingProjectId || !!deletingDivisionId}
+                            sx={{
+                                backgroundColor: colors.redAccent[600], // Darker red
+                                color: colors.grey[100],
+                                '&:hover': { backgroundColor: colors.redAccent[700] }, // Even darker on hover
+                                '&.Mui-disabled': { 
+                                    backgroundColor: colors.grey[700], 
+                                    color: colors.grey[500] 
+                                }
+                            }}
+                        >
+                            Delete Selected
+                        </Button>
+                    </span>
+                </Tooltip>
+            </Paper>
+        )}
 
         {/* --- Dialogs --- */}
         <Dialog
@@ -1474,9 +1581,8 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                 Edit Details for "{fileToReassign?.name}"
             </DialogTitle>
             <DialogContent sx={styles.dialogContent}>
-                {/* Plot Name Field */}
                 <TextField
-                    autoFocus // Focus this field first
+                    autoFocus 
                     margin="dense"
                     id="reassign-plot-name"
                     label="Plot Name"
@@ -1489,8 +1595,6 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                     disabled={isReassigning}
                     sx={styles.dialogTextField}
                 />
-
-                {/* Project Assignment Field */}
                 <FormControl fullWidth variant="outlined" margin="dense" size="small" sx={styles.dialogSelectControl} disabled={isReassigning || loadingProjectsList}>
                     <InputLabel id="reassign-project-select-label">Project</InputLabel>
                     <Select
@@ -1502,13 +1606,10 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                         MenuProps={{ PaperProps: { sx: { backgroundColor: colors.primary[600], color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.primary[500], }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: colors.blueAccent[700]+'!important', color:colors.grey[100]}}},}}
                     >
                         <MenuItem value=""><em>Unassigned</em></MenuItem>
-                        {/* Maybe filter this list based on DM permissions if needed? */}
                         {loadingProjectsList ? <MenuItem disabled><CircularProgress size={20} sx={{mr: 1}}/> Loading...</MenuItem> : projectsList.map((p) => (
                             <MenuItem
                                 key={p.id}
                                 value={p.id}
-                                // Optional: Disable projects the DM cannot assign to?
-                                // disabled={userRole === ROLES.DATA_MANAGER && !assignedProjectIdsForDM.includes(p.id)}
                             >
                                 {p.name} ({p.division_name || 'No Div'})
                             </MenuItem>
@@ -1525,9 +1626,9 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                     color="primary"
                     disabled={
                         isReassigning ||
-                        !newPlotNameForReassign.trim() || // Ensure plot name is not empty
-                        (selectedProjectIdForReassign === (fileToReassign?.project_id ?? '') && // Project didn't change AND
-                        newPlotNameForReassign.trim() === (fileToReassign?.plot_name || '')) // Plot name didn't change
+                        !newPlotNameForReassign.trim() || 
+                        (selectedProjectIdForReassign === (fileToReassign?.project_id ?? '') && 
+                        newPlotNameForReassign.trim() === (fileToReassign?.plot_name || '')) 
                         }
                     variant="contained"
                 >
@@ -1535,7 +1636,7 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                 </Button>
             </DialogActions>
         </Dialog>
-        {/* Upload Dialog */}
+        
         <Dialog open={openUploadModal} onClose={handleCloseUploadModal} disableEscapeKeyDown={isUploading} PaperProps={{ sx: styles.dialogPaper }}>
             <DialogTitle sx={styles.dialogTitle}>Upload New File</DialogTitle>
             <DialogContent sx={styles.dialogContent}>
@@ -1554,33 +1655,28 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                   margin="dense"
                   sx={styles.dialogTextField}
                 />
-                {/* Select Existing Division */}
                 <FormControl fullWidth margin="dense" sx={styles.dialogSelectControl} disabled={isUploading}>
                   <InputLabel id="project-select-label-upload">Assign to Project (Required)</InputLabel>
                   <Select
                     labelId="project-select-label-upload"
                     value={selectedProjectId}
                     onChange={(e) => {
-                        // Handle "Create New" case if kept here
                         const value = e.target.value;
                         if (value === CREATE_NEW_PROJECT_VALUE) {
-                            handleOpenCreateProjectModal(); // Open the project creation modal
-                            // Don't set selectedProjectId state yet
+                            handleOpenCreateProjectModal(); 
                         } else {
-                            setSelectedProjectId(value); // Set state for existing project
+                            setSelectedProjectId(value); 
                         }
                     }}
                     label="Assign to Project (Required)"
                     MenuProps={{ PaperProps: { sx: { color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.primary[500], }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: colors.blueAccent[700]+'!important', color:colors.grey[100]}}},}}
                   >
                     <MenuItem value=""><em>-- No Project Created --</em></MenuItem>
-                    {/* Provide loading state */}
                      {loadingProjectsList ? <MenuItem disabled><CircularProgress size={20} sx={{mr: 1}}/> Loading...</MenuItem> : projectsList.map((proj) => (
                         <MenuItem key={proj.id} value={proj.id}>
-                          {proj.name} ({proj.division_name || 'No Div'}) {/* Show division for context */}
+                          {proj.name} ({proj.division_name || 'No Div'}) 
                         </MenuItem>
                       ))}
-                     {/* "Create New" Option - requires Admin */}
                     {userRole === ROLES.ADMIN && (
                       <MenuItem value={CREATE_NEW_PROJECT_VALUE} sx={{ fontStyle: 'italic', color: colors.greenAccent[400] }}>
                           <ListItemIcon sx={{ minWidth: '32px', color: 'inherit' }}><AddCircleOutlineIcon fontSize="small" /></ListItemIcon>
@@ -1593,33 +1689,27 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
             <DialogActions sx={styles.dialogActions}><Button onClick={handleCloseUploadModal} color="secondary" disabled={isUploading}>Cancel</Button><Button onClick={handleFileUpload} color="primary" disabled={isUploading || !newFile} variant="contained">{isUploading ? <CircularProgress size={24} color="inherit"/> : "Upload"}</Button></DialogActions>
         </Dialog>
 
-        {/* Create Division Dialog */}
         <Dialog open={createDivisionModalOpen} onClose={handleCloseCreateDivisionModal} disableEscapeKeyDown={isCreatingDivision} PaperProps={{ sx: styles.dialogPaper }}>
             <DialogTitle sx={styles.dialogTitle}>Create New Division</DialogTitle>
             <DialogContent sx={styles.dialogContent}><TextField autoFocus margin="dense" id="new-division-name" label="Division Name" type="text" fullWidth variant="outlined" value={newDivisionName} onChange={(e) => setNewDivisionName(e.target.value.trimStart())} disabled={isCreatingDivision} required sx={styles.dialogTextField}/></DialogContent>
             <DialogActions sx={styles.dialogActions}><Button onClick={handleCloseCreateDivisionModal} color="secondary" disabled={isCreatingDivision}>Cancel</Button><Button onClick={handleCreateDivision} color="primary" disabled={isCreatingDivision || !newDivisionName.trim()} variant="contained">{isCreatingDivision ? <CircularProgress size={24} color="inherit"/> : "Create"}</Button></DialogActions>
         </Dialog>
 
-        {/* Create Project Dialog */}
         <Dialog open={createProjectModalOpen} onClose={handleCloseCreateProjectModal} disableEscapeKeyDown={isCreatingProject} PaperProps={{ sx: styles.dialogPaper }}>
             <DialogTitle sx={styles.dialogTitle}>Create New Project</DialogTitle>
             <DialogContent sx={styles.dialogContent}>
-                {/* *** ADDED: Division Selector *** */}
                  <FormControl fullWidth required variant="outlined" margin="dense" size="small" sx={styles.dialogSelectControl} disabled={isCreatingProject || loadingDivisionsList}>
                     <InputLabel id="create-project-division-label">Division</InputLabel>
                     <Select
                         labelId="create-project-division-label"
                         id="create-project-division-select"
                         value={selectedDivisionIdForCreation}
-                        label="Division *" // Indicate required
+                        label="Division *" 
                         onChange={(e) => {
                           const value = e.target.value;
                           if (value === CREATE_NEW_DIVISION_VALUE) {
-                              // Open the create division modal
                               handleOpenCreateDivisionModal();
-                              // Don't update the selection state for the project modal yet
                           } else {
-                              // Regular selection
                               setSelectedDivisionIdForCreation(value);
                           }
                       }}
@@ -1627,7 +1717,7 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                   >
                          <MenuItem value="" disabled><em>Select Division...</em></MenuItem>
                          {loadingDivisionsList ? <MenuItem disabled><CircularProgress size={20} sx={{mr: 1}}/> Loading...</MenuItem> : divisionsList.map((div) => ( <MenuItem key={div.id} value={div.id}>{div.name}</MenuItem> ))}
-                         {userRole === ROLES.ADMIN && ( // Check if user can create divisions
+                         {userRole === ROLES.ADMIN && ( 
                             <MenuItem value={CREATE_NEW_DIVISION_VALUE} sx={{ fontStyle: 'italic', color: colors.greenAccent[400] }}>
                                 <ListItemIcon sx={{ minWidth: '32px', color: 'inherit' }}>
                                    <AddCircleOutlineIcon fontSize="small" />
@@ -1635,11 +1725,8 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                                <ListItemText>New Division...</ListItemText>
                             </MenuItem>
                          )}
-                         {/* --- End "Create New" Option --- */}
                     </Select>
                 </FormControl>
-
-                {/* Project Name Input */}
                 <TextField autoFocus margin="dense" id="new-project-name" label="Project Name" type="text" fullWidth required variant="outlined" value={newProjectName} onChange={(e) => setNewProjectName(e.target.value.trimStart())} disabled={isCreatingProject} sx={styles.dialogTextField}/>
             </DialogContent>
             <DialogActions sx={styles.dialogActions}>
@@ -1647,7 +1734,6 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                 <Button
                     onClick={handleCreateProject}
                     color="primary"
-                    // Disable if creating, name empty, OR division not selected
                     disabled={isCreatingProject || !newProjectName.trim() || !selectedDivisionIdForCreation}
                     variant="contained"
                 >
@@ -1656,7 +1742,6 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
             </DialogActions>
         </Dialog>
 
-        {/* Assign Project Dialog */}
         <Dialog open={assignProjectModalOpen} onClose={handleCloseAssignProjectModal} disableEscapeKeyDown={isAssigningProject} PaperProps={{ sx: styles.dialogPaper }}>
             <DialogTitle sx={styles.dialogTitle}>Assign Project to "{fileToAssignProject?.name}"</DialogTitle>
             <DialogContent sx={styles.dialogContent}>
@@ -1664,7 +1749,7 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                     <InputLabel id="assign-project-select-label">Project</InputLabel>
                     <Select labelId="assign-project-select-label" id="assign-project-select" value={selectedProjectIdForAssignment} label="Project" onChange={(e) => setSelectedProjectIdForAssignment(e.target.value)} disabled={isAssigningProject || !!deletingProjectId} MenuProps={{ PaperProps: { sx: { backgroundColor: colors.primary[600], color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.primary[500], }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: colors.blueAccent[700]+'!important', color:colors.grey[100]}}},}}>
                         <MenuItem value=""><em>Unassigned</em></MenuItem>
-                        {projectsList.map((p) => ( <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem> ))}
+                        {projectsList.map((p) => ( <MenuItem key={p.id} value={p.id}>{p.name} ({p.division_name || 'No Div'})</MenuItem> ))}
                     </Select>
                 </FormControl>
             </DialogContent>
@@ -1676,12 +1761,10 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
             </DialogActions>
         </Dialog>
 
-
-        {/* --- Project Settings MODAL --- */}
-        <Dialog open={isProjectSettingsModalOpen} onClose={handleCloseProjectSettingsModal} disableEscapeKeyDown={!!processingAssignmentInModal || !!deletingProjectId} fullWidth maxWidth="md" PaperProps={{ sx: styles.modalDialogPaper }}>
+        <Dialog open={isProjectSettingsModalOpen} onClose={handleCloseProjectSettingsModal} disableEscapeKeyDown={!!processingAssignmentInModal || !!deletingProjectId || isDeletingBulk} fullWidth maxWidth="md" PaperProps={{ sx: styles.modalDialogPaper }}>
              <DialogTitle sx={{ textAlign:"center", fontWeight:'bold', m:0, p:2, borderBottom:`1px solid ${colors.grey[600]}` }}>
                  Manage Data Manager Assignments
-                 <IconButton aria-label="close" onClick={handleCloseProjectSettingsModal} sx={{ position:'absolute', right:8, top:8, color:(t)=>t.palette.grey[500] }}>
+                 <IconButton aria-label="close" onClick={handleCloseProjectSettingsModal} sx={{ position:'absolute', right:8, top:8, color:(t)=>t.palette.grey[500] }} disabled={!!processingAssignmentInModal || !!deletingProjectId || isDeletingBulk}>
                      <CloseIcon />
                  </IconButton>
              </DialogTitle>
@@ -1689,7 +1772,7 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                  {(loadingProjectsList || loadingModalDMs) && <Box display="flex" justifyContent="center" my={2}><CircularProgress/></Box>}
                  {!loadingProjectsList && !loadingModalDMs && projectsList.length === 0 && ( <Typography sx={{textAlign:'center', my:2, color:colors.grey[400]}}>No projects.</Typography> )}
                  {!loadingProjectsList && !loadingModalDMs && projectsList.length > 0 && allDataManagers.length === 0 && ( <Typography sx={{textAlign:'center', my:2, color:colors.grey[400]}}>No 'Data Manager' users.</Typography> )}
-                 {!loadingProjectsList && !loadingModalDMs && projectsList.length > 0 && ( // Removed allDataManagers length check here, show projects even if no DMs exist
+                 {!loadingProjectsList && !loadingModalDMs && projectsList.length > 0 && ( 
                      <Box mt={2}>
                           {projectsList.map((project) => {
                               const currentAssigned = assignmentsInModal[project.id] || [];
@@ -1697,7 +1780,7 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                               const isAccordionLoading = loadingAssignmentsForProjectId === project.id;
                               const selectedUserIdInDropdown = selectedManagerToAddInModal[project.id] || '';
                               const isProcessingThisProject = processingAssignmentInModal?.projectId === project.id;
-                              const isDeletingThisProject = deletingProjectId === project.id; // Check if this project is being deleted
+                              const isDeletingThisProject = deletingProjectId === project.id; 
 
                               return (
                                  <Accordion
@@ -1705,31 +1788,27 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                                      onChange={handleModalAccordionChange(project.id)}
                                      sx={styles.modalAccordion}
                                      TransitionProps={{ unmountOnExit: true }}
-                                     disabled={isDeletingThisProject} // Disable accordion if deleting this project
+                                     disabled={isDeletingThisProject || isDeletingBulk} 
                                  >
                                      <AccordionSummary
                                          expandIcon={<ExpandMoreIcon sx={{color:colors.grey[100]}}/>}
                                          aria-controls={`modal-p${project.id}-content`}
                                          id={`modal-p${project.id}-header`}
-                                         sx={{ opacity: isDeletingThisProject ? 0.5 : 1 }} // Dim if deleting
+                                         sx={{ opacity: isDeletingThisProject ? 0.5 : 1 }} 
                                      >
                                          <Typography sx={{ flexShrink:0, mr:2, fontWeight:'bold' }}>{project.name}</Typography>
                                          <Chip size="small" label={`${currentAssigned.length} Mgr(s)`} icon={<AdminPanelSettingsIcon fontSize="small"/>} sx={{ backgroundColor: colors.blueAccent[700], color: colors.grey[100] }}/>
                                          {isAccordionLoading && !isDeletingThisProject && <CircularProgress size={20} sx={{ ml: 2 }}/>}
-
-                                         {/* *** Project Delete Button *** */}
                                          {userRole === ROLES.ADMIN && (
                                              <Tooltip title={`Delete Project "${project.name}"`}>
-                                                 {/* Wrap IconButton to prevent Tooltip warning when disabled */}
                                                  <span>
                                                      <IconButton
                                                          aria-label={`delete-project-${project.id}`}
                                                          onClick={(e) => {
-                                                             e.stopPropagation(); // Prevent accordion toggle
+                                                             e.stopPropagation(); 
                                                              handleDeleteProject(project.id, project.name);
                                                          }}
-                                                         // Disable if ANY processing/deleting is happening, or this accordion is loading
-                                                         disabled={isProcessingThisProject || isAccordionLoading || !!deletingProjectId}
+                                                         disabled={isProcessingThisProject || isAccordionLoading || !!deletingProjectId || isDeletingBulk}
                                                          size="small"
                                                          sx={styles.settingsModalDeleteButton}
                                                      >
@@ -1745,7 +1824,7 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                                              <List dense>
                                                  {currentAssigned.map(m=>(
                                                      <ListItem key={m.id} secondaryAction={
-                                                         <IconButton edge="end" aria-label="remove" onClick={()=>handleRemoveManagerInModal(project.id, m.id, m.username)} disabled={isProcessingThisProject || isAccordionLoading || isDeletingThisProject} title={`Remove ${m.username}`} size="small">
+                                                         <IconButton edge="end" aria-label="remove" onClick={()=>handleRemoveManagerInModal(project.id, m.id, m.username)} disabled={isProcessingThisProject || isAccordionLoading || isDeletingThisProject || isDeletingBulk} title={`Remove ${m.username}`} size="small">
                                                              {(processingAssignmentInModal?.type==='remove'&&processingAssignmentInModal.userId===m.id)?<CircularProgress size={20} color="inherit"/>:<DeleteIcon fontSize="small" sx={styles.modalListItemIcon}/>}
                                                          </IconButton>
                                                      } sx={{pr:'50px', '&:hover':{backgroundColor:colors.primary[500]}}}>
@@ -1759,14 +1838,14 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                                          {allDataManagers.length === 0 ? <Typography sx={{ color: colors.grey[400] }}>No 'Data Manager' users available.</Typography> :
                                           unassignedForDropdown.length === 0 ? <Typography sx={{ color: colors.grey[400] }}>All DMs assigned.</Typography> : (
                                              <Box display="flex" alignItems="center" gap={2} mt={1}>
-                                                 <FormControl variant="outlined" size="small" sx={{ minWidth: 200, flexGrow: 1 }} disabled={isProcessingThisProject || isAccordionLoading || isDeletingThisProject}>
+                                                 <FormControl variant="outlined" size="small" sx={{ minWidth: 200, flexGrow: 1 }} disabled={isProcessingThisProject || isAccordionLoading || isDeletingThisProject || isDeletingBulk}>
                                                      <InputLabel id={`modal-adm-lbl-${project.id}`}>Select Manager</InputLabel>
                                                      <Select labelId={`modal-adm-lbl-${project.id}`} value={selectedUserIdInDropdown} label="Select Manager" onChange={(e)=>handleSelectManagerChangeInModal(project.id,e)} MenuProps={{ PaperProps:{ sx:{backgroundColor: colors.primary[600],color: colors.grey[100]}}}}>
                                                          <MenuItem value="" disabled><em>Select...</em></MenuItem>
                                                          {unassignedForDropdown.map(m=>(<MenuItem key={m.id} value={m.id}>{m.username} ({m.email})</MenuItem>))}
                                                      </Select>
                                                  </FormControl>
-                                                 <Button variant="contained" color="secondary" size="medium" onClick={()=>handleAssignManagerInModal(project.id)} disabled={!selectedUserIdInDropdown||isProcessingThisProject||isAccordionLoading || isDeletingThisProject} startIcon={(processingAssignmentInModal?.type==='assign'&&processingAssignmentInModal.userId===selectedUserIdInDropdown)?<CircularProgress size={20} color="inherit"/>:<PersonAddIcon/>}>Assign</Button>
+                                                 <Button variant="contained" color="secondary" size="medium" onClick={()=>handleAssignManagerInModal(project.id)} disabled={!selectedUserIdInDropdown||isProcessingThisProject||isAccordionLoading || isDeletingThisProject || isDeletingBulk} startIcon={(processingAssignmentInModal?.type==='assign'&&processingAssignmentInModal.userId===selectedUserIdInDropdown)?<CircularProgress size={20} color="inherit"/>:<PersonAddIcon/>}>Assign</Button>
                                              </Box>
                                          )}
                                      </AccordionDetails>
@@ -1777,19 +1856,17 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                  )}
             </DialogContent>
             <DialogActions sx={styles.modalDialogActions}>
-                <Button onClick={handleCloseProjectSettingsModal} color="inherit" disabled={!!processingAssignmentInModal || !!deletingProjectId}>Close</Button>
+                <Button onClick={handleCloseProjectSettingsModal} color="inherit" disabled={!!processingAssignmentInModal || !!deletingProjectId || isDeletingBulk}>Close</Button>
             </DialogActions>
         </Dialog>
 
-        {/* --- NEW: Division & Project Management MODAL --- */}
        <Dialog
            open={isDivisionProjectSettingsModalOpen}
            onClose={handleCloseDivisionProjectSettingsModal}
-           // Prevent closing via escape key during deletion
-           disableEscapeKeyDown={!!deletingDivisionId || !!deletingProjectId}
+           disableEscapeKeyDown={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk}
            fullWidth
-           maxWidth="sm" // Adjust width as needed
-           PaperProps={{ sx: styles.modalDialogPaper }} // Reuse existing modal style
+           maxWidth="sm" 
+           PaperProps={{ sx: styles.modalDialogPaper }} 
        >
            <DialogTitle sx={{ textAlign:"center", fontWeight:'bold', m:0, p:2, borderBottom:`1px solid ${colors.grey[600]}` }}>
                Manage Divisions & Projects
@@ -1797,14 +1874,12 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                    aria-label="close"
                    onClick={handleCloseDivisionProjectSettingsModal}
                    sx={{ position:'absolute', right:8, top:8, color:(t)=>t.palette.grey[500] }}
-                   // Disable close button during deletion
-                   disabled={!!deletingDivisionId || !!deletingProjectId}
+                   disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk}
                >
                    <CloseIcon />
                </IconButton>
            </DialogTitle>
            <DialogContent sx={styles.modalDialogContent}>
-               {/* --- Divisions Section --- */}
                <Box mb={3}>
                    <Typography variant="h6" gutterBottom sx={{ color: colors.grey[200] }}>Divisions</Typography>
                    {(loadingDivisionsList) && <Box display="flex" justifyContent="center" my={2}><CircularProgress/></Box>}
@@ -1818,18 +1893,16 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                                        key={`div-${division.id}`}
                                        secondaryAction={
                                            <Tooltip title={`Delete Division "${division.name}"`}>
-                                               {/* Wrap IconButton in span for Tooltip when disabled */}
                                                <span>
                                                    <IconButton
                                                        edge="end"
                                                        aria-label={`delete-division-${division.id}`}
                                                        onClick={() => handleDeleteDivision(division.id, division.name)}
-                                                       // Disable if ANY deletion is happening
-                                                       disabled={!!deletingDivisionId || !!deletingProjectId}
+                                                       disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk}
                                                        size="small"
                                                        sx={{
-                                                           ...styles.modalListItemIcon, // Use red color from assignments modal
-                                                           opacity: (!!deletingDivisionId || !!deletingProjectId) && !isDeletingThis ? 0.5 : 1, // Dim if another is deleting
+                                                           ...styles.modalListItemIcon, 
+                                                           opacity: (!!deletingDivisionId || !!deletingProjectId || isDeletingBulk) && !isDeletingThis ? 0.5 : 1, 
                                                        }}
                                                    >
                                                        {isDeletingThis ? <CircularProgress size={20} color="inherit"/> : <DeleteIcon fontSize="small"/>}
@@ -1846,16 +1919,14 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                            })}
                        </List>
                    )}
-                   {/* Button to Create New Division */}
-                   {userRole === ROLES.ADMIN && ( // Corrected check
+                   {userRole === ROLES.ADMIN && ( 
                     <Button
                       variant="outlined"
                       startIcon={<AddCircleOutlineIcon />}
                       sx={{ mt: 1, borderColor: colors.greenAccent[500], color: colors.greenAccent[400], '&:hover': { borderColor: colors.greenAccent[300] }, textTransform: 'none' }}
                       onClick={handleOpenCreateDivisionModal}
                       fullWidth
-                      // Optional: disable if another action is running
-                      disabled={!!deletingDivisionId || !!deletingProjectId}
+                      disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk}
                     >
                       New Division
                     </Button>
@@ -1864,7 +1935,6 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
 
                <Divider sx={{ my: 2, borderColor: colors.grey[700] }} />
 
-               {/* --- Projects Section --- */}
                <Box>
                    <Typography variant="h6" gutterBottom sx={{ color: colors.grey[200] }}>Projects</Typography>
                    {(loadingProjectsList) && <Box display="flex" justifyContent="center" my={2}><CircularProgress/></Box>}
@@ -1878,19 +1948,16 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                                        key={`proj-${project.id}`}
                                        secondaryAction={
                                            <Tooltip title={`Delete Project "${project.name}"`}>
-                                               {/* Wrap IconButton in span for Tooltip when disabled */}
                                                <span>
                                                    <IconButton
                                                        edge="end"
                                                        aria-label={`delete-project-${project.id}`}
-                                                       // Reuse the existing handleDeleteProject function
                                                        onClick={() => handleDeleteProject(project.id, project.name)}
-                                                       // Disable if ANY deletion is happening
-                                                       disabled={!!deletingDivisionId || !!deletingProjectId}
+                                                       disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk}
                                                        size="small"
                                                         sx={{
-                                                           ...styles.modalListItemIcon, // Use red color
-                                                           opacity: (!!deletingDivisionId || !!deletingProjectId) && !isDeletingThis ? 0.5 : 1, // Dim if another is deleting
+                                                           ...styles.modalListItemIcon, 
+                                                           opacity: (!!deletingDivisionId || !!deletingProjectId || isDeletingBulk) && !isDeletingThis ? 0.5 : 1, 
                                                        }}
                                                    >
                                                        {isDeletingThis ? <CircularProgress size={20} color="inherit"/> : <DeleteIcon fontSize="small"/>}
@@ -1901,40 +1968,60 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                                        sx={{pr:'50px', '&:hover':{backgroundColor:colors.primary[500]}, opacity: isDeletingThis ? 0.6 : 1}}
                                        divider
                                    >
-                                       <ListItemText primary={project.name} sx={{color: colors.grey[100]}}/>
+                                       <ListItemText 
+                                         primary={project.name} 
+                                         secondary={`Division: ${project.division_name || 'N/A'}`}
+                                         primaryTypographyProps={{ sx: { color: colors.grey[100] } }}
+                                         secondaryTypographyProps={{ sx: { color: colors.grey[400], fontSize: '0.8rem' } }}
+                                       />
                                    </ListItem>
                                );
                            })}
                        </List>
                    )}
-                   {/* Button to Create New Project */}
-                  {canPerformAction('createProject') && (
+                  {userRole === ROLES.ADMIN && ( // Changed from canPerformAction
                     <Button
                       variant="outlined"
                       startIcon={<AddCircleOutlineIcon />}
                       sx={{ mt: 1, borderColor: colors.greenAccent[500], color: colors.greenAccent[400], '&:hover': { borderColor: colors.greenAccent[300] }, textTransform: 'none' }}
                       onClick={handleOpenCreateProjectModal}
                       fullWidth
+                      disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk || loadingDivisionsList} // Disable if divisions are not loaded for project creation
                     >
                       New Project
                     </Button>
                   )}
                </Box>
            </DialogContent>
+            <DialogActions sx={styles.modalDialogActions}>
+                <Button onClick={handleCloseDivisionProjectSettingsModal} color="inherit" disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk}>Close</Button>
+            </DialogActions>
        </Dialog>
 
-        {/* --- File Table --- */}
         <TableContainer component={Paper} sx={styles.tableContainer}>
-             {isLoading && (<Box sx={styles.loadingOverlay}><CircularProgress/></Box>)}
+             {isLoading && !isDeletingBulk && (<Box sx={styles.loadingOverlay}><CircularProgress/></Box>)} {/* Don't show if bulk deleting */}
             {!isLoading && files.length===0 && !isLoadingPermissions && (
                 <Typography sx={{textAlign:'center', p:4, color:colors.grey[500], fontStyle:'italic'}}>
-                    No files found{filterProjectId==='all'?'':(filterProjectId==='unassigned'?' (unassigned)':' in project')}.
+                    No files found{filterProjectId==='all' && filterDivisionId ==='all' ? '' : ' for the current filter'}.
                 </Typography>
             )}
             {!isLoading && files.length>0 && !isLoadingPermissions && (
-                <Table sx={styles.table} aria-label="file table">
+                <Table sx={styles.table} aria-label="file table" size="small">
                     <TableHead sx={styles.tableHead}>
                         <TableRow>
+                            {userRole === ROLES.ADMIN &&(
+                               <TableCell sx={{...styles.headCell, width: '60px', paddingLeft: '7px', padding: '0'}}>
+                                <Checkbox
+                                    color="primary"
+                                    indeterminate={selectedFileIds.size > 0 && selectedFileIds.size < numTotalSelectableForDelete}
+                                    checked={numTotalSelectableForDelete > 0 && selectedFileIds.size === numTotalSelectableForDelete}
+                                    onChange={handleSelectAllClick}
+                                    inputProps={{ 'aria-label': 'select all files' }}
+                                    disabled={isLoading || isDeletingBulk || !!deletingProjectId || !!deletingDivisionId || numTotalSelectableForDelete === 0}
+                                    sx={{ color: colors.grey[300], '&.Mui-checked': {color: colors.blueAccent[300]}, '&.Mui-disabled': {color: colors.grey[600]} }}
+                                />
+                                </TableCell> 
+                            )}
                             <TableCell sx={styles.headCell}>Name</TableCell>
                             <TableCell sx={styles.headCell}>Plot</TableCell>
                             <TableCell sx={styles.headCell}>Division</TableCell>
@@ -1942,130 +2029,142 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
                             <TableCell sx={styles.headCell}>Size</TableCell>
                             <TableCell sx={styles.headCell}>Uploaded</TableCell>
                             <TableCell sx={{...styles.headCell, textAlign:'center'}}>Potree</TableCell>
-                            <TableCell sx={{...styles.headCell, textAlign:'center'}}>Actions</TableCell>
+                            <TableCell sx={{...styles.headCell, textAlign:'center', width: '100px'}}>Actions</TableCell>
                         </TableRow>
                     </TableHead>
-                                        <TableBody>
+                        <TableBody>
                         {files.map((file) => {
-                            // *** MODIFIED: Determine Status based on Optimistic State and potreeUrl ***
-                            // Check if the file ID is in our optimistic processing set
-                            const isOptimisticallyProcessing = filesBeingProcessed.has(file.id);
-                            // Check if the file is actually ready based on backend data
-                            const isReady = !!file.potreeUrl; // Simplified: presence of URL means ready
+                            const isSelected = selectedFileIds.has(file.id);
+                            const isOptimisticallyProcessing = filesBeingProcessed.has(file.id); 
+                            const isReady = !!file.potreeUrl;
+                            const backendFileStatus = file.status; 
 
-                            let sT = "Not Ready"; // Default Status Text
-                            let sC = colors.grey[500]; // Default Status Color
+                            let sT = "Not Ready";
+                            let sC = colors.grey[500];
+                            
+                            // Determine if file is effectively converting/processing (for UI disabling)
+                            const isEffectivelyConverting = ACTIVE_PIPELINE_PROCESSING_STATUSES.includes(backendFileStatus) || isOptimisticallyProcessing;
 
-                            // Determine status text and color based on state
-                            if (isOptimisticallyProcessing) {
-                                sT = "Converting...";
-                                sC = colors.blueAccent[300];
-                            } else if (isReady) {
+
+                            if (isReady) {
                                 sT = "Ready";
                                 sC = colors.greenAccent[400];
+                            } else if (isEffectivelyConverting) {
+                                sT = "Processing..."; 
+                                sC = colors.blueAccent[300];
+                            } else if (backendFileStatus === 'failed') {
+                                sT = "Failed";
+                                sC = colors.redAccent[400];
+                            } else if (backendFileStatus === 'uploaded') {
+                                sT = "Queued";
+                                sC = colors.orangeAccent ? colors.orangeAccent[400] : colors.grey[400]; 
                             }
-                            // else remains "Not Ready"
-
-                            // Use optimistic state to determine if actions should be disabled/UI dimmed
-                            const isEffectivelyConverting = isOptimisticallyProcessing;
-                            // ----------------------------------------------------------------------
-
-                            // Permission checks (no change needed in canPerformAction calls)
-                            const cA = canPerformAction('assignProject',file);
+                            
+                            const canDeleteThisFile = canPerformAction('delete',file);
+                            const cA = canPerformAction('assignProject',file); // For reassign modal (old assignProject)
                             const cD = canPerformAction('download',file);
                             const cV = canPerformAction('view',file);
                             const cC = canPerformAction('convert',file);
-                            const cDel = canPerformAction('delete',file);
                             const cReassign = canPerformAction('reassign', file);
 
-                            // *** MODIFIED: Update calculation based on new variables ***
-                            // Check if any action other than view/convert is possible
-                            const hasModifyActions = cA || cD || cDel || cReassign;
-                            // Check if *any* action is possible (modify, or view when ready, or convert when not ready/converting)
-                            const hasAnyAction = hasModifyActions || (cV && isReady) || (cC && !isReady && !isEffectivelyConverting);
-                            // ---------------------------------------------------------
+                            const hasModifyActions = cReassign || cD; // Removed cA, cDel (handled by bulk or reassign)
+                            const hasAnyAction = hasModifyActions || (cV && isReady) || (cC && !isReady && !isEffectivelyConverting && backendFileStatus !== 'failed');
+                            
+                            // A row is generally non-interactive if a global delete (project/division/bulk) is happening
+                            const isGlobalDeleteActive = !!deletingProjectId || !!deletingDivisionId || isDeletingBulk;
+
 
                             return (
                                 <TableRow
                                     key={file.id}
                                     hover
+                                    onClick={(event) => {
+                                        // Allow clicking row to toggle checkbox if not clicking on an interactive element within the row
+                                        if (event.target.type !== 'checkbox' && !event.target.closest('button')) {
+                                             if (!isEffectivelyConverting && canDeleteThisFile && !isGlobalDeleteActive) {
+                                                handleRowCheckboxClick({ target: { checked: !isSelected } }, file.id);
+                                            }
+                                        }
+                                    }}
+                                    role="checkbox"
+                                    aria-checked={isSelected}
+                                    selected={isSelected}
                                     sx={{
                                         '&:last-child td,&:last-child th':{border:0},
-                                        // *** MODIFIED: Dim row if optimistically processing ***
-                                        opacity: isEffectivelyConverting ? 0.6 : 1,
-                                        // Prevent hover effect when converting
+                                        opacity: isEffectivelyConverting || isGlobalDeleteActive ? 0.6 : 1,
+                                        cursor: (!isEffectivelyConverting && canDeleteThisFile && !isGlobalDeleteActive) ? 'pointer' : 'default',
                                         '&:hover': {
-                                            backgroundColor: isEffectivelyConverting ? 'inherit' : undefined
-                                        }
-                                        // ---------------------------------------------------
+                                            backgroundColor: (isEffectivelyConverting || isGlobalDeleteActive || !canDeleteThisFile) ? 'inherit' : colors.primary[800]
+                                        },
+                                        ...(isSelected && {
+                                            backgroundColor: `${colors.blueAccent[800]} !important` // Persist selection color
+                                        })
                                     }}
                                 >
-                                    {/* Keep TableCells for file details the same */}
-                                     <TableCell sx={styles.bodyCell} title={file.name}>{file.name}</TableCell>
+                                    <TableCell padding="checkbox" sx={{...styles.bodyCell, width: '60px', padding: '0'}}>
+                                        <Checkbox
+                                            color="primary"
+                                            checked={isSelected}
+                                            onChange={(event) => handleRowCheckboxClick(event, file.id)}
+                                            onClick={(e) => e.stopPropagation()} // Prevent row click from also firing
+                                            inputProps={{ 'aria-labelledby': `file-name-${file.id}` }}
+                                            disabled={isEffectivelyConverting || !canDeleteThisFile || isGlobalDeleteActive}
+                                            sx={{ color: colors.grey[300], '&.Mui-checked': {color: colors.blueAccent[300]}, '&.Mui-disabled': {color: colors.grey[600]} }}
+                                        />
+                                    </TableCell>
+                                     <TableCell sx={styles.bodyCell} title={file.name} id={`file-name-${file.id}`}>{file.name}</TableCell>
                                      <TableCell sx={styles.bodyCell}>{file.plot_name || 'N/A'}</TableCell>
                                      <TableCell sx={styles.bodyCell}>{file.divisionName || 'N/A'}</TableCell>
                                      <TableCell sx={styles.bodyCell} title={file.projectName}>{file.projectName}</TableCell>
                                      <TableCell sx={styles.bodyCell}>{file.size}</TableCell>
                                      <TableCell sx={styles.bodyCell}>{file.uploadDate}</TableCell>
 
-                                    {/* Potree Status Cell - MODIFIED */}
                                     <TableCell sx={{...styles.bodyCell,textAlign:'center'}}>
                                         {isEffectivelyConverting ? (
                                           <Box sx={styles.statusText}>
-                                            {/* Show spinner when converting */}
                                             <CircularProgress size={16} sx={{color:sC}}/>
                                             <Typography variant="caption" sx={{color:sC,ml:1}}>{sT}</Typography>
                                           </Box>
                                         ) : (
-                                          // Just show text when not converting
                                           <Typography variant="caption" sx={{color:sC}}>{sT}</Typography>
                                         )}
                                     </TableCell>
-                                    {/* ------------------------- */}
-
-                                    {/* Actions Cell - MODIFIED (disabled logic) */}
                                     <TableCell sx={{...styles.bodyCell,textAlign:'center',p:'0 8px'}}>
                                         <IconButton
                                             aria-label={`actions-for-${file.name}`}
-                                            onClick={(e)=>handleMenuClick(e,file)}
+                                            onClick={(e)=>{ e.stopPropagation(); handleMenuClick(e,file);}}
                                             sx={styles.actionButton}
                                             size="small"
-                                            // *** MODIFIED: Disable if converting, deleting, or no actions possible ***
-                                            disabled={isEffectivelyConverting || !hasAnyAction || !!deletingProjectId || !!deletingDivisionId}
+                                            disabled={isEffectivelyConverting || !hasAnyAction || isGlobalDeleteActive}
                                             title={!hasAnyAction?"No actions available":(isEffectivelyConverting?"Processing...":"More Actions")}
                                         >
                                             <MoreVertIcon fontSize="small"/>
                                         </IconButton>
                                         <Menu
-                                            // Keep Menu props the same
                                             id={`menu-for-${file.id}`}
                                             anchorEl={anchorEl}
                                             keepMounted
                                             open={Boolean(anchorEl) && selectedFile?.id === file.id}
-                                            onClose={handleMenuClose}
+                                            onClose={(e) => {e.stopPropagation(); handleMenuClose();}}
                                             anchorOrigin={{vertical:'bottom',horizontal:'right'}}
                                             transformOrigin={{vertical:'top',horizontal:'right'}}
                                             PaperProps={{sx:{backgroundColor:colors.primary[800],color:colors.grey[100],mt:0.5}}}
                                         >
-                                            {/* --- MODIFIED: Add 'isEffectivelyConverting' disabled check to ALL MenuItems --- */}
                                             {cReassign && (
-                                                 <MenuItem onClick={() => handleOpenReassignModal(selectedFile)} disabled={isEffectivelyConverting || !!deletingProjectId || !!deletingDivisionId /* other disabling conditions like isAssigningProject might still be relevant in specific modals */}>
+                                                 <MenuItem onClick={() => handleOpenReassignModal(selectedFile)} disabled={isEffectivelyConverting || isGlobalDeleteActive}>
                                                      <ListItemIcon sx={{...styles.menuItemIcon, color: colors.grey[300]}}><AssignmentIcon fontSize="small"/></ListItemIcon>
                                                      <ListItemText>Edit Details / Reassign</ListItemText>
                                                  </MenuItem>
                                              )}
-                                            {cD && (<MenuItem onClick={()=>handleDownload(selectedFile)} disabled={isEffectivelyConverting || !!deletingProjectId || !!deletingDivisionId}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><DownloadIcon fontSize="small"/></ListItemIcon><ListItemText>Download</ListItemText></MenuItem>)}
-                                            {/* Only show View option if file is ready */}
-                                            {cV && isReady && (<MenuItem onClick={()=>handleViewPotree(selectedFile)} disabled={isEffectivelyConverting || !!deletingProjectId || !!deletingDivisionId}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><VisibilityIcon fontSize="small"/></ListItemIcon><ListItemText>View Point Cloud</ListItemText></MenuItem>)}
-                                            {/* Only show Convert option if conversion is allowed, file is not ready, AND not currently converting */}
-                                            {cC && !isReady && !isEffectivelyConverting && (<MenuItem onClick={()=>handleConvertPotree(selectedFile)} disabled={isEffectivelyConverting || !!deletingProjectId || !!deletingDivisionId}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><TransformIcon fontSize="small"/></ListItemIcon><ListItemText>Convert to Potree</ListItemText></MenuItem>)}
-                                            {cDel && (<MenuItem onClick={()=>handleRemove(selectedFile)} disabled={isEffectivelyConverting || !!deletingProjectId || !!deletingDivisionId} sx={{ color: colors.redAccent[400], '.MuiListItemIcon-root': { color: colors.redAccent[400] } }} ><ListItemIcon sx={styles.menuItemIcon}><DeleteIcon fontSize="small"/></ListItemIcon><ListItemText>Remove</ListItemText></MenuItem>)}
-                                            {/* Show this if no actions are possible at all */}
-                                            {!hasAnyAction && (<MenuItem disabled sx={styles.menuItemDisabledText}><ListItemText>No actions permitted</ListItemText></MenuItem>)}
-                                            {/* ---------------------------------------------------------------------------------- */}
+                                            {cD && (<MenuItem onClick={()=>handleDownload(selectedFile)} disabled={isEffectivelyConverting || isGlobalDeleteActive}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><DownloadIcon fontSize="small"/></ListItemIcon><ListItemText>Download</ListItemText></MenuItem>)}
+                                            {cV && isReady && (<MenuItem onClick={()=>handleViewPotree(selectedFile)} disabled={isEffectivelyConverting || isGlobalDeleteActive}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><VisibilityIcon fontSize="small"/></ListItemIcon><ListItemText>View Point Cloud</ListItemText></MenuItem>)}
+                                            {cC && !isReady && !isEffectivelyConverting && backendFileStatus !== 'failed' && (<MenuItem onClick={()=>handleConvertPotree(selectedFile)} disabled={isGlobalDeleteActive}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><TransformIcon fontSize="small"/></ListItemIcon><ListItemText>Convert to Potree</ListItemText></MenuItem>)}
+                                            {/* Individual delete can still be here as a quick action, or removed to simplify to bulk only */}
+                                            {canDeleteThisFile && (<MenuItem onClick={()=>handleRemove(selectedFile)} disabled={isEffectivelyConverting || isGlobalDeleteActive} sx={{ color: colors.redAccent[400], '.MuiListItemIcon-root': { color: colors.redAccent[400] } }} ><ListItemIcon sx={styles.menuItemIcon}><DeleteIcon fontSize="small"/></ListItemIcon><ListItemText>Remove File</ListItemText></MenuItem>)}
+                                            
+                                            {!hasAnyAction && !canDeleteThisFile && (<MenuItem disabled sx={styles.menuItemDisabledText}><ListItemText>No actions permitted</ListItemText></MenuItem>)}
                                         </Menu>
                                     </TableCell>
-                                    {/* ------------------------------------ */}
                                 </TableRow>
                            );
                         })}
@@ -2074,7 +2173,6 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
             )}
         </TableContainer>
 
-        {/* --- Shared Snackbar --- */}
         <Snackbar
             open={snackbarOpen}
             autoHideDuration={6000}
@@ -2090,5 +2188,4 @@ const CREATE_NEW_PROJECT_VALUE = "__CREATE_NEW_PROJECT__";   // Special value fo
   );
 };
 
-// --- EXPORT ---
 export default FileManagement;

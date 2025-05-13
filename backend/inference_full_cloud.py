@@ -14,6 +14,13 @@ import laspy # <<< **** ADD THIS IF NOT ALREADY GLOBALLY ACCESSIBLE ****
              # (Though it's imported within load_large_point_cloud, good practice to have it here too
              # if we use it directly in predict_full_cloud)
 
+print(f"PyTorch version: {torch.__version__}")
+print(f"CUDA available: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"PyTorch CUDA version: {torch.version.cuda}") # Should output 12.1
+    print(f"Number of GPUs: {torch.cuda.device_count()}")
+    print(f"Current GPU name: {torch.cuda.get_device_name(0)}")
+
 
 # Determine project directories relative to this script file
 try:

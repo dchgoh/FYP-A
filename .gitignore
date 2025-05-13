@@ -24,3 +24,8 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+/backend/utils/__pycache__
+/node_modules
+/node_modules
+/node_modules/.cache
+/node_modules/potree
