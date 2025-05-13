@@ -83,7 +83,7 @@ const createUsersTable = async () => {
         const hashedPassword = await bcrypt.hash("root", 10);
         await pool.query(
           "INSERT INTO users (username, email, password, age, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (email) DO NOTHING",
-          ["Darren", "dchgoh@gmail.com", hashedPassword, 21, "Administrator"]
+          ["Jordan", "jhzhaw@gmail.com", hashedPassword, 21, "Administrator"]
         );
         console.log("Default admin user created");
       } else {

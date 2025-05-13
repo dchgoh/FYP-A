@@ -115,13 +115,17 @@ exports.uploadFile = async (req, res) => {
                 console.log(`[Controller] (FileID ${fileIdToUpdate}): Initiating segmentation service.`);
                 // The segmentationService.runSegmentation will set status to 'segmenting',
                 // then to 'segmented_ready_for_las' or 'failed'.
-                // await segmentationService.runSegmentation(fileIdToUpdate, stored_path_absolute, projectRootDir);
-                //const statusAfterSegmentation = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileIdToUpdate]);
-                //if (statusAfterSegmentation.rows[0]?.status !== 'segmented_ready_for_las') {
-                //    console.warn(`[Controller] (FileID ${fileIdToUpdate}): Segmentation did not result in 'segmented_ready_for_las'. Current status: ${statusAfterSegmentation.rows[0]?.status}. Halting pipeline.`);
-                //    return; // Stop if segmentation didn't prepare for LAS processing
-                //}
-                // console.log(`[Controller] (FileID ${fileIdToUpdate}): Segmentation complete. Initiating LAS processing service.`);
+                await segmentationService.runSegmentation(fileIdToUpdate, stored_path_absolute, projectRootDir);
+
+                // Optional: Check status after segmentation before proceeding.
+                // Service should throw an error if it fails, which would be caught by the outer catch.
+                // If it resolves, we assume it set the correct "next step" status.
+                const statusAfterSegmentation = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileIdToUpdate]);
+                if (statusAfterSegmentation.rows[0]?.status !== 'segmented_ready_for_las') {
+                    console.warn(`[Controller] (FileID ${fileIdToUpdate}): Segmentation did not result in 'segmented_ready_for_las'. Current status: ${statusAfterSegmentation.rows[0]?.status}. Halting pipeline.`);
+                    return; // Stop if segmentation didn't prepare for LAS processing
+                }
+                console.log(`[Controller] (FileID ${fileIdToUpdate}): Segmentation complete. Initiating LAS processing service.`);
 
                 // The lasProcessingService.processLasData will set status to 'processing_las_data',
                 // then 'processed_ready_for_potree' (and trigger Potree) or 'failed'.

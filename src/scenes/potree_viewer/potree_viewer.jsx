@@ -1,13 +1,23 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Box, useTheme, IconButton, CircularProgress, Typography as MuiTypography } from "@mui/material";
 import { useLocation } from "react-router-dom";
-import { tokens } from "../../theme"; // Import theme tokens
+import { tokens } from "../../theme"; // Adjust path if necessary
 import MapIcon from '@mui/icons-material/Map';
 import CloseIcon from '@mui/icons-material/Close';
 import MiniMap from "./MiniMap"; // Adjust path if MiniMap.jsx is elsewhere
+import Draggable from 'react-draggable';
 
 const Potree = window.Potree;
 const API_BASE_URL = "http://localhost:5000/api"; // Define or import your API base URL
+
+// Constants for positioning logic
+const MINIMAP_ESTIMATED_WIDTH_SM = 300;
+const MINIMAP_ESTIMATED_WIDTH_XS = 260;
+const MINIMAP_ESTIMATED_HEIGHT_SM = 250;
+const MINIMAP_ESTIMATED_HEIGHT_XS = 200;
+const BUTTON_FIXED_SIZE = 40; // Matches IconButton width/height
+const MINIMAP_BUTTON_GAP = 10; // Desired gap between button and minimap
+
 
 const PotreeViewer = ({ isCollapsed }) => {
   const theme = useTheme();
@@ -26,6 +36,152 @@ const PotreeViewer = ({ isCollapsed }) => {
   const [isLoadingMiniMapFiles, setIsLoadingMiniMapFiles] = useState(false);
   const [errorMiniMapFiles, setErrorMiniMapFiles] = useState(null);
 
+  // State for draggable button position and refs
+  const [buttonPosition, setButtonPosition] = useState({ x: 0, y: 0 }); // x, y are offsets for Draggable
+  const draggableButtonRef = useRef(null);
+  const viewerWrapperRef = useRef(null); // Ref for the main viewer area (Draggable's parent)
+
+  // State for the entire style of the MiniMap container
+  const [miniMapContainerStyle, setMiniMapContainerStyle] = useState(() => ({
+    position: 'absolute',
+    visibility: 'hidden', // Start hidden until position is calculated
+    width: { xs: `${MINIMAP_ESTIMATED_WIDTH_XS}px`, sm: `${MINIMAP_ESTIMATED_WIDTH_SM}px` },
+    height: { xs: `${MINIMAP_ESTIMATED_HEIGHT_XS}px`, sm: `${MINIMAP_ESTIMATED_HEIGHT_SM}px` },
+    backgroundColor: `rgba(${theme.palette.mode === 'dark' ? '30,30,30' : '245,245,245'}, 0.9)`,
+    border: `1px solid ${colors.grey[700]}`,
+    borderRadius: '8px',
+    zIndex: 1001, // Below toggle button
+    boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+    overflow: 'hidden',
+    // top, left will be calculated and added by updateMiniMapPosition
+  }));
+
+  // Load button position from localStorage
+  useEffect(() => {
+    const savedPosition = localStorage.getItem('miniMapButtonPosition');
+    if (savedPosition) {
+      try {
+        const parsedPosition = JSON.parse(savedPosition);
+        // Basic validation
+        if (typeof parsedPosition.x === 'number' && typeof parsedPosition.y === 'number') {
+          setButtonPosition(parsedPosition);
+        } else {
+            localStorage.removeItem('miniMapButtonPosition'); // Clear invalid data
+        }
+      } catch (e) {
+        console.error("Error parsing saved button position:", e);
+        localStorage.removeItem('miniMapButtonPosition');
+      }
+    }
+  }, []);
+
+  const handleDragStart = () => {
+    if (draggableButtonRef.current) {
+      draggableButtonRef.current.style.cursor = 'grabbing';
+    }
+  };
+
+  const handleDragStop = (e, data) => {
+    const newPosition = { x: data.x, y: data.y };
+    setButtonPosition(newPosition);
+    localStorage.setItem('miniMapButtonPosition', JSON.stringify(newPosition));
+    if (draggableButtonRef.current) {
+      draggableButtonRef.current.style.cursor = 'grab';
+    }
+    // updateMiniMapPosition will be called by the useEffect watching buttonPosition
+  };
+
+  const updateMiniMapPosition = useCallback(() => {
+    if (!showMiniMap || !draggableButtonRef.current || !viewerWrapperRef.current) {
+      if (showMiniMap) { // If it's supposed to be shown but refs aren't ready or button not rendered
+        setMiniMapContainerStyle(prev => ({ ...prev, visibility: 'hidden' }));
+      }
+      return;
+    }
+
+    const buttonNode = draggableButtonRef.current;
+    const parentNode = viewerWrapperRef.current;
+
+    const buttonRect = buttonNode.getBoundingClientRect();
+    const parentRect = parentNode.getBoundingClientRect();
+
+    // Button's position relative to the parent (viewerWrapper)
+    // This uses the actual rendered position of the button, which includes its transform from Draggable
+    const buttonTopInParent = buttonRect.top - parentRect.top;
+    const buttonLeftInParent = buttonRect.left - parentRect.top;
+
+    // Parent's dimensions
+    const parentWidth = parentRect.width;
+    const parentHeight = parentRect.height;
+
+    // Determine current effective minimap size (very basic responsive logic)
+    const currentMapEffectiveWidth = parentWidth < (MINIMAP_ESTIMATED_WIDTH_XS + MINIMAP_ESTIMATED_WIDTH_SM) / 2
+        ? MINIMAP_ESTIMATED_WIDTH_XS
+        : MINIMAP_ESTIMATED_WIDTH_SM;
+    const currentMapEffectiveHeight = parentHeight < (MINIMAP_ESTIMATED_HEIGHT_XS + MINIMAP_ESTIMATED_HEIGHT_SM) / 2
+        ? MINIMAP_ESTIMATED_HEIGHT_XS
+        : MINIMAP_ESTIMATED_HEIGHT_SM;
+    
+    let idealTop, idealLeft;
+
+    // Try to position the map "opposite" to the button within the viewport
+    // If button is more than halfway down, try to place map above it
+    if (buttonTopInParent + BUTTON_FIXED_SIZE / 2 > parentHeight / 2) {
+      idealTop = buttonTopInParent - currentMapEffectiveHeight - MINIMAP_BUTTON_GAP;
+    } else { // Button is in top half, place map below it
+      idealTop = buttonTopInParent + BUTTON_FIXED_SIZE + MINIMAP_BUTTON_GAP;
+    }
+
+    // If button is more than halfway right, try to place map to its left
+    if (buttonLeftInParent + BUTTON_FIXED_SIZE / 2 > parentWidth / 2) {
+      idealLeft = buttonLeftInParent - currentMapEffectiveWidth - MINIMAP_BUTTON_GAP;
+    } else { // Button is in left half, place map to its right
+      idealLeft = buttonLeftInParent + BUTTON_FIXED_SIZE + MINIMAP_BUTTON_GAP;
+    }
+
+    // Clamp values to stay within parent boundaries
+    const finalTop = Math.max(MINIMAP_BUTTON_GAP, Math.min(idealTop, parentHeight - currentMapEffectiveHeight - MINIMAP_BUTTON_GAP));
+    const finalLeft = Math.max(MINIMAP_BUTTON_GAP, Math.min(idealLeft, parentWidth - currentMapEffectiveWidth - MINIMAP_BUTTON_GAP));
+    
+    setMiniMapContainerStyle(prev => ({
+      ...prev,
+      top: `${finalTop}px`,
+      left: `${finalLeft}px`,
+      right: 'auto', // Explicitly set auto if using top/left
+      bottom: 'auto',
+      visibility: 'visible',
+      // Update width/height based on current viewport if needed (using the same logic as above)
+      width: `${currentMapEffectiveWidth}px`,
+      height: `${currentMapEffectiveHeight}px`,
+    }));
+  }, [showMiniMap]); // useCallback dependencies
+
+  // Effect to update MiniMap position on relevant changes
+  useEffect(() => {
+    updateMiniMapPosition(); 
+
+    const handleResizeOrCollapse = () => {
+      updateMiniMapPosition();
+    };
+    
+    window.addEventListener('resize', handleResizeOrCollapse);
+    // No direct event for sidebar collapse, but `isCollapsed` prop change will trigger this useEffect
+    
+    return () => {
+      window.removeEventListener('resize', handleResizeOrCollapse);
+    };
+  }, [buttonPosition, showMiniMap, isCollapsed, updateMiniMapPosition]);
+
+  // Initial positioning after mount
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      updateMiniMapPosition();
+    }, 100); // Small delay to ensure DOM elements are rendered and refs populated
+    return () => clearTimeout(timer);
+  }, [updateMiniMapPosition]); // Runs once on mount because updateMiniMapPosition is memoized
+
+
+  // Potree Annotation Patch
   useEffect(() => {
     if (Potree && Potree.Annotation && !Potree.Annotation._patched) {
       const originalHasView = Potree.Annotation.prototype.hasView;
@@ -40,6 +196,7 @@ const PotreeViewer = ({ isCollapsed }) => {
     }
   }, []);
 
+  // Potree Viewer Initialization & URL Handling
   useEffect(() => {
     if (!viewRef.current && Potree && viewElemRef.current) {
       const viewer = new Potree.Viewer(viewElemRef.current);
@@ -72,9 +229,13 @@ const PotreeViewer = ({ isCollapsed }) => {
     if (newTreeUrl && newTreeUrl !== treeUrl) {
       setTreeUrl(newTreeUrl);
       setPointCloudLoaded(false);
+    } else if (!newTreeUrl && treeUrl) { // Handle case where URL is removed
+      setTreeUrl(null);
+      // Point cloud clearing will be handled by the next useEffect
     }
   }, [location.search, treeUrl]);
 
+  // Potree Theme Override Styles
   useEffect(() => {
     const styleId = "potree-theme-override";
     let styleTag = document.getElementById(styleId);
@@ -85,23 +246,16 @@ const PotreeViewer = ({ isCollapsed }) => {
       document.head.appendChild(styleTag);
     }
   
-    // Added .current-location-div-icon style for MiniMap
     styleTag.innerHTML = `
-      #sidebar_header {
-        display: none;
-      }
+      #sidebar_header { display: none; }
       #potree_sidebar_container {
-        background-color: ${colors.grey[800]} !important;
-        border-top: 1px solid grey;
+        background-color: ${colors.grey[800]} !important; border-top: 1px solid grey;
         scrollbar-color: #e0e0e0 #888;
       }
       #menu_appearance, #menu_tools, #menu_scene, #menu_filters, #menu_about {
-        background-color: ${colors.primary[700]} !important;
-        color: ${colors.grey[100]} !important;
-        text-shadow: none;
-        font-family: "Inter", sans-serif;
-        box-shadow: 0px 3px 3px ${colors.grey[800]};
-        border: 1px solid ${colors.grey[800]};
+        background-color: ${colors.primary[700]} !important; color: ${colors.grey[100]} !important;
+        text-shadow: none; font-family: "Inter", sans-serif;
+        box-shadow: 0px 3px 3px ${colors.grey[800]}; border: 1px solid ${colors.grey[800]};
       }
       #potree_sidebar_container span, #potree_sidebar_container legend, 
       #potree_sidebar_container li, #potree_sidebar_container #scene_export, 
@@ -110,88 +264,55 @@ const PotreeViewer = ({ isCollapsed }) => {
       #potree_sidebar_container a, #potree_sidebar_container .heading, 
       #potree_sidebar_container #annotation_title, 
       #potree_sidebar_container #annotation_description {
-        color: ${colors.grey[100]} !important;
-        text-shadow: none !important;
-        font-family: "Inter", sans-serif;
+        color: ${colors.grey[100]} !important; text-shadow: none !important; font-family: "Inter", sans-serif;
       }
-      span.annotation-label, span.annotation-description-content {
-        color: white !important;
-      }
+      span.annotation-label, span.annotation-description-content { color: white !important; }
       label[data-i18n="appearance.point_size_type"], label[data-i18n="appearance.point_shape"] {
-        color: ${colors.grey[100]} !important;
-        font-family: "Inter", sans-serif !important;
-        font-weight: 400;
+        color: ${colors.grey[100]} !important; font-family: "Inter", sans-serif !important; font-weight: 400;
       }
-      .ui-selectmenu-text, .ui-menu-item-wrapper {
-        color: black !important;
-      }
-      .jstree-default .jstree-clicked {
-        background-color: ${colors.primary[700]} !important;
-      }
-      .jstree-anchor:hover {
-        background-color: ${colors.primary[800]} !important;
-      }
-      .current-location-div-icon { 
-        background: transparent !important; 
-        border: none !important; 
-      }
-      .current-location-div-icon svg {
-        /* filter: drop-shadow(0px 1px 1px rgba(0,0,0,0.7)); // Already in SVG */
-      }
+      .ui-selectmenu-text, .ui-menu-item-wrapper { color: black !important; }
+      .jstree-default .jstree-clicked { background-color: ${colors.primary[700]} !important; }
+      .jstree-anchor:hover { background-color: ${colors.primary[800]} !important; }
+      .current-location-div-icon { background: transparent !important; border: none !important; }
     `;
   }, [colors]);
   
+  // Potree Point Cloud Loading/Unloading
   useEffect(() => {
-    const viewer = viewRef.current; // Get the viewer instance
+    const viewer = viewRef.current; 
 
-    // Helper function to try and clear the scene when treeUrl is removed
     const clearSceneCompletely = () => {
         if (viewer && viewer.scene) {
-            // Check if Potree's specific removePointCloud method exists
             if (typeof viewer.scene.removePointCloud === 'function' && viewer.scene.pointclouds && viewer.scene.pointclouds.length > 0) {
-                console.log("Attempting to clear point clouds using viewer.scene.removePointCloud().");
-                // Iterate over a copy as removePointCloud modifies the original array
                 const pointcloudsToRemove = [...viewer.scene.pointclouds];
                 pointcloudsToRemove.forEach(pc => {
                     viewer.scene.removePointCloud(pc);
                 });
-                console.log("Point clouds cleared via removePointCloud.");
             } else {
-                // Fallback: If specific removal isn't available/reliable, reset the entire scene
-                console.warn("removePointCloud not available or pointclouds array issue. Resetting scene entirely for unload.");
-                viewer.setScene(new Potree.Scene(viewer)); // Pass viewer instance to constructor
+                viewer.setScene(new Potree.Scene(viewer));
             }
             setPointCloudLoaded(false);
-        } else if (viewer) {
-             // If scene object itself is problematic, still try to reset
-            console.warn("viewer.scene object not fully available for targeted clear. Resetting scene entirely for unload.");
+        } else if (viewer) { // Fallback if scene is somehow null but viewer exists
             viewer.setScene(new Potree.Scene(viewer));
             setPointCloudLoaded(false);
         }
     };
 
-
     if (treeUrl && viewer) {
-        // Only proceed to load/reload if the treeUrl is new or point cloud wasn't marked as loaded
-        // This handles both initial load and change of treeUrl
         if (!pointCloudLoaded || (viewer.scene && viewer.scene.pointclouds.length > 0 && viewer.scene.pointclouds[0].potree_url !== treeUrl) ) {
             console.log(`Loading new point cloud from URL: ${treeUrl}`);
-            
-            // Reset the scene: This clears everything (point clouds, measurements, etc.)
-            console.log("Setting new scene for Potree URL.");
-            viewer.setScene(new Potree.Scene(viewer)); // Potree.Scene constructor often takes viewer instance
+            viewer.setScene(new Potree.Scene(viewer)); 
 
             Potree.loadPointCloud(treeUrl).then(
                 (event) => {
-                    // Ensure viewer and scene are still valid after async operation
                     if (!viewRef.current || !viewRef.current.scene) {
                         console.error("Potree viewer or scene became unavailable during point cloud load.");
                         setPointCloudLoaded(false);
                         return;
                     }
-                    const currentViewer = viewRef.current; // Use ref again to be safe
+                    const currentViewer = viewRef.current;
                     const pointcloud = event.pointcloud;
-                    pointcloud.potree_url = treeUrl; // Tag the pointcloud with its URL for later comparison
+                    pointcloud.potree_url = treeUrl; // Tag the pointcloud with its URL
                     const material = pointcloud.material;
 
                     material.activeAttributeName = "rgba";
@@ -215,7 +336,6 @@ const PotreeViewer = ({ isCollapsed }) => {
                 },
                 (error) => {
                     console.error("Failed to load point cloud:", error);
-                    // If loading fails, ensure the scene is clean
                     if (viewRef.current) {
                        viewRef.current.setScene(new Potree.Scene(viewRef.current));
                     }
@@ -224,12 +344,12 @@ const PotreeViewer = ({ isCollapsed }) => {
             );
         }
     } else if (!treeUrl && viewer && pointCloudLoaded) {
-        // treeUrl is null (or empty), but a point cloud was loaded. Clear it.
         console.log("Tree URL removed or empty, clearing scene.");
         clearSceneCompletely();
     }
-}, [treeUrl, pointCloudLoaded]);
+  }, [treeUrl, pointCloudLoaded]);
 
+  // Potree Render on Window Resize
   useEffect(() => {
     const handleResize = () => {
       if (viewRef.current) {
@@ -282,7 +402,17 @@ const PotreeViewer = ({ isCollapsed }) => {
     fetchAllFilesForMap();
   }, []);
 
-  const toggleMiniMap = () => setShowMiniMap(prev => !prev);
+  const toggleMiniMap = () => {
+    setShowMiniMap(prevShowState => {
+        const newShowState = !prevShowState;
+        if (!newShowState) {
+            // If hiding, immediately make it invisible
+            setMiniMapContainerStyle(prevStyle => ({...prevStyle, visibility: 'hidden'}));
+        }
+        // If showing, the useEffect watching showMiniMap will call updateMiniMapPosition
+        return newShowState;
+    });
+  };
 
   const styles = {
     container: {
@@ -300,10 +430,11 @@ const PotreeViewer = ({ isCollapsed }) => {
       overflow: "hidden",
       position: "relative",
     },
-    viewerWrapper: {
+    viewerWrapper: { // This is the parent for Draggable and MiniMap
       flex: 1,
       display: "flex",
-      position: "relative",
+      position: "relative", // Crucial for absolute positioning of children
+      overflow: "hidden",   // Important to contain absolutely positioned children
     },
     renderArea: {
       flex: 1,
@@ -315,7 +446,7 @@ const PotreeViewer = ({ isCollapsed }) => {
   return (
     <Box sx={styles.container}>
       <Box sx={styles.content}>
-        <Box sx={styles.viewerWrapper}>
+        <Box sx={styles.viewerWrapper} ref={viewerWrapperRef}> {/* Assign ref here */}
           <Box
             id="potree_render_area"
             ref={viewElemRef}
@@ -326,46 +457,44 @@ const PotreeViewer = ({ isCollapsed }) => {
             ref={sidebarContainerRef}
           />
 
-          {/* Mini-map Toggle Button */}
-          <IconButton
-            onClick={toggleMiniMap}
-            sx={{
-              position: 'absolute',
-              bottom: '15px',
-              right: '15px',
-              zIndex: 1002,
-              backgroundColor: 'rgba(0, 0, 0, 0.1)',
-              color: 'white',
-              borderRadius: '50%', // Circular
-              width: 40,
-              height: 40,
-              '&:hover': {
-                backgroundColor: 'rgba(0, 0, 0, 0)',
-              },
-              boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
-            }}
-            title={showMiniMap ? "Hide Mini-map" : "Show Mini-map"}
+          <Draggable
+            nodeRef={draggableButtonRef} // Pass the ref here
+            position={buttonPosition}    // Controlled position
+            onStart={handleDragStart}
+            onStop={handleDragStop}
+            bounds="parent" // Constrain dragging within viewerWrapper
           >
-            {showMiniMap ? <CloseIcon fontSize="small"/> : <MapIcon fontSize="small"/>}
-          </IconButton>
-
-          {/* Mini-map Container */}
-          {showMiniMap && (
-            <Box
+            <IconButton
+              ref={draggableButtonRef} // Assign the ref to the DOM element
+              onClick={toggleMiniMap}
               sx={{
-                position: 'absolute',
-                bottom: '65px', // Below the toggle button
+                position: 'absolute', // Needed for Draggable to apply transform
+                // Initial CSS position if buttonPosition is {x:0, y:0}.
+                // Draggable effectively translates from this spot.
+                // We set some defaults here, but they are overridden by saved buttonPosition.
+                bottom: '15px', 
                 right: '15px',
-                width: { xs: '260px', sm: '300px' }, // Responsive width
-                height: { xs: '200px', sm: '250px' }, // Responsive height
-                backgroundColor: `rgba(${theme.palette.mode === 'dark' ? '30,30,30' : '245,245,245'}, 0.9)`,
-                border: `1px solid ${colors.grey[700]}`,
-                borderRadius: '8px',
-                zIndex: 1001, // Below toggle, above most other things
-                boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-                overflow: 'hidden',
+                zIndex: 1002,
+                backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                color: 'white',
+                borderRadius: '50%',
+                width: BUTTON_FIXED_SIZE, // Use constant
+                height: BUTTON_FIXED_SIZE, // Use constant
+                cursor: 'grab',
+                '&:hover': {
+                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                },
+                boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
               }}
+              title={showMiniMap ? "Hide Mini-map (Drag to move)" : "Show Mini-map (Drag to move)"}
             >
+              {showMiniMap ? <CloseIcon fontSize="small"/> : <MapIcon fontSize="small"/>}
+            </IconButton>
+          </Draggable>
+
+          {/* Mini-map Container now uses miniMapContainerStyle */}
+          {showMiniMap && (
+            <Box sx={miniMapContainerStyle}>
               {isLoadingMiniMapFiles && (
                 <Box sx={{display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%'}}>
                   <CircularProgress size={30} />
@@ -381,7 +510,7 @@ const PotreeViewer = ({ isCollapsed }) => {
                 <MiniMap
                   files={miniMapFiles}
                   currentPointCloudUrl={treeUrl}
-                  mapHeight="100%"
+                  mapHeight="100%" // MiniMap component itself should handle its internal layout
                   mapWidth="100%"
                 />
               )}

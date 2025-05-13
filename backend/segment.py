@@ -13,6 +13,8 @@ DEFAULT_NUM_POINTS = 1024 # Number of points the model expects per sample
 DEFAULT_INPUT_CHANNELS = 6 # IMPORTANT: Matches the 'channel=6' in your get_model -> PointNetEncoder
                            # Typically XYZ + RGB or XYZ + Normals. Adjust based on your model and data.
 
+
+
 def load_las_data(las_file_path):
     """Loads XYZ and potentially other features from a LAS file."""
     # Using laspy
