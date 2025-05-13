@@ -27,6 +27,8 @@ router.get('/count', fileController.getFileCount);
 // Download: All logged-in users (Frontend gates further)
 router.get('/download/:id', fileController.downloadFile);
 
+router.get('/plots', fileController.getDistinctPlotNames);
+
 // Delete: Admin/Assigned DM (checkProjectAssignment applied *after* checkRole)
 router.delete('/:id', checkRole([ROLES.ADMIN, ROLES.DATA_MANAGER]), checkProjectAssignment, fileController.deleteFile);
 

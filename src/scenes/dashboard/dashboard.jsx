@@ -1,51 +1,51 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Card, CardContent, Typography, useTheme, Grid,
-  FormControl, InputLabel, Select, MenuItem, CircularProgress // Added MUI components
+  FormControl, InputLabel, Select, MenuItem, CircularProgress
 } from "@mui/material";
 import { Pie, Line, Bar } from "react-chartjs-2";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, LineElement, LinearScale, PointElement, CategoryScale, BarElement } from "chart.js";
 import ChartDataLabels from "chartjs-plugin-datalabels";
 import { Timeline, TimelineItem, TimelineSeparator, TimelineConnector, TimelineContent, TimelineDot } from "@mui/lab";
-import { tokens } from "../../theme"; // Import theme tokens
-import axios from 'axios'; // Import axios for easier requests
+import { tokens } from "../../theme";
+import axios from 'axios';
 
-// --- CONSTANTS ---
 const API_BASE_URL = "http://localhost:5000/api";
 
 ChartJS.register(ArcElement, Tooltip, Legend, LineElement, LinearScale, PointElement, CategoryScale, BarElement, ChartDataLabels);
 
 const Dashboard = ({ isCollapsed }) => {
-
   const theme = useTheme();
-  const colors = tokens(theme.palette.mode); // Get colors from theme
+  const colors = tokens(theme.palette.mode);
 
-  // --- State ---
   const [totalMembers, setTotalMembers] = useState(null);
-  const [filesUploadedCount, setFilesUploadedCount] = useState(null); // State for dynamic file count
-  const [isFetchingFileCount, setIsFetchingFileCount] = useState(false); // Loading state for file count
+  const [filesUploadedCount, setFilesUploadedCount] = useState(null);
+  const [isFetchingFileCount, setIsFetchingFileCount] = useState(false);
 
   const [divisionsList, setDivisionsList] = useState([]);
   const [projectsList, setProjectsList] = useState([]);
-  const [loadingFilters, setLoadingFilters] = useState(false); // Combined loading for filters
+  const [plotsList, setPlotsList] = useState([]);
+  const [loadingFilters, setLoadingFilters] = useState(false);
+  const [loadingPlots, setLoadingPlots] = useState(false);
 
   const [filterDivisionId, setFilterDivisionId] = useState('all');
   const [filterProjectId, setFilterProjectId] = useState('all');
+  const [filterPlotName, setFilterPlotName] = useState('all');
 
-  const [recentUploads, setRecentUploads] = useState([]); // State to hold fetched timeline data
-  const [loadingTimeline, setLoadingTimeline] = useState(true); // Loading state for the timeline
+  const [recentUploads, setRecentUploads] = useState([]);
+  const [loadingTimeline, setLoadingTimeline] = useState(true);
 
-  // --- Fetch User Count (existing) ---
+  // --- Condition to enable plot filter ---
+  const canFetchPlots = useMemo(() => {
+    return filterDivisionId !== 'all' && filterProjectId !== 'all' && filterProjectId !== 'unassigned';
+  }, [filterDivisionId, filterProjectId]);
+
+  // Fetch User Count
   useEffect(() => {
     const fetchUserCount = async () => {
       const token = localStorage.getItem('authToken');
-      if (!token) {
-        console.error("Auth token not found for user count.");
-        setTotalMembers('Error');
-        return;
-      }
+      if (!token) { setTotalMembers('Error'); return; }
       try {
-        // Using axios now for consistency
         const response = await axios.get(`${API_BASE_URL}/users/count`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -58,15 +58,11 @@ const Dashboard = ({ isCollapsed }) => {
     fetchUserCount();
   }, []);
 
-  // --- Fetch Divisions and Projects for Filters ---
+  // Fetch Divisions and Projects for Filters
   const fetchFilterData = useCallback(async () => {
     const token = localStorage.getItem('authToken');
     if (!token) {
-      console.error("Auth token not found for filter data.");
-      // Optionally show an error message via Snackbar or state
-      setDivisionsList([]);
-      setProjectsList([]);
-      return;
+      setDivisionsList([]); setProjectsList([]); return;
     }
     setLoadingFilters(true);
     try {
@@ -78,44 +74,76 @@ const Dashboard = ({ isCollapsed }) => {
       setProjectsList(projectsRes.data || []);
     } catch (error) {
       console.error("Failed to fetch filter data:", error.response?.data?.message || error.message);
-      setDivisionsList([]);
-      setProjectsList([]);
-      // Optionally show error to user
+      setDivisionsList([]); setProjectsList([]);
     } finally {
       setLoadingFilters(false);
     }
-  }, []); // Empty dependency array - runs once on mount
+  }, []);
 
   useEffect(() => {
     fetchFilterData();
-  }, [fetchFilterData]); // Call fetchFilterData on mount
+  }, [fetchFilterData]);
+
+  // Fetch Plot Names for Filter
+  const fetchPlotsList = useCallback(async (divisionId, projectId) => {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      setPlotsList([]); return;
+    }
+    setLoadingPlots(true);
+    setPlotsList([]); // Clear previous plots
+    try {
+      // Backend expects actual IDs, not 'all' for filtering plots
+      const params = {
+        divisionId: divisionId, // Will be the actual ID due to canFetchPlots condition
+        projectId: projectId    // Will be the actual ID
+      };
+
+      const response = await axios.get(`${API_BASE_URL}/files/plots`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        params: params
+      });
+      setPlotsList(response.data.plots || []);
+    } catch (error) {
+      console.error("Failed to fetch plot names:", error.response?.data?.message || error.message);
+      setPlotsList([]);
+    } finally {
+      setLoadingPlots(false);
+    }
+  }, []);
+
+  // Effect to fetch plot names when division or project filters change
+  useEffect(() => {
+    if (canFetchPlots && !loadingFilters) { // Only fetch if a specific division AND project are selected
+      fetchPlotsList(filterDivisionId, filterProjectId);
+    } else {
+      setPlotsList([]); // Clear plots if condition is not met
+      setFilterPlotName('all'); // Reset plot filter selection
+    }
+  }, [filterDivisionId, filterProjectId, loadingFilters, fetchPlotsList, canFetchPlots]);
 
 
-  // --- NEW: Fetch Recent Uploads for Timeline ---
-  const fetchRecentUploads = useCallback(async (divisionId, projectId) => { // Accept filters as args
+  // Fetch Recent Uploads for Timeline
+  const fetchRecentUploads = useCallback(async (divisionId, projectId, plotName) => {
     setLoadingTimeline(true);
     const token = localStorage.getItem('authToken');
     if (!token) {
-      console.error("Auth token not found for recent uploads.");
-      setRecentUploads([]);
-      setLoadingTimeline(false);
-      return;
+      setRecentUploads([]); setLoadingTimeline(false); return;
     }
     try {
-      // Prepare query parameters, including filters
-      const params = { limit: 5 }; // Always include limit
-      if (divisionId && divisionId !== 'all') {
-        params.divisionId = divisionId; // Add divisionId if selected
-      }
-      if (projectId && projectId !== 'all') {
-        params.projectId = projectId; // Add projectId if selected
-      }
+      const params = { limit: 5 };
+      if (divisionId && divisionId !== 'all') params.divisionId = divisionId;
+      if (projectId && projectId !== 'all' && projectId !== 'unassigned') params.projectId = projectId;
+      else if (projectId === 'unassigned') params.projectId = 'unassigned'; // Handle unassigned case for backend
 
-      console.log("Fetching recent uploads with params:", params); // Debug log
+      // Only add plotName to params if it's specific and plots can be fetched
+      if (plotName && plotName !== 'all' && canFetchPlots) params.plotName = plotName;
+
+      console.log("Fetching recent uploads with params:", params);
 
       const response = await axios.get(`${API_BASE_URL}/files/recent`, {
         headers: { 'Authorization': `Bearer ${token}` },
-        params: params // Pass the constructed params object
+        params: params
       });
       setRecentUploads(response.data || []);
     } catch (error) {
@@ -124,42 +152,40 @@ const Dashboard = ({ isCollapsed }) => {
     } finally {
       setLoadingTimeline(false);
     }
-  }, []); // Keep dependency array empty as filters are passed in
+  }, [canFetchPlots]); // Add canFetchPlots dependency
 
-  // --- Effect for Timeline Load & Update (MODIFIED) ---
+  // Effect for Timeline Load & Update
   useEffect(() => {
-    // Fetch recent uploads when component mounts OR when filters change
-    // Only run if filter data has potentially loaded to avoid initial unnecessary calls
+    // Fetch timeline data if filters are not loading.
+    // loadingPlots is implicitly handled by canFetchPlots for plotName parameter.
     if (!loadingFilters) {
-      fetchRecentUploads(filterDivisionId, filterProjectId);
+      fetchRecentUploads(filterDivisionId, filterProjectId, filterPlotName);
     }
-  }, [filterDivisionId, filterProjectId, loadingFilters, fetchRecentUploads]);
+  }, [filterDivisionId, filterProjectId, filterPlotName, loadingFilters, fetchRecentUploads]);
 
 
-  // --- Fetch Files Uploaded Count (Dynamic based on filters) ---
-  const fetchFilesUploadedCount = useCallback(async (divisionId, projectId) => {
+  // Fetch Files Uploaded Count
+  const fetchFilesUploadedCount = useCallback(async (divisionId, projectId, plotName) => {
     const token = localStorage.getItem('authToken');
-    console.log("Token for file count fetch:", token);
     if (!token) {
-      console.error("Auth token not found for file count.");
-      setFilesUploadedCount('Error');
-      return;
+      setFilesUploadedCount('Error'); return;
     }
     setIsFetchingFileCount(true);
-    setFilesUploadedCount(null); // Show loading state in card
+    setFilesUploadedCount(null);
 
     try {
       const params = {};
-      if (divisionId && divisionId !== 'all') {
-        params.divisionId = divisionId;
-      }
-      if (projectId && projectId !== 'all') {
-        params.projectId = projectId;
-      }
+      if (divisionId && divisionId !== 'all') params.divisionId = divisionId;
+      if (projectId && projectId !== 'all' && projectId !== 'unassigned') params.projectId = projectId;
+      else if (projectId === 'unassigned') params.projectId = 'unassigned'; // Handle unassigned
+
+      // Only add plotName to params if it's specific and plots can be fetched
+      if (plotName && plotName !== 'all' && canFetchPlots) params.plotName = plotName;
+
 
       const response = await axios.get(`${API_BASE_URL}/files/count`, {
         headers: { 'Authorization': `Bearer ${token}` },
-        params: params // Add params to the request
+        params: params
       });
       setFilesUploadedCount(response.data.count);
     } catch (error) {
@@ -168,279 +194,168 @@ const Dashboard = ({ isCollapsed }) => {
     } finally {
       setIsFetchingFileCount(false);
     }
-  }, []); // No dependencies needed here as params are passed in
+  }, [canFetchPlots]); // Add canFetchPlots dependency
 
-  // --- Effect to fetch file count when filters change ---
+  // Effect to fetch file count when filters change
   useEffect(() => {
-    // Fetch initial count on mount (after filters are loaded) or when filters change
-    if (!loadingFilters) { // Only fetch count once filters are potentially loaded
-      fetchFilesUploadedCount(filterDivisionId, filterProjectId);
+    if (!loadingFilters) {
+      fetchFilesUploadedCount(filterDivisionId, filterProjectId, filterPlotName);
     }
-    // Do not fetch if filters are still loading to avoid unnecessary calls
-  }, [filterDivisionId, filterProjectId, loadingFilters, fetchFilesUploadedCount]); // Re-run when filters or loading state change
+  }, [filterDivisionId, filterProjectId, filterPlotName, loadingFilters, fetchFilesUploadedCount]);
 
-  // --- Filter Change Handlers ---
+  // Filter Change Handlers
   const handleDivisionFilterChange = (event) => {
     const newDivisionId = event.target.value;
     setFilterDivisionId(newDivisionId);
-
-    // Reset Project Filter if the current project doesn't belong to the new division
-    if (newDivisionId !== 'all' && filterProjectId !== 'all') {
-      const numericProjectId = parseInt(filterProjectId, 10);
-      const numericDivisionId = parseInt(newDivisionId, 10);
-      const projectStillValid = projectsList.find(
-        p => p.id === numericProjectId && p.division_id === numericDivisionId
-      );
-      if (!projectStillValid) {
-        setFilterProjectId('all'); // Reset project filter
-      }
-    }
-    // fetchFilesUploadedCount will be triggered by the useEffect watching filterDivisionId
+    setFilterProjectId('all');
+    setFilterPlotName('all');
+    // setPlotsList([]); // Plots will be cleared by the useEffect for fetchPlotsList
   };
 
   const handleProjectFilterChange = (event) => {
-    setFilterProjectId(event.target.value);
-    // fetchFilesUploadedCount will be triggered by the useEffect watching filterProjectId
+    const newProjectId = event.target.value;
+    setFilterProjectId(newProjectId);
+    setFilterPlotName('all');
+    // setPlotsList([]); // Plots will be cleared by the useEffect for fetchPlotsList
   };
 
-  // --- Memoized Filtered Project List for Dropdown ---
+  const handlePlotFilterChange = (event) => {
+    setFilterPlotName(event.target.value);
+  };
+
+  // Memoized Filtered Project List for Dropdown
   const filteredProjectsForDropdown = useMemo(() => {
-    if (loadingFilters) return []; // Don't filter while loading
-    if (filterDivisionId === 'all') {
-      return projectsList; // Show all projects if 'All Divisions' selected
-    }
+    if (loadingFilters) return [];
+    if (filterDivisionId === 'all') return projectsList; // Show all projects if 'All Divisions' selected
     const numericDivisionId = parseInt(filterDivisionId, 10);
-    if (isNaN(numericDivisionId)) {
-      return [];
-    }
+    if (isNaN(numericDivisionId)) return []; // Should not happen if filterDivisionId is 'all' or a number
     return projectsList.filter(p => p.division_id === numericDivisionId);
   }, [projectsList, filterDivisionId, loadingFilters]);
 
-  // --- Chart Data and Options (Keep existing) ---
+
   const pieData = { /* ... Same as before ... */
     labels: ["Plot 1", "Plot 2", "Plot 3", "Plot 4", "Plot 5"],
-    datasets: [
-      {
-        data: [10, 8, 4, 6, 4],
-        backgroundColor: ["#28ADE2", "#3674B5", "#578FCA", "#A1E3F9", "#D1F8EF"],
-      },
-    ],
+    datasets: [ { data: [10, 8, 4, 6, 4], backgroundColor: ["#28ADE2", "#3674B5", "#578FCA", "#A1E3F9", "#D1F8EF"],}, ],
   };
   const pieOptions = { /* ... Same as before ... */
-    plugins: {
-      legend: { display: true, position: "left", labels: { color: colors.grey[100], usePointStyle: true, boxWidth: 10, padding: 10, }, },
-      datalabels: { color: (context) => { const colors = ["#fff", "#fff", "#fff", "#666", "#333"]; return colors[context.dataIndex] || "#fff"; }, font: { size: 14 }, formatter: (value) => `${value}`, },
-    },
-    elements: { arc: { borderWidth: 0, }, }, cutout: "0%", maintainAspectRatio: false,
+    plugins: { legend: { display: true, position: "left", labels: { color: colors.grey[100], usePointStyle: true, boxWidth: 10, padding: 10, }, }, datalabels: { color: (context) => { const pal = ["#fff", "#fff", "#fff", "#666", "#333"]; return pal[context.dataIndex] || "#fff"; }, font: { size: 14 }, formatter: (value) => `${value}`, }, }, elements: { arc: { borderWidth: 0, }, }, cutout: "0%", maintainAspectRatio: false,
   };
   const lineData = { /* ... Same as before ... */
     labels: ["2021", "2022", "2023", "2024"],
-    datasets: [
-      { label: "Plot 1", data: [1000, 1250, 750, 1000], borderColor: "#3674B5", fill: false, tension: 0.4 },
-      { label: "Plot 3", data: [400, 600, 1100, 500], borderColor: "#A1E3F9", fill: false, tension: 0.4 },
-    ],
+    datasets: [ { label: "Plot 1", data: [1000, 1250, 750, 1000], borderColor: "#3674B5", fill: false, tension: 0.4 }, { label: "Plot 3", data: [400, 600, 1100, 500], borderColor: "#A1E3F9", fill: false, tension: 0.4 }, ],
   };
   const lineOptions = { /* ... Same as before ... */
-    maintainAspectRatio: false,
-    plugins: { legend: { display: true, position: "bottom", align: "center", labels: { color: colors.grey[100], usePointStyle: true, pointStyle: "line", }, }, datalabels: { display: false } },
-    scales: { x: { ticks: { color: colors.grey[100] }, grid: { color: colors.grey[800] }, }, y: { ticks: { color: colors.grey[100] }, grid: { color: colors.grey[800] }, }, },
+    maintainAspectRatio: false, plugins: { legend: { display: true, position: "bottom", align: "center", labels: { color: colors.grey[100], usePointStyle: true, pointStyle: "line", }, }, datalabels: { display: false } }, scales: { x: { ticks: { color: colors.grey[100] }, grid: { color: colors.grey[800] }, }, y: { ticks: { color: colors.grey[100] }, grid: { color: colors.grey[800] }, }, },
   };
   const barData = { /* ... Same as before ... */
     labels: ["Plot 1", "Plot 2", "Plot 3", "Plot 4", "Plot 5"],
-    datasets: [
-      { label: "Bolivia", data: [1000, 1200, 900, 1100, 1050], backgroundColor: "#28ADE2" },
-      { label: "Ecuador", data: [800, 1100, 950, 1200, 1000], backgroundColor: "#A1E3F9" },
-      { label: "Madagascar", data: [700, 950, 850, 1000, 900], backgroundColor: "#D1F8EF" },
-      { label: "Papua New Guinea", data: [500, 700, 650, 800, 750], backgroundColor: "#3674B5" },
-      { label: "Rwanda", data: [300, 500, 400, 600, 500], backgroundColor: "#28ADE2" }
-    ]
+    datasets: [ { label: "Bolivia", data: [1000, 1200, 900, 1100, 1050], backgroundColor: "#28ADE2" }, { label: "Ecuador", data: [800, 1100, 950, 1200, 1000], backgroundColor: "#A1E3F9" }, { label: "Madagascar", data: [700, 950, 850, 1000, 900], backgroundColor: "#D1F8EF" }, { label: "Papua New Guinea", data: [500, 700, 650, 800, 750], backgroundColor: "#3674B5" }, { label: "Rwanda", data: [300, 500, 400, 600, 500], backgroundColor: "#28ADE2" } ]
   };
   const barOptions = { /* ... Same as before ... */
-    maintainAspectRatio: false,
-    plugins: { legend: { display: true, position: "right", align: "start", labels: { color: colors.grey[100], }, }, datalabels: { display: false } },
-    scales: { x: { ticks: { color: colors.grey[100] }, grid: { color: colors.grey[800] }, }, y: { ticks: { color: colors.grey[100] }, grid: { color: colors.grey[800] }, }, },
+    maintainAspectRatio: false, plugins: { legend: { display: true, position: "right", align: "start", labels: { color: colors.grey[100], }, }, datalabels: { display: false } }, scales: { x: { ticks: { color: colors.grey[100] }, grid: { color: colors.grey[800] }, }, y: { ticks: { color: colors.grey[100] }, grid: { color: colors.grey[800] }, }, },
   };
 
-  // --- Styles ---
-  const styles = {
-    // Basic layout
-    container: {
-      display: "flex",
-      minHeight: "100vh",
-      bgcolor: colors.grey[800],
-      marginLeft: isCollapsed ? "80px" : "270px",
-      transition: "margin 0.3s ease",
-    },
-    content: { flex: 1, p: 4, overflowY: 'auto' }, // Added overflow
+  const styles = { // Keep your existing styles
+    container: { display: "flex", minHeight: "100vh", bgcolor: colors.grey[800], marginLeft: isCollapsed ? "80px" : "270px", transition: "margin 0.3s ease", },
+    content: { flex: 1, p: 3, overflowY: 'auto' },
+    filterRow: { marginBottom: theme.spacing(3), padding: theme.spacing(2), backgroundColor: colors.grey[900], borderRadius: theme.shape.borderRadius, },
+    filterFormControl: { minWidth: 180, '& .MuiInputLabel-root': { color: colors.grey[300], '&.Mui-focused': { color: colors.blueAccent[300] } }, '& .MuiOutlinedInput-root': { color: colors.grey[100], '& .MuiOutlinedInput-notchedOutline': { borderColor: colors.grey[600] }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: colors.primary[300] }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: colors.blueAccent[400] }, '& .MuiSelect-icon': { color: colors.grey[300] }, }, '& .MuiMenu-paper': { backgroundColor: colors.primary[600], color: colors.grey[100], }, '& .MuiMenuItem-root': { '&:hover': { backgroundColor: colors.primary[500], }, '&.Mui-selected': { backgroundColor: colors.blueAccent[700] + '!important', color: colors.grey[100], }, }, },
+    statsGrid: { display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(3, 1fr)" }, gap: 2, mt: 3, },
+    card: { minHeight: 150, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", p: 2, bgcolor: colors.grey[900], position: 'relative', },
+    cardTitle: { mb: 1, fontWeight: "bold", color: colors.grey[100] },
+    cardIconBox: { display: "flex", alignItems: "center", gap: 1, color: colors.blueAccent[400] },
+    body2Text: { fontWeight: "bold", color: colors.blueAccent[300] },
+    cardLoadingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2, borderRadius: 'inherit', color: colors.grey[100], },
+    chartsGridRow2: { display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2, mt: 3 },
+    chartsGridRow3: { display: "grid", gridTemplateColumns: { xs: "1fr", lg: "3fr 2fr" }, gap: 2, mt: 3 },
+    chartBox: { height: 280, width: "100%" },
+    chartTitle: { marginBottom: 2, marginTop: 1, color: colors.grey[100] },
+    timelineBox: { height: 370, width: "100%", bgcolor: colors.grey[900] },
+    timelineCardContent: { height: '100%', display: 'flex', flexDirection: 'column', },
+    timelineScroll: { flexGrow: 1, overflowY: 'auto', "&::-webkit-scrollbar": { width: "6px" }, "&::-webkit-scrollbar-track": { background: colors.grey[700] }, "&::-webkit-scrollbar-thumb": { backgroundColor: colors.grey[500], borderRadius: "10px" }, }
+  };
 
-    // Filter row
-    filterRow: {
-      marginBottom: theme.spacing(3),
-      padding: theme.spacing(2),
-      backgroundColor: colors.grey[900], // Background for filter area
-      borderRadius: theme.shape.borderRadius,
-    },
-    filterFormControl: { // Style for filter dropdowns
-      minWidth: 180,
-      '& .MuiInputLabel-root': { color: colors.grey[300], '&.Mui-focused': { color: colors.blueAccent[300] } },
-      '& .MuiOutlinedInput-root': {
+  const commonMenuProps = {
+    PaperProps: {
+      sx: {
+        backgroundColor: colors.primary[700], 
         color: colors.grey[100],
-        '& .MuiOutlinedInput-notchedOutline': { borderColor: colors.grey[600] }, // Slightly lighter border
-        '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: colors.primary[300] },
-        '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: colors.blueAccent[400] },
-        '& .MuiSelect-icon': { color: colors.grey[300] },
-      },
-      // Style for the dropdown menu itself
-      '& .MuiMenu-paper': { // Target the Paper element of the Menu
-          backgroundColor: colors.primary[600], // Darker background for dropdown
+        '& .MuiMenuItem-root:hover': {
+          backgroundColor: colors.primary[500], 
+        },
+        '& .MuiMenuItem-root.Mui-selected': {
+          backgroundColor: colors.blueAccent[700] + '!important', 
           color: colors.grey[100],
-      },
-      '& .MuiMenuItem-root': { // Style individual menu items
-          '&:hover': {
-              backgroundColor: colors.primary[500], // Hover effect
-          },
-          '&.Mui-selected': { // Style selected item
-              backgroundColor: colors.blueAccent[700] + '!important', // Use !important cautiously if needed
-              color: colors.grey[100],
-          },
+        },
+        '& .MuiMenuItem-root.Mui-disabled': {
+            opacity: 0.5,
+            color: colors.grey[500],
+        }
       },
     },
-
-    // Stats grid (no change)
-    statsGrid: {
-      display: "grid",
-      gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", md: "repeat(3, 1fr)" },
-      gap: 3,
-      mt: 3, // Margin top after filters
-    },
-    card: {
-      minHeight: 160, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", p: 2, bgcolor: colors.grey[900],
-      position: 'relative', // Needed for absolute positioning of loader
-    },
-    cardTitle: { mb: 2, fontWeight: "bold", color: colors.grey[100] },
-    cardIconBox: { display: "flex", alignItems: "center", gap: 1, color: colors.chartColor[100] }, // Assuming colors.chartColor exists
-    body2Text: { fontWeight: "bold", color: colors.chartColor ? colors.chartColor[100] : colors.grey[100] }, // Fallback color
-
-    // Loading overlay specifically for cards
-    cardLoadingOverlay: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      zIndex: 2,
-      borderRadius: 'inherit', // Match card's border radius
-      color: colors.grey[100],
-    },
-
-    // Chart grids (no change)
-    chartsGridRow2: { display: "grid", gridTemplateColumns: { xs: "1fr", md: "5fr 5fr" }, gap: 3, mt: 4 },
-    chartsGridRow3: { display: "grid", gridTemplateColumns: { xs: "1fr", md: "6fr 4fr" }, gap: 3, mt: 4 },
-    chartBox: { height: 300, width: "100%" },
-    chartTitle: { marginBottom: 3, marginTop: 1, color: colors.chartColor ? colors.chartColor[100] : colors.grey[100] }, // Fallback
-    timelineBox: { height: 393.5, width: "100%" }, // Keep height specific if needed
-    timelineCardContent: { // Added to allow internal scrolling if needed
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-    },
-    timelineScroll: { // Container for the timeline itself
-        flexGrow: 1,
-        overflowY: 'auto', // Allow timeline to scroll if it exceeds card height
-        // Custom scrollbar styling (optional)
-        "&::-webkit-scrollbar": { width: "6px" },
-        "&::-webkit-scrollbar-track": { background: colors.grey[700] },
-        "&::-webkit-scrollbar-thumb": { backgroundColor: colors.grey[500], borderRadius: "10px" },
-    }
   };
 
   return (
     <Box sx={styles.container}>
       <Box sx={styles.content}>
 
-        {/* --- Filter Controls Row --- */}
         <Box sx={styles.filterRow}>
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} sm={6} md={4}>
+            {/* Division Filter */}
+            <Grid item xs={12} sm={6} md={4} lg={3}>
               <FormControl fullWidth variant="outlined" size="small" sx={styles.filterFormControl}>
                 <InputLabel id="division-filter-label-dash">Filter Division</InputLabel>
                 <Select
                   labelId="division-filter-label-dash"
-                  id="division-filter-select-dash"
                   value={filterDivisionId}
                   label="Filter Division"
                   onChange={handleDivisionFilterChange}
-                  disabled={loadingFilters || isFetchingFileCount}
-                  // Apply MenuProps directly here for dropdown styling
-                   MenuProps={{
-                      PaperProps: {
-                          sx: {
-                              backgroundColor: colors.primary[700], // Dark background for dropdown menu
-                              color: colors.grey[100],
-                              '& .MuiMenuItem-root:hover': {
-                                  backgroundColor: colors.primary[500], // Hover color for items
-                              },
-                              '& .MuiMenuItem-root.Mui-selected': {
-                                  backgroundColor: colors.blueAccent[700] + '!important', // Selected item color
-                                  color: colors.grey[100],
-                              },
-                          },
-                      },
-                  }}
+                  disabled={loadingFilters || isFetchingFileCount || loadingPlots} // loadingPlots added here
+                  MenuProps={commonMenuProps}
                 >
                   <MenuItem value="all"><em>All Divisions</em></MenuItem>
                   {loadingFilters ? (
                     <MenuItem disabled><CircularProgress size={20} sx={{ mr: 1 }} /> Loading...</MenuItem>
                   ) : divisionsList.length === 0 ? (
-                    <MenuItem disabled>No divisions found</MenuItem>
+                    <MenuItem disabled>No divisions</MenuItem>
                   ) : (
                     divisionsList.map(d => (<MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>))
                   )}
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} sm={6} md={4}>
+            {/* Project Filter */}
+            <Grid item xs={12} sm={6} md={4} lg={3}>
               <FormControl fullWidth variant="outlined" size="small" sx={styles.filterFormControl}>
                 <InputLabel id="project-filter-label-dash">Filter Project</InputLabel>
                 <Select
                   labelId="project-filter-label-dash"
-                  id="project-filter-select-dash"
                   value={filterProjectId}
                   label="Filter Project"
                   onChange={handleProjectFilterChange}
-                  disabled={loadingFilters || isFetchingFileCount}
-                   MenuProps={{
-                      PaperProps: {
-                          sx: {
-                              backgroundColor: colors.primary[700],
-                              color: colors.grey[100],
-                              '& .MuiMenuItem-root:hover': {
-                                  backgroundColor: colors.primary[500],
-                              },
-                              '& .MuiMenuItem-root.Mui-selected': {
-                                  backgroundColor: colors.blueAccent[700] + '!important',
-                                  color: colors.grey[100],
-                              },
-                          },
-                      },
-                  }}
+                  disabled={
+                    loadingFilters || 
+                    isFetchingFileCount || 
+                    loadingPlots || // loadingPlots added here
+                    (filterDivisionId === 'all' && projectsList.length === 0 && !loadingFilters) // Disable if no projects and all divisions
+                  }
+                  MenuProps={commonMenuProps}
                 >
                   <MenuItem value="all"><em>All Projects</em></MenuItem>
                   {loadingFilters ? (
                      <MenuItem disabled><CircularProgress size={20} sx={{ mr: 1 }} /> Loading...</MenuItem>
-                  ) : filterDivisionId !== 'all' && filteredProjectsForDropdown.length === 0 ? (
-                     <MenuItem disabled sx={{ fontStyle: 'italic' }}>No projects in this division</MenuItem>
-                  ) : filteredProjectsForDropdown.length === 0 && filterDivisionId === 'all' ? (
-                     <MenuItem disabled>No projects found</MenuItem>
-                  ) : (
+                  ) : filteredProjectsForDropdown.length === 0 && filterDivisionId !== 'all' ? ( // More specific condition
+                     <MenuItem disabled sx={{ fontStyle: 'italic' }}>
+                       No projects in division
+                     </MenuItem>
+                  ) : projectsList.length === 0 && filterDivisionId === 'all' && !loadingFilters ? ( // Global no projects
+                     <MenuItem disabled sx={{ fontStyle: 'italic' }}>
+                       No projects available
+                     </MenuItem>
+                  ): (
                     filteredProjectsForDropdown.map(p => (
                       <MenuItem key={p.id} value={p.id}>
                         {p.name}
-                        {/* Show division only if 'All Divisions' is selected */}
                         {filterDivisionId === 'all' && ` (${p.division_name || 'No Div'})`}
                       </MenuItem>
                     ))
@@ -448,45 +363,72 @@ const Dashboard = ({ isCollapsed }) => {
                 </Select>
               </FormControl>
             </Grid>
-            {/* Optional: Add a refresh button or clear filters button here */}
+            {/* Plot Filter - MODIFIED */}
+            <Grid item xs={12} sm={6} md={4} lg={3}>
+              <FormControl fullWidth variant="outlined" size="small" sx={styles.filterFormControl}>
+                <InputLabel id="plot-filter-label-dash">Filter Plot</InputLabel>
+                <Select
+                  labelId="plot-filter-label-dash"
+                  value={filterPlotName}
+                  label="Filter Plot"
+                  onChange={handlePlotFilterChange}
+                  disabled={
+                    !canFetchPlots || // Main condition: disable if division OR project not selected
+                    loadingPlots || 
+                    isFetchingFileCount
+                  }
+                  MenuProps={commonMenuProps}
+                >
+                  <MenuItem value="all"><em>All Plots</em></MenuItem>
+                  {loadingPlots ? (
+                    <MenuItem disabled><CircularProgress size={20} sx={{ mr: 1 }} /> Loading plots...</MenuItem>
+                  ) : !canFetchPlots ? ( // If plots cannot be fetched (due to div/proj selection)
+                    <MenuItem disabled sx={{ fontStyle: 'italic' }}>
+                        Select project to see plots
+                    </MenuItem>
+                  ) : plotsList.length === 0 ? ( // If plots can be fetched, but none exist for selection
+                    <MenuItem disabled sx={{ fontStyle: 'italic' }}>
+                        No plots for this project
+                    </MenuItem>
+                  ) : (
+                    plotsList.map(plot => (
+                      <MenuItem key={plot} value={plot}>{plot}</MenuItem>
+                    ))
+                  )}
+                </Select>
+              </FormControl>
+            </Grid>
           </Grid>
         </Box>
 
         {/* Stats Section */}
         <Box sx={styles.statsGrid}>
-          {/* Total Members Card */}
           <Card sx={styles.card}>
-            {totalMembers === null && ( // Show loader only when null (initial loading)
-              <Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30}/></Box>
-            )}
+            {totalMembers === null && (<Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30}/></Box>)}
             <Typography variant="h1" sx={{...styles.cardTitle, visibility: totalMembers === null ? 'hidden' : 'visible'}}>
               {totalMembers === 'Error' ? 'N/A' : totalMembers ?? '-'}
             </Typography>
             <Box sx={{...styles.cardIconBox, visibility: totalMembers === null ? 'hidden' : 'visible'}}>
-              <span className="material-symbols-outlined">user_attributes</span>
+              <span className="material-symbols-outlined">group</span>
               <Typography variant="body2" sx={styles.body2Text}>Total Members</Typography>
             </Box>
           </Card>
 
-          {/* Files Uploaded Card (Dynamic) */}
           <Card sx={styles.card}>
-             {isFetchingFileCount && ( // Show loader when fetching count
-               <Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30}/></Box>
-             )}
+             {isFetchingFileCount && (<Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30}/></Box>)}
             <Typography variant="h1" sx={{...styles.cardTitle, visibility: isFetchingFileCount ? 'hidden' : 'visible'}}>
               {filesUploadedCount === 'Error' ? 'N/A' : filesUploadedCount ?? '-'}
             </Typography>
             <Box sx={{...styles.cardIconBox, visibility: isFetchingFileCount ? 'hidden' : 'visible'}}>
-              <span className="material-symbols-outlined">publish</span>
+              <span className="material-symbols-outlined">upload_file</span>
               <Typography variant="body2" sx={styles.body2Text}>Files Uploaded</Typography>
             </Box>
           </Card>
 
-          {/* Carbon Estimation Card (Static for now) */}
           <Card sx={styles.card}>
             <Typography variant="h1" sx={styles.cardTitle}>5.1 kg</Typography>
             <Box sx={styles.cardIconBox}>
-              <span className="material-symbols-outlined">co2</span>
+              <span className="material-symbols-outlined">eco</span>
               <Typography variant="body2" sx={styles.body2Text}>Carbon Estimation</Typography>
             </Box>
           </Card>
@@ -496,13 +438,13 @@ const Dashboard = ({ isCollapsed }) => {
         <Box sx={styles.chartsGridRow2}>
           <Card>
             <CardContent>
-              <Typography variant="h5" sx={styles.chartTitle}>Numbers of Trees</Typography>
+              <Typography variant="h5" sx={styles.chartTitle}>Trees per Plot (Sample)</Typography>
               <Box sx={styles.chartBox}><Pie data={pieData} options={pieOptions} /></Box>
             </CardContent>
           </Card>
           <Card>
             <CardContent>
-              <Typography variant="h5" sx={styles.chartTitle}>Average Tree’s Height & Width</Typography>
+              <Typography variant="h5" sx={styles.chartTitle}>Avg. Tree Dimensions (Sample)</Typography>
               <Box sx={styles.chartBox}><Line data={lineData} options={lineOptions} /></Box>
             </CardContent>
           </Card>
@@ -512,27 +454,23 @@ const Dashboard = ({ isCollapsed }) => {
         <Box sx={styles.chartsGridRow3}>
           <Card>
             <CardContent>
-              <Typography variant="h5" sx={styles.chartTitle}>Tree Structure Count</Typography>
+              <Typography variant="h5" sx={styles.chartTitle}>Tree Structure Count (Sample)</Typography>
               <Box sx={styles.chartBox}><Bar data={barData} options={barOptions} /></Box>
             </CardContent>
           </Card>
 
-          {/* --- Timeline Card (UPDATED TO USE FETCHED DATA) --- */}
-          <Card sx={{...styles.timelineBox, bgcolor: colors.grey[900]}}>
+          <Card sx={styles.timelineBox}>
              <CardContent sx={styles.timelineCardContent}>
                  <Typography variant="h5" sx={{...styles.chartTitle, flexShrink: 0 }}>
                      Recent File Uploads
                  </Typography>
                  <Box sx={styles.timelineScroll}>
                      {loadingTimeline ? (
-                         <Box display="flex" justifyContent="center" alignItems="center" height="100%">
-                             <CircularProgress color="primary" />
-                         </Box>
+                         <Box display="flex" justifyContent="center" alignItems="center" height="100%"><CircularProgress /></Box>
                      ) : recentUploads.length === 0 ? (
-                        <Typography sx={{textAlign:'center', color: colors.grey[400], mt: 4}}>
-                            {/* Adjust empty message based on filters */}
-                            {filterDivisionId !== 'all' || filterProjectId !== 'all'
-                                ? 'No recent uploads match the current filters.'
+                        <Typography sx={{textAlign:'center', color: colors.grey[400], mt: 4, p:1}}>
+                            {filterDivisionId !== 'all' || filterProjectId !== 'all' || (filterPlotName !== 'all' && canFetchPlots)
+                                ? 'No recent uploads match filters.'
                                 : 'No recent uploads found.'
                             }
                         </Typography>
@@ -544,14 +482,14 @@ const Dashboard = ({ isCollapsed }) => {
                                          <TimelineDot color="primary" variant="outlined" />
                                          {index < recentUploads.length - 1 && <TimelineConnector sx={{ bgcolor: colors.primary[500] }} />}
                                      </TimelineSeparator>
-                                     <TimelineContent sx={{ py: '12px', px: 2 }}>
+                                     <TimelineContent sx={{ py: '10px', px: 2 }}>
                                          <Typography variant="caption" sx={{ color: colors.grey[400] }}>
                                              {upload.date} - {upload.time}
                                          </Typography>
-                                         <Typography variant="body2" sx={{ fontWeight: "bold", color: colors.grey[100] }} title={upload.file}>
-                                             {upload.file && upload.file.length > 30 ? `${upload.file.substring(0, 27)}...` : upload.file}
+                                         <Typography variant="body2" sx={{ fontWeight: "bold", color: colors.grey[100], whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={upload.file}>
+                                             {upload.file}
                                          </Typography>
-                                         <Typography variant="body2" sx={{ color: colors.grey[300], fontSize: '0.75rem' }}>
+                                         <Typography variant="caption" sx={{ color: colors.grey[300], display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={upload.context}>
                                              {upload.context}
                                          </Typography>
                                      </TimelineContent>
@@ -562,9 +500,7 @@ const Dashboard = ({ isCollapsed }) => {
                  </Box>
              </CardContent>
           </Card>
-          {/* --- End Updated Timeline Card --- */}
         </Box>
-
       </Box>
     </Box>
   );

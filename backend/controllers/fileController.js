@@ -115,17 +115,13 @@ exports.uploadFile = async (req, res) => {
                 console.log(`[Controller] (FileID ${fileIdToUpdate}): Initiating segmentation service.`);
                 // The segmentationService.runSegmentation will set status to 'segmenting',
                 // then to 'segmented_ready_for_las' or 'failed'.
-                await segmentationService.runSegmentation(fileIdToUpdate, stored_path_absolute, projectRootDir);
-
-                // Optional: Check status after segmentation before proceeding.
-                // Service should throw an error if it fails, which would be caught by the outer catch.
-                // If it resolves, we assume it set the correct "next step" status.
-                const statusAfterSegmentation = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileIdToUpdate]);
-                if (statusAfterSegmentation.rows[0]?.status !== 'segmented_ready_for_las') {
-                    console.warn(`[Controller] (FileID ${fileIdToUpdate}): Segmentation did not result in 'segmented_ready_for_las'. Current status: ${statusAfterSegmentation.rows[0]?.status}. Halting pipeline.`);
-                    return; // Stop if segmentation didn't prepare for LAS processing
-                }
-                console.log(`[Controller] (FileID ${fileIdToUpdate}): Segmentation complete. Initiating LAS processing service.`);
+                // await segmentationService.runSegmentation(fileIdToUpdate, stored_path_absolute, projectRootDir);
+                //const statusAfterSegmentation = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileIdToUpdate]);
+                //if (statusAfterSegmentation.rows[0]?.status !== 'segmented_ready_for_las') {
+                //    console.warn(`[Controller] (FileID ${fileIdToUpdate}): Segmentation did not result in 'segmented_ready_for_las'. Current status: ${statusAfterSegmentation.rows[0]?.status}. Halting pipeline.`);
+                //    return; // Stop if segmentation didn't prepare for LAS processing
+                //}
+                // console.log(`[Controller] (FileID ${fileIdToUpdate}): Segmentation complete. Initiating LAS processing service.`);
 
                 // The lasProcessingService.processLasData will set status to 'processing_las_data',
                 // then 'processed_ready_for_potree' (and trigger Potree) or 'failed'.
@@ -1113,5 +1109,58 @@ exports.getFileCount = async (req, res) => {
     } catch (error) {
         console.error("Database error fetching file count:", error);
         res.status(500).json({ message: "Server error fetching file count." });
+    }
+};
+
+// --- NEW: Get Distinct Plot Names for Filtering ---
+exports.getDistinctPlotNames = async (req, res) => {
+    const { projectId, divisionId } = req.query;
+
+    let query = `
+        SELECT DISTINCT f.plot_name
+        FROM uploaded_files f
+    `;
+    const queryParams = [];
+    const joins = [];
+    const whereConditions = ["f.plot_name IS NOT NULL", "f.plot_name <> ''"]; // Always exclude null/empty
+
+    // Filter by Division ID (if provided and not 'all')
+    if (divisionId && divisionId !== 'all' && !isNaN(parseInt(divisionId))) {
+        if (!joins.includes('LEFT JOIN projects p ON f.project_id = p.id')) {
+            joins.push('LEFT JOIN projects p ON f.project_id = p.id');
+        }
+        queryParams.push(parseInt(divisionId));
+        whereConditions.push(`p.division_id = $${queryParams.length}`);
+    }
+
+    // Filter by Project ID (if provided and not 'all')
+    if (projectId && projectId !== 'all' && !isNaN(parseInt(projectId))) {
+        // No extra join needed if already joined for division filter
+        if (!joins.includes('LEFT JOIN projects p ON f.project_id = p.id') && !(divisionId && divisionId !== 'all')) {
+            joins.push('LEFT JOIN projects p ON f.project_id = p.id'); // Join if not filtering by division
+        }
+        queryParams.push(parseInt(projectId));
+        whereConditions.push(`f.project_id = $${queryParams.length}`);
+    } else if (projectId === 'unassigned') {
+        whereConditions.push(`f.project_id IS NULL`);
+    }
+
+    if (joins.length > 0) {
+        query += ` ${joins.join(' ')}`;
+    }
+    if (whereConditions.length > 0) {
+        query += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+    query += ` ORDER BY f.plot_name ASC`;
+
+    try {
+        const result = await pool.query(query, queryParams);
+        const plots = result.rows.map(row => row.plot_name);
+        res.json({ plots });
+    } catch (error) {
+        console.error("Database error fetching distinct plot names:", error);
+        console.error("Query:", query);
+        console.error("Params:", queryParams);
+        res.status(500).json({ message: "Server error fetching plot names." });
     }
 };
