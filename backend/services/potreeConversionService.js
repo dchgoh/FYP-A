@@ -11,7 +11,7 @@ async function initiatePotree(fileId, inputFileAbsolutePath, projectRootDir) {
     let outDir = null;
     const converterPath = path.resolve(projectRootDir, "PotreeConverter", "PotreeConverter.exe"); // Ensure this path is correct
     const outDirName = fileId.toString();
-    const outBase = path.resolve(__dirname, "../..", "public", "pointclouds");
+    const outBase = path.resolve(__dirname, "..", "pointclouds");
     outDir = path.join(outBase, outDirName);
 
     if (!fs.existsSync(inputFileAbsolutePath)) {

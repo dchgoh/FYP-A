@@ -58,6 +58,7 @@
     "client": "set PORT=3000 && react-scripts start",
     "backup": "cd backend && node backup.js"
   },
+  "proxy": "http://localhost:5000",
   "eslintConfig": {
     "extends": [
       "react-app",

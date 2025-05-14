@@ -38,6 +38,7 @@ initDatabase().then(() => {
     app.use('/api/divisions', divisionRoutes);
     app.use('/api/projects', projectRoutes);
     app.use('/api/files', fileRoutes);
+    app.use('/pointclouds', express.static(path.join(__dirname, 'pointclouds')));
 
     // --- Basic Root Route (Optional) ---
     app.get("/", (req, res) => {
