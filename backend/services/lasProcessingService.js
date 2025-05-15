@@ -3,14 +3,12 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require("child_process");
 const { pool } = require('../config/db'); // Assuming shared DB config
-// const potreeConversionService = require('./potreeConversionService'); // Uncomment if you auto-trigger Potree
 
 async function processLasData (fileIdToUpdate, stored_path_absolute) {
     return new Promise(async (resolve, reject) => {
-        const pythonScriptName = 'process_las.py'; // Assuming your Python script is named this
-        // Correct path to python_scripts assuming services and python_scripts are sibling dirs in 'backend'
+        const pythonScriptName = 'process_las.py'; // Your Python script name
         const pythonScriptPath = path.resolve(__dirname, '..', pythonScriptName);
-        const pythonCommand = 'python';
+        const pythonCommand = 'python'; // Or 'python3' or your specific command
 
         if (!fs.existsSync(pythonScriptPath)) {
             const errMsg = `Python script not found at ${pythonScriptPath}. Cannot process file.`;
@@ -23,7 +21,6 @@ async function processLasData (fileIdToUpdate, stored_path_absolute) {
 
         console.log(`[LAS Service] (FileID ${fileIdToUpdate}): Spawning LAS processing script "${pythonScriptPath}" with arg "${stored_path_absolute}"`);
         try {
-             // Update status to 'processing_las_data' BEFORE spawning
             await pool.query(
                 "UPDATE uploaded_files SET status = 'processing_las_data', processing_error = NULL WHERE id = $1",
                 [fileIdToUpdate]
@@ -32,9 +29,8 @@ async function processLasData (fileIdToUpdate, stored_path_absolute) {
         } catch (dbErr) {
             const errMsg = `[LAS Service] DB Error (FileID ${fileIdToUpdate}) setting status to 'processing_las_data': ${dbErr.message}`;
             console.error(errMsg);
-            return reject(new Error(errMsg)); // Reject if initial status update fails
+            return reject(new Error(errMsg));
         }
-
 
         const pythonProcess = spawn(pythonCommand, [pythonScriptPath, stored_path_absolute]);
 
@@ -46,7 +42,7 @@ async function processLasData (fileIdToUpdate, stored_path_absolute) {
             const logMsg = data.toString().trim();
             if (logMsg) {
                 stderrData += logMsg + '\n';
-                console.log(`[Python stderr] (FileID ${fileIdToUpdate}): ${logMsg}`); // Changed from console.error to .log for Python's own logs
+                console.log(`[Python stderr] (FileID ${fileIdToUpdate}): ${logMsg}`);
             }
         });
 
@@ -56,137 +52,132 @@ async function processLasData (fileIdToUpdate, stored_path_absolute) {
             try {
                 await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2", [errMsg.substring(0,250), fileIdToUpdate]);
             } catch (dbErr) { console.error(`[LAS Service] DB Error (FileID ${fileIdToUpdate}): Failed to update status after spawn error:`, dbErr); }
-            reject(new Error(errMsg)); // Ensure promise is rejected
+            reject(new Error(errMsg));
         });
 
         pythonProcess.on('close', async (code) => {
             console.log(`[LAS Service] (FileID ${fileIdToUpdate}): LAS processing script (${pythonScriptName}) exited with code ${code}.`);
-            console.log(`[LAS Service] (FileID ${fileIdToUpdate}): Raw stdout:\n---\n${stdoutData}\n---`);
-            if(stderrData) console.log(`[LAS Service] (FileID ${fileIdToUpdate}): Accumulated stderr:\n---\n${stderrData}\n---`);
-
+            if (stdoutData.trim()) console.log(`[LAS Service] (FileID ${fileIdToUpdate}): Raw stdout:\n---\n${stdoutData.trim()}\n---`);
+            if (stderrData.trim()) console.log(`[LAS Service] (FileID ${fileIdToUpdate}): Accumulated stderr:\n---\n${stderrData.trim()}\n---`);
 
             let updateQueryText = '';
             let queryParams = [];
-            let finalStatus = 'failed'; // Default to failed
+            let finalStatus = 'failed';
             let processingErrorMsgForDb = `LAS Python script exited with code ${code}.`;
             let processingSuccess = false;
+            let pythonResultData = null;
 
             if (code === 0 && stdoutData.trim()) {
                 try {
-                    const resultData = JSON.parse(stdoutData.trim());
-                    console.log(`[LAS Service] (FileID ${fileIdToUpdate}): Parsed JSON from Python:`, JSON.stringify(resultData, null, 2));
+                    pythonResultData = JSON.parse(stdoutData.trim());
 
-                    // Check for functional error reported by Python script in its JSON output
-                    if (resultData.error) {
-                        processingErrorMsgForDb = `Python script error: ${resultData.error}`;
+                    if (pythonResultData.error) {
+                        processingErrorMsgForDb = `Python script error: ${pythonResultData.error}`;
                         console.error(`[LAS Service] Error (FileID ${fileIdToUpdate}): ${processingErrorMsgForDb}`);
-                        // finalStatus remains 'failed'
                     } else {
-                        const calculatedLat = resultData.latitude !== undefined ? resultData.latitude : null;
-                        const calculatedLon = resultData.longitude !== undefined ? resultData.longitude : null;
-                        const midpointsWGS84 = resultData.tree_midpoints_wgs84 !== undefined ? resultData.tree_midpoints_wgs84 : null;
-                        // --- GET TREE COUNT ---
-                        const treeCount = (resultData.num_trees !== null && resultData.num_trees !== undefined)
-                                        ? parseInt(resultData.num_trees, 10)
-                                        : 0;
+                        const calculatedLat = pythonResultData.latitude !== undefined ? pythonResultData.latitude : null;
+                        const calculatedLon = pythonResultData.longitude !== undefined ? pythonResultData.longitude : null;
+                        const midpointsWGS84 = pythonResultData.tree_midpoints_wgs84 !== undefined ? pythonResultData.tree_midpoints_wgs84 : null;
+                        let treeCount = (pythonResultData.num_trees !== null && pythonResultData.num_trees !== undefined)
+                                        ? parseInt(pythonResultData.num_trees, 10) : 0;
                         if (isNaN(treeCount)) {
-                             console.warn(`[LAS Service] (FileID ${fileIdToUpdate}): num_trees from Python was NaN after parsing. Defaulting to 0. Raw: ${resultData.num_trees}`);
-                             resultData.num_trees = 0; // Correct for DB
-                        } else {
-                            resultData.num_trees = treeCount; // Ensure it's the parsed integer
+                             console.warn(`[LAS Service] (FileID ${fileIdToUpdate}): num_trees was NaN, defaulting to 0. Raw: ${pythonResultData.num_trees}`);
+                             treeCount = 0;
                         }
+                        const adjustedHeights = pythonResultData.tree_heights_adjusted !== undefined ? pythonResultData.tree_heights_adjusted : null;
+                        // --- GET DBH DATA ---
+                        const treeDbhsCm = pythonResultData.tree_dbhs_cm !== undefined ? pythonResultData.tree_dbhs_cm : null;
                         // --------------------
 
-                        const pythonWarnings = resultData.warnings || [];
-                        const pythonErrorsInJson = resultData.errors || []; // Errors reported within the JSON structure
-
-                        if (pythonWarnings.length > 0) console.warn(`[LAS Service] Warn (FileID ${fileIdToUpdate}): Python reported warnings:`, pythonWarnings);
-                        if (pythonErrorsInJson.length > 0) console.error(`[LAS Service] Error (FileID ${fileIdToUpdate}): Python reported errors in JSON:`, pythonErrorsInJson);
-
-
                         const midpointsJsonString = midpointsWGS84 ? JSON.stringify(midpointsWGS84) : null;
+                        const adjustedHeightsJsonString = adjustedHeights ? JSON.stringify(adjustedHeights) : null;
+                        // --- Stringify DBH data if not null ---
+                        const treeDbhsCmJsonString = treeDbhsCm ? JSON.stringify(treeDbhsCm) : null;
+                        // --------------------------------------
 
+                        const pythonErrorsInJson = pythonResultData.errors || [];
                         if (pythonErrorsInJson.length > 0) {
-                            finalStatus = 'processed_with_errors'; // Or 'failed' depending on severity
-                            processingErrorMsgForDb = `Python processing completed with errors: ${pythonErrorsInJson.join('; ').substring(0,200)}`;
+                             console.error(`[LAS Service] Error (FileID ${fileIdToUpdate}): Python reported errors in JSON:`, pythonErrorsInJson);
+                             finalStatus = 'processed_with_errors';
+                             processingErrorMsgForDb = `Python processing completed with errors: ${pythonErrorsInJson.join('; ').substring(0,200)}`;
                         } else {
-                            finalStatus = 'processed_ready_for_potree'; // Assuming Potree is the next automatic step
-                            processingErrorMsgForDb = null; // Clear previous errors on success
-                            processingSuccess = true;
+                             finalStatus = 'processed_ready_for_potree';
+                             processingErrorMsgForDb = null;
+                             processingSuccess = true;
                         }
 
-                        // --- UPDATE QUERY WITH tree_count ---
+                        // --- UPDATE QUERY WITH tree_heights_adjusted AND tree_dbhs_cm ---
                         updateQueryText = `
                             UPDATE uploaded_files SET
                                 latitude = $1,
                                 longitude = $2,
                                 tree_midpoints = $3,
-                                tree_count = $4, -- <<<< ADDED tree_count HERE
-                                status = $5,
-                                processing_error = $6
-                            WHERE id = $7`;
+                                tree_count = $4,
+                                tree_heights_adjusted = $5,
+                                tree_dbhs_cm = $6,          -- <<<< NEW FIELD FOR DBH
+                                status = $7,
+                                processing_error = $8
+                            WHERE id = $9`;
                         queryParams = [
                             calculatedLat,
                             calculatedLon,
                             midpointsJsonString,
-                            resultData.num_trees, // Pass the tree_count
+                            treeCount,
+                            adjustedHeightsJsonString,
+                            treeDbhsCmJsonString,         // <<<< PASS THE STRINGIFIED DBH JSON
                             finalStatus,
                             processingErrorMsgForDb,
                             fileIdToUpdate
                         ];
-                        // ------------------------------------
-                        if (processingSuccess) {
-                            resolve(resultData); // Resolve the promise with parsed data on success
-                        } else {
-                            reject(new Error(processingErrorMsgForDb || "LAS processing completed with errors reported by Python script."));
-                        }
+                        // -----------------------------------------------------------
                     }
                 } catch (parseError) {
                     processingErrorMsgForDb = `Failed to parse LAS Python JSON: ${parseError.message.substring(0,150)}`;
-                    console.error(`[LAS Service] Error (FileID ${fileIdToUpdate}): ${processingErrorMsgForDb}\nRaw stdout: >>>${stdoutData.substring(0,300)}<<<`);
-                    finalStatus = 'failed'; // Ensure status is failed
-                    // updateQueryText and queryParams will be set in the 'else' block below if code was 0 but parsing failed
-                    reject(new Error(processingErrorMsgForDb)); // Reject promise
+                    console.error(`[LAS Service] Error (FileID ${fileIdToUpdate}): ${processingErrorMsgForDb}. Raw stdout was: >>>${stdoutData.substring(0,300)}<<<`);
                 }
             }
 
-            // This 'else' block handles:
-            // 1. Python script exit code was non-zero.
-            // 2. Python script exit code was 0, BUT stdoutData was empty (no JSON to parse).
-            // 3. Python script exit code was 0, stdoutData was present, BUT JSON parsing failed (caught above, now we build the DB update).
-            if (!updateQueryText) { // If not already set by successful parse block
+            if (!updateQueryText) {
                 if (code !== 0) {
                     processingErrorMsgForDb = `LAS Python script failed (code ${code}). Stderr: ${stderrData.substring(0, 200)}...`;
-                } else if (!stdoutData.trim()) { // code === 0 but no output
-                    processingErrorMsgForDb = `LAS Python script (code 0) produced no JSON output. Check Python stderr.`;
-                } else { // code === 0, output present, but parseError happened
-                     // processingErrorMsgForDb is already set from the catch (parseError) block
+                } else if (!stdoutData.trim() && code === 0) {
+                    processingErrorMsgForDb = `LAS Python script (code 0) produced no JSON output. Check Python logs via stderr.`;
                 }
-                console.error(`[LAS Service] Error (FileID ${fileIdToUpdate}): Setting status to failed. Reason: ${processingErrorMsgForDb}`);
+                console.error(`[LAS Service] Error (FileID ${fileIdToUpdate}): Defaulting to failure update. Reason: ${processingErrorMsgForDb}`);
                 finalStatus = 'failed';
                 updateQueryText = `UPDATE uploaded_files SET status = $1, processing_error = $2 WHERE id = $3`;
                 queryParams = [finalStatus, processingErrorMsgForDb.substring(0,250), fileIdToUpdate];
-                if (!processingSuccess) reject(new Error(processingErrorMsgForDb)); // Ensure promise is rejected if not already
             }
 
-
             if (updateQueryText) {
-                let clientForUpdate; // Use a separate client variable for this scope
+                let clientForFinalUpdate;
                 try {
-                    clientForUpdate = await pool.connect();
-                    const updateResult = await clientForUpdate.query(updateQueryText, queryParams);
+                    clientForFinalUpdate = await pool.connect();
+                    const updateResult = await clientForFinalUpdate.query(updateQueryText, queryParams);
                     if (updateResult.rowCount > 0) {
-                        console.log(`[LAS Service] (FileID ${fileIdToUpdate}): DB status/data update after LAS processing successful (New Status: ${finalStatus}).`);
+                        console.log(`[LAS Service] (FileID ${fileIdToUpdate}): DB update after LAS processing finished (Status: ${finalStatus}).`);
                     } else {
-                        console.warn(`[LAS Service] Warn (FileID ${fileIdToUpdate}): DB status/data update for LAS processing affected 0 rows. This might indicate the file ID was already deleted or an issue.`);
+                        console.error(`[LAS Service] CRITICAL Error (FileID ${fileIdToUpdate}): DB update for LAS processing affected 0 rows. File ID may not exist or concurrent delete.`);
+                        if(processingSuccess) processingSuccess = false;
+                        if (!processingErrorMsgForDb) processingErrorMsgForDb = "DB update failed to find file record after processing.";
                     }
                 } catch (dbError) {
                     console.error(`[LAS Service] DB Error (FileID ${fileIdToUpdate}): Error updating DB after LAS Python script:`, dbError);
-                    if (!processingSuccess) reject(new Error(`DB update failed after LAS processing error: ${dbError.message}`)); // Reject if not already resolved
-                    else resolve({success: false, message: "LAS processed but DB update failed", error: dbError.message, fileId: fileIdToUpdate }); // Resolve with error if main processing was "ok"
+                    if(processingSuccess) processingSuccess = false;
+                    if (!processingErrorMsgForDb) processingErrorMsgForDb = `DB update error: ${dbError.message}`;
                 } finally {
-                    if (clientForUpdate) clientForUpdate.release();
+                    if (clientForFinalUpdate) clientForFinalUpdate.release();
                 }
+            }
+
+            if (processingSuccess) {
+                resolve({
+                    message: "LAS data processed successfully.",
+                    fileId: fileIdToUpdate,
+                    data: pythonResultData
+                });
+            } else {
+                reject(new Error(processingErrorMsgForDb || `LAS processing failed for unknown reason (FileID: ${fileIdToUpdate}).`));
             }
         });
     });

@@ -32,6 +32,10 @@ router.get('/download/:id', fileController.downloadFile);
 
 router.get('/plots', fileController.getDistinctPlotNames);
 
+router.get('/all-tree-heights-adjusted', fileController.getAllAdjustedTreeHeights);
+
+router.get('/statistics/all-tree-dbhs-cm', fileController.getAllTreeDbhsCm);
+
 // Delete: Admin/Assigned DM (checkProjectAssignment applied *after* checkRole)
 router.delete('/:id', checkRole([ROLES.ADMIN, ROLES.DATA_MANAGER]), checkProjectAssignment, fileController.deleteFile);
 

@@ -24,9 +24,10 @@ const formatFileRecord = (dbRecord) => {
         longitude: dbRecord.longitude,
         status: dbRecord.status || 'unknown',
         processing_error: dbRecord.processing_error || null,
-        // --- CORRECTED LINE ---
         tree_midpoints: dbRecord.tree_midpoints || null, // Access from dbRecord, default to null
-        // ----------------------
+        tree_heights_adjusted: dbRecord.tree_heights_adjusted || null, // For displaying if needed later
+        tree_dbhs_cm: dbRecord.tree_dbhs_cm || null,
+
         // Derived fields
         size: dbRecord.size_bytes ? `${(dbRecord.size_bytes / 1024 / 1024).toFixed(2)} MB` : 'N/A',
         uploadDate: dbRecord.upload_date ? new Date(dbRecord.upload_date).toLocaleDateString() : 'N/A',
@@ -47,21 +48,14 @@ exports.uploadFile = async (req, res) => {
     }
 
     const { originalname, filename, path: stored_path_absolute, mimetype, size } = req.file;
-    const { plot_name, project_id } = req.body;
-    const stored_path_relative = path.join('uploads', filename); // Relative path for DB
+    const { plot_name, project_id } = req.body; // plot_name and project_id are optional from client
+    const stored_path_relative = path.join('uploads', filename);
 
-    // --- IMPORTANT: Define projectRootDir correctly ---
-    // This assumes your controllers are in 'src/controllers/' and project root is 'FYP (change)'
-    // So, from 'src/controllers/', going up two levels gets you to 'FYP (change)'
-    const projectRootDir = path.resolve(__dirname, '..');
-    // If 'FYP (change)' is your 'src' directory, and controllers are in 'FYP (change)/controllers/':
-    // const projectRootDir = path.resolve(__dirname, '..');
-    // Verify this path carefully.
+    const projectRootDir = path.resolve(__dirname, '..'); // Assumes controllers/ is one level down from project root
     console.log(`[Controller] projectRootDir determined as: ${projectRootDir}`);
 
-
     let cleanProjectId = null;
-    if (project_id !== undefined && project_id !== null && project_id !== '') {
+    if (project_id !== undefined && project_id !== null && String(project_id).trim() !== '') {
         cleanProjectId = parseInt(project_id);
         if (isNaN(cleanProjectId)) {
             fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting upload on invalid project ID:", err); });
@@ -70,29 +64,41 @@ exports.uploadFile = async (req, res) => {
     }
 
     let fileIdToUpdate;
-    let savedFileRecordData; // To hold the data for formatFileRecord
+    let savedFileRecordData;
 
     try {
-        // 1. Validate project_id if provided
+        // 1. Validate project_id if provided (ensures project exists before inserting file record)
         if (cleanProjectId !== null) {
             const projectCheck = await pool.query("SELECT id, name FROM projects WHERE id = $1", [cleanProjectId]);
             if (projectCheck.rowCount === 0) {
                 fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting upload for non-existent project:", err); });
                 return res.status(404).json({ success: false, message: `Project with ID ${cleanProjectId} not found.` });
             }
-            // You might want to attach project_name to savedFileRecordData here if not joining later
         }
 
-        // 2. Initial Database Insert
-        const insertResult = await pool.query(
-            `INSERT INTO uploaded_files
-             (original_name, stored_filename, stored_path, mime_type, size_bytes, plot_name, project_id, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, 'uploaded')
-             RETURNING id, original_name, size_bytes, upload_date, stored_path, project_id, plot_name, status, 
-                       (SELECT name FROM projects WHERE id = $7) AS project_name, 
-                       (SELECT d.name FROM divisions d JOIN projects p ON p.division_id = d.id WHERE p.id = $7) AS division_name`,
-            [originalname, filename, stored_path_relative, mimetype, size, plot_name || null, cleanProjectId]
-        );
+        // 2. Initial Database Insert for the uploaded file
+        // The status is 'uploaded', and other fields like latitude, longitude, tree_data will be filled by background processing
+        const insertQuery = `
+            INSERT INTO uploaded_files
+                (original_name, stored_filename, stored_path, mime_type, size_bytes, plot_name, project_id, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'uploaded')
+            RETURNING 
+                id, original_name, size_bytes, upload_date, stored_path, project_id, plot_name, status,
+                (SELECT name FROM projects WHERE id = $7) AS project_name,
+                (SELECT d.name FROM divisions d JOIN projects p ON p.division_id = d.id WHERE p.id = $7) AS division_name,
+                (SELECT d.id FROM divisions d JOIN projects p ON p.division_id = d.id WHERE p.id = $7) AS division_id 
+                -- Add other fields needed for formatFileRecord immediately if possible, or ensure formatFileRecord handles missing ones
+            `;
+        const insertValues = [
+            originalname,
+            filename,
+            stored_path_relative,
+            mimetype,
+            size,
+            plot_name || null, // Ensure plot_name can be null
+            cleanProjectId     // Can be null if no project assigned
+        ];
+        const insertResult = await pool.query(insertQuery, insertValues);
 
         if (insertResult.rows.length === 0 || !insertResult.rows[0].id) {
             fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting orphaned upload after failed DB insert:", err); });
@@ -100,66 +106,82 @@ exports.uploadFile = async (req, res) => {
         }
 
         fileIdToUpdate = insertResult.rows[0].id;
-        savedFileRecordData = insertResult.rows[0]; // Data from RETURNING for formatting
+        savedFileRecordData = insertResult.rows[0]; // Data from RETURNING
 
         // 3. Respond Immediately to Client (201 Created)
+        // The client gets a confirmation that the upload was received.
+        // The actual processing happens in the background.
         res.status(201).json({
             success: true,
-            message: "File upload accepted. Full processing pipeline initiated in background.",
-            file: formatFileRecord(savedFileRecordData)
+            message: "File upload accepted. Processing initiated in background.",
+            file: formatFileRecord(savedFileRecordData) // Use formatted record
         });
 
-        // 4. Asynchronous Background Processing Chain
+        // 4. Asynchronous Background Processing Chain (IIFE)
         (async () => {
+            let currentFileId = fileIdToUpdate; // Use a local variable inside IIFE
             try {
-                console.log(`[Controller] (FileID ${fileIdToUpdate}): Initiating segmentation service.`);
-                // The segmentationService.runSegmentation will set status to 'segmenting',
-                // then to 'segmented_ready_for_las' or 'failed'.
-                // await segmentationService.runSegmentation(fileIdToUpdate, stored_path_absolute, projectRootDir);
-                //const statusAfterSegmentation = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileIdToUpdate]);
-                //if (statusAfterSegmentation.rows[0]?.status !== 'segmented_ready_for_las') {
-                //    console.warn(`[Controller] (FileID ${fileIdToUpdate}): Segmentation did not result in 'segmented_ready_for_las'. Current status: ${statusAfterSegmentation.rows[0]?.status}. Halting pipeline.`);
-                //    return; // Stop if segmentation didn't prepare for LAS processing
-                //}
-                // console.log(`[Controller] (FileID ${fileIdToUpdate}): Segmentation complete. Initiating LAS processing service.`);
+                console.log(`[Controller BG] (FileID ${currentFileId}): Initiating LAS processing service for ${originalname}.`);
+                // lasProcessingService.processLasData is expected to:
+                // 1. Set status to 'processing_las_data'
+                // 2. Run the Python script
+                // 3. Parse Python output
+                // 4. Update the database with:
+                //    - latitude, longitude
+                //    - tree_midpoints (JSONB)
+                //    - tree_count (INTEGER)
+                //    - tree_heights_adjusted (JSONB) <<<< THIS IS THE NEW PART FOR THE SERVICE
+                //    - status to 'processed_ready_for_potree' (or 'failed' if Python script errors out)
+                //    - processing_error if applicable
+                await lasProcessingService.processLasData(currentFileId, stored_path_absolute);
+                // Note: lasProcessingService.processLasData must be robust and handle its own DB updates for success/failure.
+                console.log(`[Controller BG] (FileID ${currentFileId}): LAS processing service call completed for ${originalname}.`);
 
-                // The lasProcessingService.processLasData will set status to 'processing_las_data',
-                // then 'processed_ready_for_potree' (and trigger Potree) or 'failed'.
-                await lasProcessingService.processLasData(fileIdToUpdate, stored_path_absolute);
-
-                console.log(`[Controller] (FileID ${fileIdToUpdate}): LAS processing (and subsequent auto-Potree) service call completed/initiated.`);
-
-                await potreeConversionService.initiatePotree(fileIdToUpdate, stored_path_absolute, projectRootDir);
+                // After successful LAS processing, check status before Potree (optional but good practice)
+                const statusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [currentFileId]);
+                if (statusCheck.rows.length > 0 && statusCheck.rows[0].status === 'processed_ready_for_potree') {
+                    console.log(`[Controller BG] (FileID ${currentFileId}): Initiating Potree conversion for ${originalname}.`);
+                    await potreeConversionService.initiatePotree(currentFileId, stored_path_absolute, projectRootDir);
+                    console.log(`[Controller BG] (FileID ${currentFileId}): Potree conversion service call completed/initiated for ${originalname}.`);
+                } else {
+                    const currentStatus = statusCheck.rows.length > 0 ? statusCheck.rows[0].status : 'unknown';
+                    console.warn(`[Controller BG] (FileID ${currentFileId}): Skipping Potree for ${originalname}. Status after LAS processing: ${currentStatus}. Expected 'processed_ready_for_potree'.`);
+                }
 
             } catch (pipelineError) {
-                console.error(`[Controller] Error (FileID ${fileIdToUpdate}): Background processing pipeline failed: ${pipelineError.message}`);
-                // Services should ideally handle their own 'failed' status updates.
-                // This is a fallback or for errors not caught by services.
+                console.error(`[Controller BG] Error (FileID ${currentFileId}): Background processing pipeline for ${originalname} failed: ${pipelineError.message}`);
+                // Services (lasProcessingService, potreeConversionService) should ideally handle their own specific 'failed' status updates.
+                // This is a fallback for errors bubbling up to the controller or for orchestration issues.
                 try {
-                    const { rows } = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileIdToUpdate]);
-                    if (rows.length > 0 && rows[0].status !== 'failed') { // Avoid overwriting specific error
+                    const { rows } = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [currentFileId]);
+                    // Avoid overwriting a more specific error status set by a service
+                    if (rows.length > 0 && !['failed', 'error_segmentation', 'error_las_processing', 'error_potree'].includes(rows[0].status)) {
                         const errMsgForDb = (pipelineError.message || "Unknown background pipeline error").substring(0, 250);
-                        await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2",
-                            [errMsgForDb, fileIdToUpdate]);
-                        console.log(`[Controller] (FileID ${fileIdToUpdate}): Set status to 'failed' due to pipeline error.`);
+                        await pool.query(
+                            "UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2",
+                            [errMsgForDb, currentFileId]
+                        );
+                        console.log(`[Controller BG] (FileID ${currentFileId}): Set status to 'failed' due to unhandled pipeline error for ${originalname}.`);
                     }
                 } catch (dbErr) {
-                    console.error(`[Controller] DB Error (FileID ${fileIdToUpdate}): Failed to update status after pipeline error:`, dbErr);
+                    console.error(`[Controller BG] DB Error (FileID ${currentFileId}): Failed to update status after pipeline error for ${originalname}:`, dbErr);
                 }
             }
-        })(); // End of async IIFE
+        })(); // End of async IIFE for background tasks
 
     } catch (initialError) {
         console.error("[Controller] Initial file upload/DB error:", initialError);
-        // Attempt cleanup only if the file path was determined
+        // Attempt cleanup of the uploaded file if an error occurs before the background processing starts
         if (stored_path_absolute && fs.existsSync(stored_path_absolute)) {
-            fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error("Error deleting orphaned upload on initial failure:", err); });
+            fs.unlink(stored_path_absolute, (err) => {
+                if (err && err.code !== 'ENOENT') console.error("Error deleting orphaned upload on initial failure:", err);
+            });
         }
-        // Send error response if not already sent
+        // Send error response if not already sent (e.g., by project_id validation)
         if (!res.headersSent) {
-             if (initialError.code === '23503' && initialError.constraint === 'fk_project') { // Specific FK error
-                res.status(404).json({ success: false, message: "Assign failed: Target project does not exist." });
-             } else { // Generic server error
+             if (initialError.code === '23503' && initialError.constraint && initialError.constraint.startsWith('fk_')) {
+                res.status(400).json({ success: false, message: "Invalid input: " + (initialError.detail || "Related data not found.") });
+             } else {
                  res.status(500).json({ success: false, message: initialError.message || "Server error during file upload process." });
              }
         }
@@ -1232,5 +1254,118 @@ exports.getTreeCount = async (req, res) => {
     } catch (error) {
         console.error("Database error fetching total tree count. Query:", query, "Params:", queryParams, "Full Error:", error);
         res.status(500).json({ message: "Server error fetching total tree count." });
+    }
+};
+
+
+// Example Backend Endpoint (in fileController.js or similar)
+exports.getAllAdjustedTreeHeights = async (req, res) => {
+    const { projectId, divisionId, plotName } = req.query;
+    let query = `
+        SELECT f.tree_heights_adjusted
+        FROM uploaded_files f
+    `;
+    const queryParams = [];
+    const joins = [];
+    const whereConditions = [
+        "(f.status = 'ready' OR f.status = 'processed_ready_for_potree')",
+        "f.tree_heights_adjusted IS NOT NULL"
+    ];
+
+    let projectJoinAdded = false;
+    if (divisionId && divisionId !== 'all' && !isNaN(parseInt(divisionId))) {
+        if (!projectJoinAdded) { joins.push('LEFT JOIN projects p ON f.project_id = p.id'); projectJoinAdded = true;}
+        queryParams.push(parseInt(divisionId));
+        whereConditions.push(`p.division_id = $${queryParams.length}`);
+    }
+    if (projectId && projectId !== 'all' && projectId !== 'unassigned') {
+        queryParams.push(parseInt(projectId));
+        whereConditions.push(`f.project_id = $${queryParams.length}`);
+    } else if (projectId === 'unassigned') {
+        whereConditions.push(`f.project_id IS NULL`);
+    }
+    if (plotName && plotName !== 'all') {
+        queryParams.push(plotName);
+        whereConditions.push(`f.plot_name = $${queryParams.length}`);
+    }
+
+    if (joins.length > 0) query += ` ${joins.join(' ')}`;
+    if (whereConditions.length > 0) query += ` WHERE ${whereConditions.join(' AND ')}`;
+
+    try {
+        const result = await pool.query(query, queryParams);
+        let allHeights = [];
+        result.rows.forEach(row => {
+            if (row.tree_heights_adjusted) {
+                // Assuming tree_heights_adjusted is an object like {"treeID1": height1, "treeID2": height2}
+                allHeights.push(...Object.values(row.tree_heights_adjusted).filter(h => typeof h === 'number'));
+            }
+        });
+        res.json({ heights: allHeights });
+    } catch (error) {
+        console.error("Error fetching all adjusted tree heights:", error);
+        res.status(500).json({ message: "Server error." });
+    }
+};
+
+
+exports.getAllTreeDbhsCm = async (req, res) => {
+    const { projectId, divisionId, plotName } = req.query;
+    let query = `
+        SELECT f.tree_dbhs_cm
+        FROM uploaded_files f
+    `;
+    const queryParams = [];
+    const joins = [];
+    const whereConditions = [
+        "(f.status = 'ready' OR f.status = 'processed_ready_for_potree')", // Only from successfully processed files
+        "f.tree_dbhs_cm IS NOT NULL" // Ensure the DBH data exists
+    ];
+
+    let projectJoinAdded = false;
+
+    // Filter by Division ID
+    if (divisionId && divisionId !== 'all' && !isNaN(parseInt(divisionId))) {
+        if (!projectJoinAdded) { 
+            joins.push('LEFT JOIN projects p ON f.project_id = p.id'); 
+            projectJoinAdded = true;
+        }
+        queryParams.push(parseInt(divisionId));
+        whereConditions.push(`p.division_id = $${queryParams.length}`);
+    }
+
+    // Filter by Project ID
+    if (projectId && projectId !== 'all' && projectId !== 'unassigned' && !isNaN(parseInt(projectId))) {
+        queryParams.push(parseInt(projectId));
+        whereConditions.push(`f.project_id = $${queryParams.length}`);
+    } else if (projectId === 'unassigned') {
+        whereConditions.push(`f.project_id IS NULL`);
+    }
+
+    // Filter by Plot Name
+    if (plotName && plotName !== 'all' && typeof plotName === 'string' && plotName.trim() !== '') {
+        queryParams.push(plotName.trim());
+        whereConditions.push(`f.plot_name = $${queryParams.length}`);
+    }
+
+    if (joins.length > 0) query += ` ${joins.join(' ')}`;
+    if (whereConditions.length > 0) query += ` WHERE ${whereConditions.join(' AND ')}`;
+
+    try {
+        console.log("Executing getAllTreeDbhsCm query:", query, queryParams);
+        const result = await pool.query(query, queryParams);
+        let allDbhs = [];
+        result.rows.forEach(row => {
+            if (row.tree_dbhs_cm) {
+                // Assuming tree_dbhs_cm is an object like {"treeID1": dbh1_cm, "treeID2": dbh2_cm}
+                // We want to collect all the individual DBH values (which are numbers)
+                allDbhs.push(...Object.values(row.tree_dbhs_cm).filter(d => typeof d === 'number'));
+            }
+        });
+        console.log("Fetched all DBHs (cm):", allDbhs.length, "values.");
+        res.json({ dbhs_cm: allDbhs }); // Send an array of DBH values in cm
+    } catch (error) {
+        console.error("Error fetching all tree DBHs (cm):", error);
+        res.status(500).json({ message: "Server error fetching tree diameter data." });
     }
 };
