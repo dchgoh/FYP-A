@@ -1164,3 +1164,73 @@ exports.getDistinctPlotNames = async (req, res) => {
         res.status(500).json({ message: "Server error fetching plot names." });
     }
 };
+
+exports.getTreeCount = async (req, res) => {
+    const { projectId, divisionId, plotName } = req.query; // Added plotName
+
+    let query = `
+        SELECT SUM(COALESCE(f.tree_count, 0)) AS total_trees
+        FROM uploaded_files f
+    `;
+    const queryParams = [];
+    const joins = [];
+    const whereConditions = [
+        // Only count trees for successfully processed files with tree data
+        "(f.status = 'ready' OR f.status = 'processed_ready_for_potree')"
+    ];
+
+    let projectJoinAdded = false;
+
+    // Filter by Division ID
+    if (divisionId && divisionId !== 'all' && !isNaN(parseInt(divisionId))) {
+        if (!projectJoinAdded) {
+            joins.push('LEFT JOIN projects p ON f.project_id = p.id');
+            projectJoinAdded = true;
+        }
+        queryParams.push(parseInt(divisionId));
+        whereConditions.push(`p.division_id = $${queryParams.length}`);
+    }
+    // Filter by Project ID
+    if (projectId && projectId !== 'all' && !isNaN(parseInt(projectId))) {
+        // The 'projects' table (aliased as 'p') is only strictly needed if we were also filtering by division_id.
+        // For f.project_id, no join is strictly needed.
+        queryParams.push(parseInt(projectId));
+        whereConditions.push(`f.project_id = $${queryParams.length}`);
+    } else if (projectId === 'unassigned') {
+        whereConditions.push(`f.project_id IS NULL`);
+    }
+
+    // --- NEW: Filter by Plot Name ---
+    // Ensure plotName is a non-empty string and not a specific 'all' value (case-insensitive for 'all').
+    // The actual plot name comparison in SQL (f.plot_name = $X) will be case-sensitive by default.
+    if (plotName && typeof plotName === 'string' && plotName.trim() !== '' && plotName.toLowerCase() !== 'all') {
+        queryParams.push(plotName.trim()); // Use the trimmed, original case plotName for the query
+        whereConditions.push(`f.plot_name = $${queryParams.length}`);
+    }
+    // If you needed to filter for files with plot_name IS NULL or plot_name = '',
+    // you would need specific values for plotName like 'IS_NULL' or 'IS_EMPTY'
+    // and handle them accordingly. For now, this handles specific plot names.
+    // --- End of Plot Name Filter ---
+
+    if (joins.length > 0) {
+        query += ` ${joins.join(' ')}`;
+    }
+    if (whereConditions.length > 0) {
+        query += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+    try {
+        console.log("Executing total tree count query:", query);
+        console.log("Query parameters:", queryParams);
+        const result = await pool.query(query, queryParams);
+
+        const totalTrees = result.rows[0] && result.rows[0].total_trees !== null
+            ? parseInt(result.rows[0].total_trees, 10)
+            : 0;
+
+        console.log("Total tree count result:", totalTrees);
+        res.json({ count: totalTrees });
+    } catch (error) {
+        console.error("Database error fetching total tree count. Query:", query, "Params:", queryParams, "Full Error:", error);
+        res.status(500).json({ message: "Server error fetching total tree count." });
+    }
+};
