@@ -376,9 +376,8 @@ exports.getRecentFiles = async (req, res) => {
 
 // Get List of Files
 exports.getFiles = async (req, res) => {
-    const { projectId, divisionId } = req.query;
+    const { projectId, divisionId, plotName } = req.query; // <--- 1. ADD plotName HERE
 
-    // *** MODIFIED: Join logic and SELECT list ***
     let query = `
       SELECT
           f.id,
@@ -391,15 +390,15 @@ exports.getFiles = async (req, res) => {
           f.project_id,
           f.latitude,
           f.longitude,
-          f.status,             
-          f.processing_error,   
-          f.tree_midpoints,     
+          f.status,
+          f.processing_error,
+          f.tree_midpoints,
           p.name AS project_name,
-          p.division_id,        -- Get division_id from the project
-          d.name AS division_name -- Get division_name via the project's division_id
+          p.division_id,
+          d.name AS division_name
       FROM uploaded_files f
-      LEFT JOIN projects p ON f.project_id = p.id      -- Join files to projects
-      LEFT JOIN divisions d ON p.division_id = d.id    -- Join projects to divisions
+      LEFT JOIN projects p ON f.project_id = p.id
+      LEFT JOIN divisions d ON p.division_id = d.id
     `;
     const queryParams = [];
     const whereConditions = [];
@@ -412,15 +411,18 @@ exports.getFiles = async (req, res) => {
         whereConditions.push(`f.project_id IS NULL`);
     }
 
-    // *** MODIFIED: Filter by Division ID (via project) ***
+    // Filter by Division ID (via project)
     if (divisionId && divisionId !== 'all' && !isNaN(parseInt(divisionId))) {
         queryParams.push(parseInt(divisionId));
-        // Filter on the division_id associated with the project
         whereConditions.push(`p.division_id = $${queryParams.length}`);
     }
-    // Note: Filtering by 'unassigned' division isn't directly meaningful unless
-    // you want files whose assigned project *itself* has no division (which shouldn't happen).
-    // You might filter for files with NULL project_id if you want 'unassigned' in the broader sense.
+
+    // --- 2. ADD PLOT NAME FILTER LOGIC ---
+    if (plotName && typeof plotName === 'string' && plotName.trim() !== '' && plotName.toLowerCase() !== 'all') {
+        queryParams.push(plotName.trim()); // Use the trimmed, original case plotName
+        whereConditions.push(`f.plot_name = $${queryParams.length}`);
+    }
+    // ------------------------------------
 
     if (whereConditions.length > 0) {
         query += ` WHERE ${whereConditions.join(' AND ')}`;
@@ -429,12 +431,14 @@ exports.getFiles = async (req, res) => {
     query += ` ORDER BY f.upload_date DESC`;
 
     try {
+        console.log("Executing getFiles query:", query); // For debugging
+        console.log("Query parameters:", queryParams);  // For debugging
+
         const result = await pool.query(query, queryParams);
         const formattedFiles = result.rows.map(formatFileRecord);
-        // console.log('Backend sending formattedFiles (check types):', formattedFiles);
         res.json(formattedFiles);
     } catch (error) {
-        console.error("Database error fetching files:", error);
+        console.error("Database error fetching files. Query:", query, "Params:", queryParams, "Full Error:", error);
         res.status(500).json({ success: false, message: "Server error fetching file list." });
     }
 };
