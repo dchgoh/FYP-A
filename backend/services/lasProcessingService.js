@@ -84,16 +84,25 @@ async function processLasData (fileIdToUpdate, stored_path_absolute) {
                              console.warn(`[LAS Service] (FileID ${fileIdToUpdate}): num_trees was NaN, defaulting to 0. Raw: ${pythonResultData.num_trees}`);
                              treeCount = 0;
                         }
-                        const adjustedHeights = pythonResultData.tree_heights_adjusted !== undefined ? pythonResultData.tree_heights_adjusted : null;
-                        // --- GET DBH DATA ---
-                        const treeDbhsCm = pythonResultData.tree_dbhs_cm !== undefined ? pythonResultData.tree_dbhs_cm : null;
-                        // --------------------
+                        
+                        // --- Aligning with Python output keys ---
+                        // tree_heights_adjusted in DB now corresponds to tree_segment_lengths_L_m from Python
+                        const segmentLengthsLM = pythonResultData.tree_segment_lengths_L_m !== undefined ? pythonResultData.tree_segment_lengths_L_m : null;
+                        // tree_dbhs_cm in DB now corresponds to tree_dbhs_d1_cm from Python
+                        const treeDbhsD1Cm = pythonResultData.tree_dbhs_d1_cm !== undefined ? pythonResultData.tree_dbhs_d1_cm : null;
+                        
+                        // --- GET NEW VOLUME DATA ---
+                        const treeVolumesM3 = pythonResultData.tree_volumes_m3 !== undefined ? pythonResultData.tree_volumes_m3 : null;
+                        const assumedD2Cm = pythonResultData.assumed_d2_cm_for_volume !== undefined ? pythonResultData.assumed_d2_cm_for_volume : null;
+                        // --------------------------
 
                         const midpointsJsonString = midpointsWGS84 ? JSON.stringify(midpointsWGS84) : null;
-                        const adjustedHeightsJsonString = adjustedHeights ? JSON.stringify(adjustedHeights) : null;
-                        // --- Stringify DBH data if not null ---
-                        const treeDbhsCmJsonString = treeDbhsCm ? JSON.stringify(treeDbhsCm) : null;
-                        // --------------------------------------
+                        const segmentLengthsJsonString = segmentLengthsLM ? JSON.stringify(segmentLengthsLM) : null; // Renamed for clarity
+                        const treeDbhsD1CmJsonString = treeDbhsD1Cm ? JSON.stringify(treeDbhsD1Cm) : null; // Renamed for clarity
+                        
+                        // --- Stringify NEW VOLUME data if not null ---
+                        const treeVolumesM3JsonString = treeVolumesM3 ? JSON.stringify(treeVolumesM3) : null;
+                        // -------------------------------------------
 
                         const pythonErrorsInJson = pythonResultData.errors || [];
                         if (pythonErrorsInJson.length > 0) {
@@ -106,25 +115,29 @@ async function processLasData (fileIdToUpdate, stored_path_absolute) {
                              processingSuccess = true;
                         }
 
-                        // --- UPDATE QUERY WITH tree_heights_adjusted AND tree_dbhs_cm ---
+                        // --- UPDATE QUERY WITH ALL NEW FIELDS ---
                         updateQueryText = `
                             UPDATE uploaded_files SET
                                 latitude = $1,
                                 longitude = $2,
                                 tree_midpoints = $3,
                                 tree_count = $4,
-                                tree_heights_adjusted = $5,
-                                tree_dbhs_cm = $6,          -- <<<< NEW FIELD FOR DBH
-                                status = $7,
-                                processing_error = $8
-                            WHERE id = $9`;
+                                tree_heights_adjusted = $5, -- Corresponds to segment_lengths_L_m
+                                tree_dbhs_cm = $6,          -- Corresponds to tree_dbhs_d1_cm
+                                tree_volumes_m3 = $7,       -- <<<< NEW FIELD FOR VOLUME
+                                assumed_d2_cm_for_volume = $8, -- <<<< NEW FIELD FOR D2 ASSUMPTION
+                                status = $9,
+                                processing_error = $10
+                            WHERE id = $11`;
                         queryParams = [
                             calculatedLat,
                             calculatedLon,
                             midpointsJsonString,
                             treeCount,
-                            adjustedHeightsJsonString,
-                            treeDbhsCmJsonString,         // <<<< PASS THE STRINGIFIED DBH JSON
+                            segmentLengthsJsonString,    // Use the aligned variable
+                            treeDbhsD1CmJsonString,      // Use the aligned variable
+                            treeVolumesM3JsonString,     // <<<< PASS THE STRINGIFIED VOLUME JSON
+                            assumedD2Cm,                 // <<<< PASS THE ASSUMED D2 VALUE (it's a number)
                             finalStatus,
                             processingErrorMsgForDb,
                             fileIdToUpdate
@@ -174,7 +187,7 @@ async function processLasData (fileIdToUpdate, stored_path_absolute) {
                 resolve({
                     message: "LAS data processed successfully.",
                     fileId: fileIdToUpdate,
-                    data: pythonResultData
+                    data: pythonResultData // Contains all data from Python
                 });
             } else {
                 reject(new Error(processingErrorMsgForDb || `LAS processing failed for unknown reason (FileID: ${fileIdToUpdate}).`));

@@ -177,6 +177,8 @@ const createFilesTable = async () => {
           tree_heights_adjusted JSONB,
           tree_dbhs_cm JSONB,
           tree_count INTEGER,
+          tree_volumes_m3 JSONB,
+          assumed_d2_cm_for_volume DOUBLE PRECISION,
           CONSTRAINT fk_project
             FOREIGN KEY(project_id)
             REFERENCES projects(id)

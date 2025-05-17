@@ -27,6 +27,8 @@ const formatFileRecord = (dbRecord) => {
         tree_midpoints: dbRecord.tree_midpoints || null, // Access from dbRecord, default to null
         tree_heights_adjusted: dbRecord.tree_heights_adjusted || null, // For displaying if needed later
         tree_dbhs_cm: dbRecord.tree_dbhs_cm || null,
+        tree_volumes_m3: dbRecord.tree_volumes_m3 || null,
+        assumed_d2_cm_for_volume: dbRecord.assumed_d2_cm_for_volume !== undefined ? dbRecord.assumed_d2_cm_for_volume : null,
 
         // Derived fields
         size: dbRecord.size_bytes ? `${(dbRecord.size_bytes / 1024 / 1024).toFixed(2)} MB` : 'N/A',
@@ -48,10 +50,10 @@ exports.uploadFile = async (req, res) => {
     }
 
     const { originalname, filename, path: stored_path_absolute, mimetype, size } = req.file;
-    const { plot_name, project_id } = req.body; // plot_name and project_id are optional from client
+    const { plot_name, project_id } = req.body; 
     const stored_path_relative = path.join('uploads', filename);
 
-    const projectRootDir = path.resolve(__dirname, '..'); // Assumes controllers/ is one level down from project root
+    const projectRootDir = path.resolve(__dirname, '..'); 
     console.log(`[Controller] projectRootDir determined as: ${projectRootDir}`);
 
     let cleanProjectId = null;
@@ -67,7 +69,6 @@ exports.uploadFile = async (req, res) => {
     let savedFileRecordData;
 
     try {
-        // 1. Validate project_id if provided (ensures project exists before inserting file record)
         if (cleanProjectId !== null) {
             const projectCheck = await pool.query("SELECT id, name FROM projects WHERE id = $1", [cleanProjectId]);
             if (projectCheck.rowCount === 0) {
@@ -76,18 +77,19 @@ exports.uploadFile = async (req, res) => {
             }
         }
 
-        // 2. Initial Database Insert for the uploaded file
-        // The status is 'uploaded', and other fields like latitude, longitude, tree_data will be filled by background processing
+        // MODIFIED: The RETURNING clause includes the new columns.
+        // They will be NULL initially but formatFileRecord will handle it.
         const insertQuery = `
             INSERT INTO uploaded_files
                 (original_name, stored_filename, stored_path, mime_type, size_bytes, plot_name, project_id, status)
             VALUES ($1, $2, $3, $4, $5, $6, $7, 'uploaded')
             RETURNING 
                 id, original_name, size_bytes, upload_date, stored_path, project_id, plot_name, status,
+                latitude, longitude, tree_midpoints, tree_heights_adjusted, tree_dbhs_cm, 
+                tree_volumes_m3, assumed_d2_cm_for_volume, -- <<< MODIFIED: Added new columns here
                 (SELECT name FROM projects WHERE id = $7) AS project_name,
                 (SELECT d.name FROM divisions d JOIN projects p ON p.division_id = d.id WHERE p.id = $7) AS division_name,
-                (SELECT d.id FROM divisions d JOIN projects p ON p.division_id = d.id WHERE p.id = $7) AS division_id 
-                -- Add other fields needed for formatFileRecord immediately if possible, or ensure formatFileRecord handles missing ones
+                (SELECT d.id FROM divisions d JOIN projects p ON p.division_id = d.id WHERE p.id = $7) AS division_id
             `;
         const insertValues = [
             originalname,
@@ -95,8 +97,8 @@ exports.uploadFile = async (req, res) => {
             stored_path_relative,
             mimetype,
             size,
-            plot_name || null, // Ensure plot_name can be null
-            cleanProjectId     // Can be null if no project assigned
+            plot_name || null, 
+            cleanProjectId     
         ];
         const insertResult = await pool.query(insertQuery, insertValues);
 
@@ -106,38 +108,22 @@ exports.uploadFile = async (req, res) => {
         }
 
         fileIdToUpdate = insertResult.rows[0].id;
-        savedFileRecordData = insertResult.rows[0]; // Data from RETURNING
+        savedFileRecordData = insertResult.rows[0]; 
 
-        // 3. Respond Immediately to Client (201 Created)
-        // The client gets a confirmation that the upload was received.
-        // The actual processing happens in the background.
         res.status(201).json({
             success: true,
             message: "File upload accepted. Processing initiated in background.",
             file: formatFileRecord(savedFileRecordData) // Use formatted record
         });
 
-        // 4. Asynchronous Background Processing Chain (IIFE)
         (async () => {
-            let currentFileId = fileIdToUpdate; // Use a local variable inside IIFE
+            let currentFileId = fileIdToUpdate; 
             try {
                 console.log(`[Controller BG] (FileID ${currentFileId}): Initiating LAS processing service for ${originalname}.`);
-                // lasProcessingService.processLasData is expected to:
-                // 1. Set status to 'processing_las_data'
-                // 2. Run the Python script
-                // 3. Parse Python output
-                // 4. Update the database with:
-                //    - latitude, longitude
-                //    - tree_midpoints (JSONB)
-                //    - tree_count (INTEGER)
-                //    - tree_heights_adjusted (JSONB) <<<< THIS IS THE NEW PART FOR THE SERVICE
-                //    - status to 'processed_ready_for_potree' (or 'failed' if Python script errors out)
-                //    - processing_error if applicable
+                // lasProcessingService will now also populate tree_volumes_m3 and assumed_d2_cm_for_volume
                 await lasProcessingService.processLasData(currentFileId, stored_path_absolute);
-                // Note: lasProcessingService.processLasData must be robust and handle its own DB updates for success/failure.
                 console.log(`[Controller BG] (FileID ${currentFileId}): LAS processing service call completed for ${originalname}.`);
 
-                // After successful LAS processing, check status before Potree (optional but good practice)
                 const statusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [currentFileId]);
                 if (statusCheck.rows.length > 0 && statusCheck.rows[0].status === 'processed_ready_for_potree') {
                     console.log(`[Controller BG] (FileID ${currentFileId}): Initiating Potree conversion for ${originalname}.`);
@@ -150,11 +136,8 @@ exports.uploadFile = async (req, res) => {
 
             } catch (pipelineError) {
                 console.error(`[Controller BG] Error (FileID ${currentFileId}): Background processing pipeline for ${originalname} failed: ${pipelineError.message}`);
-                // Services (lasProcessingService, potreeConversionService) should ideally handle their own specific 'failed' status updates.
-                // This is a fallback for errors bubbling up to the controller or for orchestration issues.
                 try {
                     const { rows } = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [currentFileId]);
-                    // Avoid overwriting a more specific error status set by a service
                     if (rows.length > 0 && !['failed', 'error_segmentation', 'error_las_processing', 'error_potree'].includes(rows[0].status)) {
                         const errMsgForDb = (pipelineError.message || "Unknown background pipeline error").substring(0, 250);
                         await pool.query(
@@ -167,17 +150,15 @@ exports.uploadFile = async (req, res) => {
                     console.error(`[Controller BG] DB Error (FileID ${currentFileId}): Failed to update status after pipeline error for ${originalname}:`, dbErr);
                 }
             }
-        })(); // End of async IIFE for background tasks
+        })(); 
 
     } catch (initialError) {
         console.error("[Controller] Initial file upload/DB error:", initialError);
-        // Attempt cleanup of the uploaded file if an error occurs before the background processing starts
         if (stored_path_absolute && fs.existsSync(stored_path_absolute)) {
             fs.unlink(stored_path_absolute, (err) => {
                 if (err && err.code !== 'ENOENT') console.error("Error deleting orphaned upload on initial failure:", err);
             });
         }
-        // Send error response if not already sent (e.g., by project_id validation)
         if (!res.headersSent) {
              if (initialError.code === '23503' && initialError.constraint && initialError.constraint.startsWith('fk_')) {
                 res.status(400).json({ success: false, message: "Invalid input: " + (initialError.detail || "Related data not found.") });
@@ -1371,5 +1352,154 @@ exports.getAllTreeDbhsCm = async (req, res) => {
     } catch (error) {
         console.error("Error fetching all tree DBHs (cm):", error);
         res.status(500).json({ message: "Server error fetching tree diameter data." });
+    }
+};
+
+// --- NEW: Get SUM of all Tree Volumes (m³) for a card ---
+exports.getSumTreeVolumesM3 = async (req, res) => {
+    const { projectId, divisionId, plotName } = req.query;
+
+    // Base query structure
+    let query = `
+        SELECT f.tree_volumes_m3
+        FROM uploaded_files f
+    `;
+    const queryParams = [];
+    let joins = []; // To store necessary JOIN clauses
+    let whereConditions = [
+        "(f.status = 'ready' OR f.status = 'processed_ready_for_potree')", // Only from successfully processed files
+        "f.tree_volumes_m3 IS NOT NULL" // Ensure the volume data exists
+    ];
+
+    let projectJoinAdded = false;
+
+    // Filter by Division ID
+    if (divisionId && divisionId !== 'all' && !isNaN(parseInt(divisionId))) {
+        if (!projectJoinAdded) {
+            joins.push('LEFT JOIN projects p ON f.project_id = p.id');
+            projectJoinAdded = true;
+        }
+        queryParams.push(parseInt(divisionId));
+        whereConditions.push(`p.division_id = $${queryParams.length}`);
+    }
+
+    // Filter by Project ID
+    if (projectId && projectId !== 'all' && projectId !== 'unassigned' && !isNaN(parseInt(projectId))) {
+        // No need to add join again if already added for division
+        if (!projectJoinAdded && divisionId && divisionId !== 'all') {
+             // This case is unlikely if divisionId implies a project, but good for standalone project filter
+        } else if (!projectJoinAdded) {
+            joins.push('LEFT JOIN projects p ON f.project_id = p.id');
+            projectJoinAdded = true; // Mark as added if filtering by project ID alone
+        }
+        queryParams.push(parseInt(projectId));
+        whereConditions.push(`f.project_id = $${queryParams.length}`);
+    } else if (projectId === 'unassigned') {
+        whereConditions.push(`f.project_id IS NULL`);
+    }
+
+    // Filter by Plot Name
+    if (plotName && plotName !== 'all' && typeof plotName === 'string' && plotName.trim() !== '') {
+        queryParams.push(plotName.trim());
+        whereConditions.push(`f.plot_name = $${queryParams.length}`);
+    }
+
+    // Append joins and where conditions to the base query
+    if (joins.length > 0) {
+        query += ` ${joins.join(' ')}`;
+    }
+    if (whereConditions.length > 0) {
+        query += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+
+    try {
+        console.log("Executing getSumTreeVolumesM3 query:", query, queryParams);
+        const result = await pool.query(query, queryParams);
+        let totalSum = 0;
+        result.rows.forEach(row => {
+            if (row.tree_volumes_m3) { // tree_volumes_m3 is like {"treeID1": vol1, "treeID2": vol2}
+                Object.values(row.tree_volumes_m3).forEach(volume => {
+                    if (typeof volume === 'number' && !isNaN(volume)) {
+                        totalSum += volume;
+                    }
+                });
+            }
+        });
+        console.log("Calculated sum of tree volumes (m³):", totalSum);
+        res.json({ sum: totalSum }); // Send the sum
+    } catch (error) {
+        console.error("Error fetching sum of tree volumes (m³):", error);
+        console.error("Query:", query);
+        console.error("Params:", queryParams);
+        res.status(500).json({ message: "Server error fetching sum of tree volume data." });
+    }
+};
+
+// --- NEW: Get ALL Tree Volumes (m³) for histogram chart ---
+exports.getAllTreeVolumesM3Data = async (req, res) => {
+    const { projectId, divisionId, plotName } = req.query;
+    let query = `
+        SELECT f.tree_volumes_m3
+        FROM uploaded_files f
+    `;
+    const queryParams = [];
+    let joins = [];
+    const whereConditions = [
+        "(f.status = 'ready' OR f.status = 'processed_ready_for_potree')",
+        "f.tree_volumes_m3 IS NOT NULL"
+    ];
+
+    let projectJoinAdded = false;
+
+    // Filter by Division ID
+    if (divisionId && divisionId !== 'all' && !isNaN(parseInt(divisionId))) {
+        if (!projectJoinAdded) {
+            joins.push('LEFT JOIN projects p ON f.project_id = p.id');
+            projectJoinAdded = true;
+        }
+        queryParams.push(parseInt(divisionId));
+        whereConditions.push(`p.division_id = $${queryParams.length}`);
+    }
+
+    // Filter by Project ID
+    if (projectId && projectId !== 'all' && projectId !== 'unassigned' && !isNaN(parseInt(projectId))) {
+        if (!projectJoinAdded && divisionId && divisionId !== 'all') {
+            // Join already added if divisionId is present
+        } else if (!projectJoinAdded) {
+            joins.push('LEFT JOIN projects p ON f.project_id = p.id');
+            projectJoinAdded = true;
+        }
+        queryParams.push(parseInt(projectId));
+        whereConditions.push(`f.project_id = $${queryParams.length}`);
+    } else if (projectId === 'unassigned') {
+        whereConditions.push(`f.project_id IS NULL`);
+    }
+
+    // Filter by Plot Name
+    if (plotName && plotName !== 'all' && typeof plotName === 'string' && plotName.trim() !== '') {
+        queryParams.push(plotName.trim());
+        whereConditions.push(`f.plot_name = $${queryParams.length}`);
+    }
+
+    if (joins.length > 0) query += ` ${joins.join(' ')}`;
+    if (whereConditions.length > 0) query += ` WHERE ${whereConditions.join(' AND ')}`;
+
+    try {
+        console.log("Executing getAllTreeVolumesM3Data query:", query, queryParams);
+        const result = await pool.query(query, queryParams);
+        let allVolumes = [];
+        result.rows.forEach(row => {
+            if (row.tree_volumes_m3) {
+                // Assuming tree_volumes_m3 is an object like {"treeID1": volume1, "treeID2": volume2}
+                allVolumes.push(...Object.values(row.tree_volumes_m3).filter(v => typeof v === 'number' && !isNaN(v)));
+            }
+        });
+        console.log("Fetched all tree volumes (m³) for chart:", allVolumes.length, "values.");
+        res.json({ volumes_m3: allVolumes }); // Send an array of volume values in m³
+    } catch (error) {
+        console.error("Error fetching all tree volumes (m³) for chart:", error);
+        console.error("Query:", query);
+        console.error("Params:", queryParams);
+        res.status(500).json({ message: "Server error fetching tree volume data for chart." });
     }
 };

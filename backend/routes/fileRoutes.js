@@ -36,6 +36,12 @@ router.get('/all-tree-heights-adjusted', fileController.getAllAdjustedTreeHeight
 
 router.get('/statistics/all-tree-dbhs-cm', fileController.getAllTreeDbhsCm);
 
+// Get SUM of Tree Volumes (m³) - All logged-in users (or add specific role checks if needed)
+router.get('/statistics/sum-tree-volumes-m3', fileController.getSumTreeVolumesM3);
+
+// Get ALL Tree Volumes (m³) Data for Histogram - All logged-in users (or add specific role checks if needed)
+router.get('/statistics/all-tree-volumes-m3-data', fileController.getAllTreeVolumesM3Data);
+
 // Delete: Admin/Assigned DM (checkProjectAssignment applied *after* checkRole)
 router.delete('/:id', checkRole([ROLES.ADMIN, ROLES.DATA_MANAGER]), checkProjectAssignment, fileController.deleteFile);
 
