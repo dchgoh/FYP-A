@@ -52,7 +52,7 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "prestart": "cd backend && python3 -m venv venv && . venv/bin/activate && pip install laspy pyproj torch numpy argparse tqdm scipy"
+    "prestart": "cd backend && python3 -m venv venv && . venv/bin/activate && pip install laspy pyproj torch numpy argparse tqdm scipy",
     "start": "concurrently \"npm run server\" \"npm run client\" \"npm run backup\"",
     "server": "cd backend && CALL .\\venv\\Scripts\\activate.bat && node server.js",
     "client": "set PORT=3000 && react-scripts start",
