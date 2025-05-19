@@ -57,7 +57,6 @@
     "server": "cd backend && CALL .\\venv\\Scripts\\activate.bat && node server.js",
     "client": "set PORT=3000 && react-scripts start",
     "backup": "cd backend && node backup.js"
-    "build": "react-scripts build",
   },
   "proxy": "http://localhost:5000",
   "eslintConfig": {
