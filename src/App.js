@@ -1,4 +1,4 @@
-import { useState, React, useEffect } from "react"; // Import useEffect
+import { useState, useEffect } from "react"; // Import useEffect
 import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { jwtDecode } from "jwt-decode";
 import Topbar from "./scenes/global/topbar";
@@ -23,7 +23,6 @@ function App() {
     return storedCollapsed ? JSON.parse(storedCollapsed) : false;
   });
   const navigate = useNavigate();
-  const location = useLocation(); // Get the current location
 
   // --- Initialize Authentication State with JWT Validation ---
   const [isAuthenticated, setIsAuthenticated] = useState(() => {

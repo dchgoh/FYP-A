@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import "./login.css"; // Assuming you have this CSS file
-import { FaEnvelope, FaEye, FaSpinner } from "react-icons/fa";
+import { FaEnvelope, FaEye} from "react-icons/fa";
 import { CircularProgress } from "@mui/material";
 
 const Login = ({ onLoginSuccess }) => {
