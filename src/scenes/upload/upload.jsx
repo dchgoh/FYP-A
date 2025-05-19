@@ -771,7 +771,7 @@ const FileManagement = ({ isCollapsed }) => {
     }
   };
 
-  const handleCreateProject = async () => {
+    const handleCreateProject = async () => {
     if (userRole !== ROLES.ADMIN) { showSnackbar("Permission denied.", "error"); return; }
     if (!newProjectName.trim() || isCreatingProject) {
         if (!newProjectName.trim()) showSnackbar("Project name required.", "warning");
@@ -791,7 +791,7 @@ const FileManagement = ({ isCollapsed }) => {
             `${API_BASE_URL}/projects`,
             {
                 name: newProjectName.trim(),
-                divisionId: selectedDivisionIdForCreation 
+                divisionId: selectedDivisionIdForCreation
             },
             { headers: { 'Authorization': `Bearer ${token}` } }
         );
@@ -799,10 +799,15 @@ const FileManagement = ({ isCollapsed }) => {
         if (res.data.success && res.data.project) {
             const createdProject = res.data.project;
             showSnackbar(`Project "${createdProject.name}" created!`, "success");
-            await fetchProjectsList(token); 
-            // setSelectedProjectId(createdProject.id); // Optionally pre-select in upload form
-            setSelectedProjectIdForReassign(createdProject.id); // Pre-select if reassign modal was the trigger
-            setSelectedProjectIdForAssignment(createdProject.id); // Pre-select if assign modal was the trigger
+            await fetchProjectsList(token); // This is good, it refreshes the list
+
+            // --- THIS IS THE KEY CHANGE ---
+            // Pre-select the newly created project in the Upload Modal's dropdown
+            setSelectedProjectId(createdProject.id.toString()); // Ensure it's a string if your Select expects string values
+
+            // Keep these if they are still relevant for other modals
+            setSelectedProjectIdForReassign(createdProject.id.toString());
+            setSelectedProjectIdForAssignment(createdProject.id.toString());
 
             handleCloseCreateProjectModal();
         } else {
@@ -1315,7 +1320,7 @@ const handleBulkDelete = async () => {
       fontWeight: "bold",
       whiteSpace: 'nowrap',
       borderBottom: `1px solid ${colors.grey[700]}`,
-      padding: '10px 8px', // Adjusted padding
+      padding: '18px 8px', // Adjusted padding
     },
     bodyCell: {
       color: colors.grey?.[100] ?? "white",
@@ -1531,35 +1536,63 @@ const handleBulkDelete = async () => {
 
         {/* --- Bulk Actions Bar --- */}
         {selectedFileIds.size > 0 && (
-            <Paper 
+            <Paper
                 elevation={3}
-                sx={{ 
-                    padding: theme.spacing(1.5, 2), 
-                    marginBottom: 2, 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'space-between', 
-                    backgroundColor: colors.primary[600],
+                sx={{
+                    padding: theme.spacing(1.5, 2),
+                    marginBottom: theme.spacing(2), // Space before the table
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    backgroundColor: colors.primary[700], // Darker background for contrast
+                    border: `1px solid ${colors.blueAccent[700]}`,
                     borderRadius: '4px',
+                    position: 'sticky', // Make it sticky if you want it to stay visible while scrolling table
+                    top: theme.spacing(1), // Adjust as needed if you have a sticky header above
+                    zIndex: 2, // Ensure it's above the table content but below modals
                 }}
             >
-                <Typography sx={{ color: colors.grey[100], fontWeight: 'bold' }}>
-                    {selectedFileIds.size} file(s) selected
-                </Typography>
+                <Box display="flex" alignItems="center">
+                    {/* --- WRAP CHECKBOX WITH TOOLTIP --- */}
+                    <Tooltip title="Clear selection" arrow>
+                        {/* MUI Tooltip needs a DOM element to attach to.
+                            If the Checkbox itself doesn't forward refs or if it's disabled,
+                            the Tooltip might not work directly. Wrapping with a span is a safe bet. */}
+                        <span>
+                            <Checkbox
+                                checked={selectedFileIds.size > 0}
+                                indeterminate={selectedFileIds.size > 0 && selectedFileIds.size < numTotalSelectableForDelete}
+                                onClick={() => setSelectedFileIds(new Set())} // Clears selection
+                                size="small"
+                                sx={{
+                                    color: colors.blueAccent[200],
+                                    '&.Mui-checked': { color: colors.blueAccent[300] },
+                                    '&.Mui-disabled': { color: colors.grey[600] },
+                                    mr: 1
+                                }}
+                                disabled={isDeletingBulk /* || any other bulk action in progress */}
+                            />
+                        </span>
+                    </Tooltip>
+                    {/* --- END OF TOOLTIP WRAPPER --- */}
+                    <Typography sx={{ color: colors.grey[100], fontWeight: 'bold' }}>
+                        {selectedFileIds.size} file(s) selected
+                    </Typography>
+                </Box>
                 <Tooltip title="Delete Selected Files">
                     <span> {/* Span for Tooltip when button is disabled */}
                         <Button
                             variant="contained"
                             startIcon={isDeletingBulk ? <CircularProgress size={20} color="inherit" /> : <DeleteIcon />}
                             onClick={handleBulkDelete}
-                            disabled={isDeletingBulk || isLoading || !!deletingProjectId || !!deletingDivisionId}
+                            disabled={isDeletingBulk || isLoading || !!deletingProjectId || !!deletingDivisionId} // Removed selectedFileIds.size === 0 here as the bar itself is conditional
                             sx={{
-                                backgroundColor: colors.redAccent[600], // Darker red
+                                backgroundColor: colors.redAccent[600],
                                 color: colors.grey[100],
-                                '&:hover': { backgroundColor: colors.redAccent[700] }, // Even darker on hover
-                                '&.Mui-disabled': { 
-                                    backgroundColor: colors.grey[700], 
-                                    color: colors.grey[500] 
+                                '&:hover': { backgroundColor: colors.redAccent[700] },
+                                '&.Mui-disabled': {
+                                    backgroundColor: colors.grey[700],
+                                    color: colors.grey[500]
                                 }
                             }}
                         >
@@ -1640,14 +1673,37 @@ const handleBulkDelete = async () => {
         <Dialog open={openUploadModal} onClose={handleCloseUploadModal} disableEscapeKeyDown={isUploading} PaperProps={{ sx: styles.dialogPaper }}>
             <DialogTitle sx={styles.dialogTitle}>Upload New File</DialogTitle>
             <DialogContent sx={styles.dialogContent}>
-                <Button variant="outlined" onClick={triggerFileInput} disabled={isUploading} sx={{ mb: 1, borderColor: colors.grey[500], color: colors.grey[100], '&:hover': {borderColor: colors.blueAccent[300]} }}>Select File (.las/.laz)</Button>
+                <Button // THIS IS THE BUTTON TO STYLE
+                    // variant="outlined" // PREVIOUS
+                    variant="contained" // CHANGED TO "contained"
+                    onClick={triggerFileInput}
+                    disabled={isUploading}
+                    sx={{
+                        mb: 1,
+                        color: colors.grey[100], // Light text for good contrast on solid blue
+                        backgroundColor: 'rgb(40, 173, 226)', 
+                        transition: theme.transitions.create(
+                            ['background-color', 'color'], // Only need to transition these now
+                            { duration: theme.transitions.duration.short }
+                        ),
+                        '&:hover': {
+                            backgroundColor: 'rgb(58, 168, 211)', 
+                        },
+                        '&.Mui-disabled': {
+                            backgroundColor: colors.grey[700], // Example of a specific disabled background
+                            color: colors.grey[500],          // Example of a specific disabled text color
+                        }
+                    }}
+                >
+                    Select File (.las/.laz)
+                </Button>
                 <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} disabled={isUploading} accept=".las,.laz"/>
                 <Box sx={styles.fileDisplay}>
                     {newFile ? (<><Typography>{newFile.name}</Typography><Typography variant="body2" sx={{ color: colors.grey[300], mt: 0.5 }}>{(newFile.size/1024/1024).toFixed(2)} MB</Typography></>) : <Typography sx={{ color: colors.grey[400] }}>No file selected</Typography>}
                 </Box>
                 {isUploading && uploadProgress !== null && ( <Box sx={styles.uploadProgressContainer}><LinearProgress variant="determinate" value={uploadProgress} /><Typography variant="caption" display="block" sx={{ textAlign: 'center', mt: 0.5 }}>{uploadProgress}%</Typography></Box> )}
                 <TextField
-                  label="Plot Name"
+                  label="Plot Name (Required)"
                   value={plotName}
                   onChange={(e) => setPlotName(e.target.value)}
                   fullWidth
@@ -1663,9 +1719,9 @@ const handleBulkDelete = async () => {
                     onChange={(e) => {
                         const value = e.target.value;
                         if (value === CREATE_NEW_PROJECT_VALUE) {
-                            handleOpenCreateProjectModal(); 
+                            handleOpenCreateProjectModal();
                         } else {
-                            setSelectedProjectId(value); 
+                            setSelectedProjectId(value);
                         }
                     }}
                     label="Assign to Project (Required)"
@@ -1674,7 +1730,7 @@ const handleBulkDelete = async () => {
                     <MenuItem value=""><em>-- No Project Created --</em></MenuItem>
                      {loadingProjectsList ? <MenuItem disabled><CircularProgress size={20} sx={{mr: 1}}/> Loading...</MenuItem> : projectsList.map((proj) => (
                         <MenuItem key={proj.id} value={proj.id}>
-                          {proj.name} ({proj.division_name || 'No Div'}) 
+                          {proj.name} ({proj.division_name || 'No Div'})
                         </MenuItem>
                       ))}
                     {userRole === ROLES.ADMIN && (
@@ -1684,9 +1740,54 @@ const handleBulkDelete = async () => {
                       </MenuItem>
                     )}
                   </Select>
-                </FormControl>                
+                </FormControl>
             </DialogContent>
-            <DialogActions sx={styles.dialogActions}><Button onClick={handleCloseUploadModal} color="secondary" disabled={isUploading}>Cancel</Button><Button onClick={handleFileUpload} color="primary" disabled={isUploading || !newFile} variant="contained">{isUploading ? <CircularProgress size={24} color="inherit"/> : "Upload"}</Button></DialogActions>
+            <DialogActions sx={styles.dialogActions}>
+                <Button // CANCEL BUTTON - MODIFIED SX
+                    onClick={handleCloseUploadModal}
+                    disabled={isUploading}
+                    variant="outlined"
+                    sx={{
+                        color: colors.grey[100],        // Default text color
+                        borderColor: colors.grey[500],  // Default border color
+                        transition: theme.transitions.create( // Optional: for a smoother transition
+                            ['color', 'border-color', 'background-color'],
+                            { duration: theme.transitions.duration.short }
+                        ),
+                        '&:hover': {
+                            color: colors.black,
+                            borderColor: colors.redAccent[400],   // Red border on hover
+                            backgroundColor: colors.redAccent[500]
+                        },
+                        '&.Mui-disabled': {
+                            color: colors.grey[600],
+                            borderColor: colors.grey[700],
+                        }
+                    }}
+                >
+                    Cancel
+                </Button>
+                <Button // UPLOAD BUTTON - MODIFIED SX
+                    onClick={handleFileUpload}
+                    disabled={isUploading || !newFile || !selectedProjectId || !plotName.trim()}
+                    variant="contained"
+                    sx={{
+                        // When the button is ENABLED (i.e., upload requirements are met and not uploading)
+                        backgroundColor: colors.greenAccent[500], // Green color when ready
+                        color: colors.grey[100], // Ensure text contrast on green
+                        '&:hover': {
+                            backgroundColor: colors.greenAccent[400], // Slightly darker or lighter green on hover
+                        },
+                        // When the button is DISABLED
+                        '&.Mui-disabled': {
+                            backgroundColor: colors.grey[600], // Standard disabled background
+                            color: colors.grey[400],         // Standard disabled text color
+                        }
+                    }}
+                >
+                    {isUploading ? <CircularProgress size={24} color="inherit"/> : "Upload"}
+                </Button>
+            </DialogActions>
         </Dialog>
 
         <Dialog open={createDivisionModalOpen} onClose={handleCloseCreateDivisionModal} disableEscapeKeyDown={isCreatingDivision} PaperProps={{ sx: styles.dialogPaper }}>
@@ -1921,9 +2022,25 @@ const handleBulkDelete = async () => {
                    )}
                    {userRole === ROLES.ADMIN && ( 
                     <Button
-                      variant="outlined"
+                      variant="contained" // CHANGED to "contained"
                       startIcon={<AddCircleOutlineIcon />}
-                      sx={{ mt: 1, borderColor: colors.greenAccent[500], color: colors.greenAccent[400], '&:hover': { borderColor: colors.greenAccent[300] }, textTransform: 'none' }}
+                      sx={{
+                        mt: 1,
+                        backgroundColor: colors.greenAccent[500], // Green background
+                        color: theme.palette.mode === 'dark' ? colors.grey[800] : 'black', // Black or dark grey text
+                        textTransform: 'none',
+                        '&:hover': {
+                            backgroundColor: colors.greenAccent[600], // Slightly darker/different green on hover
+                        },
+                        '&.Mui-disabled': {
+                            backgroundColor: colors.grey[700],
+                            color: colors.grey[500],
+                        },
+                        // Ensure icon color matches text if needed
+                        '.MuiButton-startIcon > *:nth-of-type(1)': {
+                           color: theme.palette.mode === 'dark' ? colors.grey[800] : 'black',
+                        }
+                      }}
                       onClick={handleOpenCreateDivisionModal}
                       fullWidth
                       disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk}
@@ -1981,12 +2098,28 @@ const handleBulkDelete = async () => {
                    )}
                   {userRole === ROLES.ADMIN && ( // Changed from canPerformAction
                     <Button
-                      variant="outlined"
+                      variant="contained" // CHANGED to "contained"
                       startIcon={<AddCircleOutlineIcon />}
-                      sx={{ mt: 1, borderColor: colors.greenAccent[500], color: colors.greenAccent[400], '&:hover': { borderColor: colors.greenAccent[300] }, textTransform: 'none' }}
+                      sx={{
+                        mt: 1,
+                        backgroundColor: colors.greenAccent[500], // Green background
+                        color: theme.palette.mode === 'dark' ? colors.grey[800] : 'black', // Black or dark grey text
+                        textTransform: 'none',
+                        '&:hover': {
+                            backgroundColor: colors.greenAccent[600], // Slightly darker/different green on hover
+                        },
+                        '&.Mui-disabled': {
+                            backgroundColor: colors.grey[700],
+                            color: colors.grey[500],
+                        },
+                        // Ensure icon color matches text if needed
+                        '.MuiButton-startIcon > *:nth-of-type(1)': {
+                           color: theme.palette.mode === 'dark' ? colors.grey[800] : 'black',
+                        }
+                      }}
                       onClick={handleOpenCreateProjectModal}
                       fullWidth
-                      disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk || loadingDivisionsList} // Disable if divisions are not loaded for project creation
+                      disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk || loadingDivisionsList}
                     >
                       New Project
                     </Button>
@@ -1994,7 +2127,35 @@ const handleBulkDelete = async () => {
                </Box>
            </DialogContent>
             <DialogActions sx={styles.modalDialogActions}>
-                <Button onClick={handleCloseDivisionProjectSettingsModal} color="inherit" disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk}>Close</Button>
+                <Button // CLOSE BUTTON - MODIFIED SX
+                    onClick={handleCloseDivisionProjectSettingsModal}
+                    // color="inherit" // Remove or keep, sx will override for specific states
+                    disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk}
+                    variant="outlined" // Add variant for consistent styling approach
+                    sx={{
+                        // Default state (when not hovered and enabled)
+                        color: colors.grey[100],
+                        borderColor: colors.grey[500],
+                        transition: theme.transitions.create(
+                            ['color', 'border-color', 'background-color'],
+                            { duration: theme.transitions.duration.short }
+                        ),
+                        '&:hover': {
+                            // Hover state (when not disabled)
+                            backgroundColor: colors.redAccent[500], // Solid red background
+                            color: colors.grey[100],                // Light text for contrast
+                            borderColor: colors.redAccent[500],     // Border matches background
+                        },
+                        '&.Mui-disabled': {
+                            // Disabled state
+                            color: colors.grey[600],
+                            borderColor: colors.grey[700],
+                            backgroundColor: 'transparent', // Ensure no background from hover persists
+                        }
+                    }}
+                >
+                    Close
+                </Button>
             </DialogActions>
        </Dialog>
 

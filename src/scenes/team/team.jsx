@@ -63,7 +63,6 @@ const headCells = [
     { id: "index", numeric: false, disablePadding: false, label: "No.", sortable: false },
     { id: "username", numeric: false, disablePadding: false, label: "Username", sortable: true },
     { id: "email", numeric: false, disablePadding: false, label: "Email", sortable: true },
-    { id: "age", numeric: true, disablePadding: false, label: "Age", sortable: true },
     { id: "role", numeric: false, disablePadding: false, label: "Role", sortable: true },
     { id: "is_locked", numeric: false, disablePadding: false, label: "Status", sortable: true },
     { id: "actions", numeric: false, disablePadding: false, label: "Action", sortable: false },
@@ -83,7 +82,6 @@ const Team = ({ isCollapsed }) => {
         username: "",
         email: "",
         password: "",
-        age: "",
         role: "Data Manager",
     });
     const [snackbarOpen, setSnackbarOpen] = useState(false);
@@ -163,7 +161,7 @@ const Team = ({ isCollapsed }) => {
     const handleOpenAddModal = () => {
         setIsEditMode(false);
         setCurrentUserData({
-            id: null, username: "", email: "", password: "", age: "", role: "Data Manager",
+            id: null, username: "", email: "", password: "", role: "Data Manager",
         });
         setOpen(true);
     };
@@ -171,7 +169,7 @@ const Team = ({ isCollapsed }) => {
     const handleOpenEditModal = (user) => {
         setIsEditMode(true);
         setCurrentUserData({
-            id: user.id, username: user.username, email: user.email, password: "", age: user.age, role: user.role,
+            id: user.id, username: user.username, email: user.email, password: "", role: user.role,
         });
         setOpen(true);
     };
@@ -480,7 +478,7 @@ const Team = ({ isCollapsed }) => {
                     <DialogContent>
                         <TextField
                             name="username"
-                            label="Username"
+                            label="Username*"
                             fullWidth
                             margin="dense"
                             value={currentUserData.username}
@@ -488,7 +486,7 @@ const Team = ({ isCollapsed }) => {
                         />
                         <TextField
                             name="email"
-                            label="Email"
+                            label="Email*"
                             fullWidth
                             margin="dense"
                             value={currentUserData.email}
@@ -496,7 +494,7 @@ const Team = ({ isCollapsed }) => {
                         />
                         <TextField
                             name="password"
-                            label={isEditMode ? "New Password (leave blank to keep current)" : "Password"}
+                            label={isEditMode ? "New Password (leave blank to keep current)" : "Password*"}
                             type="password"
                             fullWidth
                             margin="dense"
@@ -504,19 +502,9 @@ const Team = ({ isCollapsed }) => {
                             onChange={handleChange}
                         />
                         <TextField
-                            name="age"
-                            label="Age"
-                            type="number"
-                            fullWidth
-                            margin="dense"
-                            value={currentUserData.age}
-                            onChange={handleChange}
-                            InputProps={{ inputProps: { min: 0 } }}
-                        />
-                        <TextField
                             select
                             name="role"
-                            label="Role"
+                            label="Role*"
                             fullWidth
                             margin="dense"
                             value={currentUserData.role}
@@ -527,11 +515,58 @@ const Team = ({ isCollapsed }) => {
                             <MenuItem value="Regular">Regular</MenuItem>
                         </TextField>
                     </DialogContent>
-                    <DialogActions>
-                        <Button onClick={handleCloseModal} color="secondary">
+                    <DialogActions
+                        sx={{ // Optional: Add padding and border like in FileManagement if desired
+                            padding: theme.spacing(2, 3),
+                            backgroundColor: colors.primary[700], // Match FileManagement
+                            borderTop: `1px solid ${colors.grey[700]}` // Match FileManagement
+                        }}
+                    >
+                        <Button // CANCEL BUTTON
+                            onClick={handleCloseModal}
+                            variant="outlined"
+                            sx={{
+                                color: colors.grey[100],
+                                borderColor: colors.grey[500],
+                                transition: theme.transitions.create(
+                                    ['color', 'border-color', 'background-color'],
+                                    { duration: theme.transitions.duration.short }
+                                ),
+                                '&:hover': {
+                                    backgroundColor: colors.redAccent[500],
+                                    color: colors.grey[100], // Or colors.black if redAccent is light
+                                    borderColor: colors.redAccent[500],
+                                },
+                                '&.Mui-disabled': { // Though cancel is rarely disabled
+                                    color: colors.grey[600],
+                                    borderColor: colors.grey[700],
+                                    backgroundColor: 'transparent',
+                                }
+                            }}
+                        >
                             Cancel
                         </Button>
-                        <Button onClick={handleSubmit} color="primary">
+                        <Button // ADD USER / SAVE CHANGES BUTTON
+                            onClick={handleSubmit}
+                            variant="contained"
+                            disabled={
+                                !currentUserData.username.trim() ||
+                                !currentUserData.email.trim() ||
+                                (!isEditMode && !currentUserData.password.trim()) || // Password required for new user
+                                !currentUserData.role // Role is also required
+                            }
+                            sx={{
+                                backgroundColor: colors.greenAccent[500],
+                                color: colors.grey[100],
+                                '&:hover': {
+                                    backgroundColor: colors.greenAccent[400],
+                                },
+                                '&.Mui-disabled': {
+                                    backgroundColor: colors.grey[600],
+                                    color: colors.grey[400],
+                                }
+                            }}
+                        >
                             {isEditMode ? "Save Changes" : "Add User"}
                         </Button>
                     </DialogActions>
@@ -601,15 +636,15 @@ const Team = ({ isCollapsed }) => {
                                 ))}
                             </TableRow>
                         </TableHead>
-                        <TableBody>
+                         <TableBody>
                             {sortedTeamMembers.length > 0 ? (
                                 sortedTeamMembers.map((user, index) => (
                                     <TableRow key={user.id} hover>
                                         <TableCell sx={styles.bodyCell}>{index + 1}</TableCell>
                                         <TableCell sx={styles.bodyCell}>{user.username}</TableCell>
                                         <TableCell sx={styles.bodyCell}>{user.email}</TableCell>
-                                        <TableCell sx={styles.bodyCell} align="right">{user.age}</TableCell>
-                                        <TableCell sx={styles.accessCell(user.role)}>
+                                        {/* <TableCell sx={styles.bodyCell} align="right">{user.age}</TableCell> */}{/* REMOVE THIS LINE */}
+                                        <TableCell sx={styles.accessCell(user.role)}> {/* This is now the 4th data cell, matching "Role" header */}
                                             <div style={styles.accessContainer}>
                                                 <span
                                                     className="material-symbols-outlined"
@@ -624,11 +659,11 @@ const Team = ({ isCollapsed }) => {
                                                 {user.role}
                                             </div>
                                         </TableCell>
-                                        <TableCell sx={styles.bodyCell}>
+                                        <TableCell sx={styles.bodyCell}> {/* This is now the 5th data cell, matching "Status" header */}
                                           {user.is_locked ? "Locked" : "Active"}
                                         </TableCell>
                                         {userRole === 'Administrator' && (
-                                        <TableCell>
+                                        <TableCell> {/* This is now the 6th data cell, matching "Action" header */}
                                             <IconButton
                                                 aria-label="actions"
                                                 aria-controls={`actions-menu-${user.id}`}
@@ -660,7 +695,7 @@ const Team = ({ isCollapsed }) => {
                             ) : (
                                 <TableRow>
                                     <TableCell
-                                        colSpan={headCells.length}
+                                        colSpan={headCells.length} // This will correctly reflect the new number of columns
                                         align="center"
                                         sx={styles.bodyCell}
                                     >

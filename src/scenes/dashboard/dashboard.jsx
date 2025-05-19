@@ -1,18 +1,19 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Card, CardContent, Typography, useTheme, Grid,
-  FormControl, InputLabel, Select, MenuItem, CircularProgress
+  FormControl, InputLabel, Select, MenuItem, CircularProgress, Button, Tooltip as MuiTooltip
 } from "@mui/material";
+import { alpha } from '@mui/material/styles';
 import { Bar } from "react-chartjs-2";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, LineElement, LinearScale, PointElement, CategoryScale, BarElement } from "chart.js";
 import ChartDataLabels from "chartjs-plugin-datalabels";
 import { Timeline, TimelineItem, TimelineSeparator, TimelineConnector, TimelineContent, TimelineDot } from "@mui/lab";
+import ReplayIcon from '@mui/icons-material/Replay';
 import { tokens } from "../../theme";
 import axios from 'axios';
 
 const API_BASE_URL = "http://localhost:5000/api";
 
-// Register ChartJS components
 ChartJS.register(ArcElement, Tooltip, Legend, LineElement, LinearScale, PointElement, CategoryScale, BarElement, ChartDataLabels);
 
 const Dashboard = ({ isCollapsed }) => {
@@ -45,7 +46,6 @@ const Dashboard = ({ isCollapsed }) => {
   const [allTreeDbhsData, setAllTreeDbhsData] = useState([]);
   const [loadingDbhsChart, setLoadingDbhsChart] = useState(false);
 
-  // NEW: State for tree volumes chart and sum card
   const [allTreeVolumesData, setAllTreeVolumesData] = useState([]);
   const [loadingVolumesChart, setLoadingVolumesChart] = useState(false);
   const [totalSumTreeVolumes, setTotalSumTreeVolumes] = useState(null);
@@ -55,7 +55,6 @@ const Dashboard = ({ isCollapsed }) => {
   const canFetchPlots = useMemo(() => {
     return filterDivisionId !== 'all' && filterProjectId !== 'all' && filterProjectId !== 'unassigned';
   }, [filterDivisionId, filterProjectId]);
-
 
   const fetchFilterData = useCallback(async () => {
     const token = localStorage.getItem('authToken');
@@ -68,8 +67,8 @@ const Dashboard = ({ isCollapsed }) => {
         axios.get(`${API_BASE_URL}/divisions`, { headers: { 'Authorization': `Bearer ${token}` } }),
         axios.get(`${API_BASE_URL}/projects`, { headers: { 'Authorization': `Bearer ${token}` } })
       ]);
-      setDivisionsList(divisionsRes.data || []);
-      setProjectsList(projectsRes.data || []);
+      setDivisionsList(Array.isArray(divisionsRes.data) ? divisionsRes.data : []);
+      setProjectsList(Array.isArray(projectsRes.data) ? projectsRes.data : []);
     } catch (error) {
       console.error("Failed to fetch filter data:", error.response?.data?.message || error.message);
       setDivisionsList([]); setProjectsList([]);
@@ -91,7 +90,8 @@ const Dashboard = ({ isCollapsed }) => {
         headers: { 'Authorization': `Bearer ${token}` },
         params: params
       });
-      setPlotsList(response.data.plots || []);
+      const plotsData = response.data && response.data.plots;
+      setPlotsList(Array.isArray(plotsData) ? plotsData : []);
     } catch (error) {
       console.error("Failed to fetch plot names:", error.response?.data?.message || error.message);
       setPlotsList([]);
@@ -146,7 +146,7 @@ const Dashboard = ({ isCollapsed }) => {
       if (plotName && plotName !== 'all' && canFetchPlots) params.plotName = plotName;
 
       const response = await axios.get(`${API_BASE_URL}/files/recent`, { headers: { 'Authorization': `Bearer ${token}` }, params: params });
-      setRecentUploads(response.data || []);
+      setRecentUploads(Array.isArray(response.data) ? response.data : []);
     } catch (error) { console.error("Failed to fetch recent uploads:", error.response?.data?.message || error.message); setRecentUploads([]);
     } finally { setLoadingTimeline(false); }
   }, [canFetchPlots]);
@@ -163,19 +163,16 @@ const Dashboard = ({ isCollapsed }) => {
       if (plotName && plotName !== 'all' && canFetchPlots) params.plotName = plotName;
 
       const response = await axios.get(`${API_BASE_URL}/files/all-tree-heights-adjusted`, { headers: { 'Authorization': `Bearer ${token}` }, params: params });
-      setAllTreeHeightsData(response.data.heights || []);
+      const heights = response.data && response.data.heights;
+      setAllTreeHeightsData(Array.isArray(heights) ? heights : []);
     } catch (error) { console.error("Failed to fetch all tree heights for chart:", error.response?.data?.message || error.message); setAllTreeHeightsData([]);
     } finally { setLoadingHeightsChart(false); }
   }, [canFetchPlots]);
 
   const fetchAllTreeDbhsForChart = useCallback(async (divisionId, projectId, plotName) => {
     const token = localStorage.getItem('authToken');
-    if (!token) {
-      setAllTreeDbhsData([]);
-      return;
-    }
-    setLoadingDbhsChart(true);
-    setAllTreeDbhsData([]);
+    if (!token) { setAllTreeDbhsData([]); return; }
+    setLoadingDbhsChart(true); setAllTreeDbhsData([]);
     try {
       const params = {};
       if (divisionId && divisionId !== 'all') params.divisionId = divisionId;
@@ -187,7 +184,8 @@ const Dashboard = ({ isCollapsed }) => {
         headers: { 'Authorization': `Bearer ${token}` },
         params: params
       });
-      setAllTreeDbhsData(response.data.dbhs_cm || []);
+      const dbhs = response.data && response.data.dbhs_cm;
+      setAllTreeDbhsData(Array.isArray(dbhs) ? dbhs : []);
     } catch (error) {
       console.error("Failed to fetch all tree DBHs for chart:", error.response?.data?.message || error.message);
       setAllTreeDbhsData([]);
@@ -196,15 +194,10 @@ const Dashboard = ({ isCollapsed }) => {
     }
   }, [canFetchPlots]);
 
-  // NEW: Callback to fetch all tree volumes for the histogram
   const fetchAllTreeVolumesForChart = useCallback(async (divisionId, projectId, plotName) => {
     const token = localStorage.getItem('authToken');
-    if (!token) {
-      setAllTreeVolumesData([]);
-      return;
-    }
-    setLoadingVolumesChart(true);
-    setAllTreeVolumesData([]);
+    if (!token) { setAllTreeVolumesData([]); return; }
+    setLoadingVolumesChart(true); setAllTreeVolumesData([]);
     try {
       const params = {};
       if (divisionId && divisionId !== 'all') params.divisionId = divisionId;
@@ -216,7 +209,8 @@ const Dashboard = ({ isCollapsed }) => {
         headers: { 'Authorization': `Bearer ${token}` },
         params: params
       });
-      setAllTreeVolumesData(response.data.volumes_m3 || []);
+      const volumes = response.data && response.data.volumes_m3;
+      setAllTreeVolumesData(Array.isArray(volumes) ? volumes : []);
     } catch (error) {
       console.error("Failed to fetch all tree volumes for chart:", error.response?.data?.message || error.message);
       setAllTreeVolumesData([]);
@@ -225,7 +219,6 @@ const Dashboard = ({ isCollapsed }) => {
     }
   }, [canFetchPlots]);
 
-  // NEW: Callback to fetch sum of tree volumes (for optional sum card)
   const fetchSumTreeVolumes = useCallback(async (divisionId, projectId, plotName) => {
     const token = localStorage.getItem('authToken');
     if (!token) { setTotalSumTreeVolumes('Error'); return; }
@@ -249,7 +242,6 @@ const Dashboard = ({ isCollapsed }) => {
       setIsFetchingSumVolumes(false);
     }
   }, [canFetchPlots]);
-
 
   useEffect(() => {
     const fetchUserCount = async () => {
@@ -284,16 +276,15 @@ const Dashboard = ({ isCollapsed }) => {
       fetchTotalTreesCount(filterDivisionId, filterProjectId, filterPlotName);
       fetchAllTreeHeightsForChart(filterDivisionId, filterProjectId, filterPlotName);
       fetchAllTreeDbhsForChart(filterDivisionId, filterProjectId, filterPlotName);
-      fetchAllTreeVolumesForChart(filterDivisionId, filterProjectId, filterPlotName); // Fetch volume data
-      fetchSumTreeVolumes(filterDivisionId, filterProjectId, filterPlotName); // Fetch sum of volumes
+      fetchAllTreeVolumesForChart(filterDivisionId, filterProjectId, filterPlotName);
+      fetchSumTreeVolumes(filterDivisionId, filterProjectId, filterPlotName);
     }
   }, [
     filterDivisionId, filterProjectId, filterPlotName, loadingFilters,
     fetchRecentUploads, fetchFilesUploadedCount, fetchTotalTreesCount,
     fetchAllTreeHeightsForChart, fetchAllTreeDbhsForChart,
-    fetchAllTreeVolumesForChart, fetchSumTreeVolumes // Add new fetch functions
+    fetchAllTreeVolumesForChart, fetchSumTreeVolumes
   ]);
-
 
   const handleDivisionFilterChange = (event) => {
     const newDivisionId = event.target.value;
@@ -312,16 +303,29 @@ const Dashboard = ({ isCollapsed }) => {
     setFilterPlotName(event.target.value);
   };
 
+  const handleResetFilters = () => {
+    setFilterDivisionId('all');
+    setFilterProjectId('all');
+    setFilterPlotName('all');
+  };
+
+  const areFiltersDefault = useMemo(() => {
+    return filterDivisionId === 'all' && filterProjectId === 'all' && filterPlotName === 'all';
+  }, [filterDivisionId, filterProjectId, filterPlotName]);
+
 
   const filteredProjectsForDropdown = useMemo(() => {
-    if (loadingFilters || !projectsList) return [];
-    if (filterDivisionId === 'all') return projectsList;
+    const safeProjectsList = Array.isArray(projectsList) ? projectsList : [];
+    if (loadingFilters || !safeProjectsList) return [];
+    if (filterDivisionId === 'all') return safeProjectsList;
     const numericDivisionId = parseInt(filterDivisionId, 10);
-    return projectsList.filter(p => p.division_id === numericDivisionId);
+    return safeProjectsList.filter(p => p.division_id === numericDivisionId);
   }, [projectsList, filterDivisionId, loadingFilters]);
 
+  // Chart Data & Options Memos (remain the same)
   const treeHeightHistogramData = useMemo(() => {
-    if (allTreeHeightsData.length === 0) {
+    const currentData = Array.isArray(allTreeHeightsData) ? allTreeHeightsData : [];
+    if (currentData.length === 0) {
       return { labels: [], datasets: [] };
     }
     const bins = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, Infinity];
@@ -330,7 +334,7 @@ const Dashboard = ({ isCollapsed }) => {
     );
     const counts = Array(labels.length).fill(0);
 
-    allTreeHeightsData.forEach(height => {
+    currentData.forEach(height => {
       if (height === null || height === undefined || isNaN(height)) return;
       for (let i = 0; i < bins.length - 1; i++) {
         if (height >= bins[i] && (i === bins.length - 2 ? height >= bins[i] : height < bins[i + 1])) {
@@ -359,7 +363,8 @@ const Dashboard = ({ isCollapsed }) => {
   }), [colors]);
 
   const treeDbhHistogramData = useMemo(() => {
-    if (allTreeDbhsData.length === 0) {
+    const currentData = Array.isArray(allTreeDbhsData) ? allTreeDbhsData : [];
+    if (currentData.length === 0) {
       return { labels: [], datasets: [] };
     }
     const bins = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, Infinity];
@@ -368,7 +373,7 @@ const Dashboard = ({ isCollapsed }) => {
     );
     const counts = Array(labels.length).fill(0);
 
-    allTreeDbhsData.forEach(dbh => {
+    currentData.forEach(dbh => {
       if (dbh === null || dbh === undefined || isNaN(dbh)) return;
       for (let i = 0; i < bins.length - 1; i++) {
         if (dbh >= bins[i] && (i === bins.length - 2 ? dbh >= bins[i] : dbh < bins[i + 1])) {
@@ -396,19 +401,18 @@ const Dashboard = ({ isCollapsed }) => {
     },
   }), [colors]);
 
-  // NEW: Memoized data and options for Volume Histogram
   const treeVolumeHistogramData = useMemo(() => {
-    if (allTreeVolumesData.length === 0) {
+    const currentData = Array.isArray(allTreeVolumesData) ? allTreeVolumesData : [];
+    if (currentData.length === 0) {
       return { labels: [], datasets: [] };
     }
-    // !!! IMPORTANT: Adjust these bins based on your typical data range for tree volumes (m³) !!!
     const bins = [0, 0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 5, Infinity];
     const labels = bins.slice(0, -1).map((bin, index) =>
       index === bins.length - 2 ? `≥${bins[index]}m³` : `${bin}-${bins[index + 1]}m³`
     );
     const counts = Array(labels.length).fill(0);
 
-    allTreeVolumesData.forEach(volume => {
+    currentData.forEach(volume => {
       if (volume === null || volume === undefined || isNaN(volume)) return;
       for (let i = 0; i < bins.length - 1; i++) {
         if (volume >= bins[i] && (i === bins.length - 2 ? volume >= bins[i] : volume < bins[i + 1])) {
@@ -422,7 +426,7 @@ const Dashboard = ({ isCollapsed }) => {
       datasets: [{
         label: "Tree Count by Volume",
         data: counts,
-        backgroundColor: colors.redAccent[500], // Different color for volume
+        backgroundColor: colors.redAccent[500],
         borderColor: colors.redAccent[700],
         borderWidth: 1
       }],
@@ -443,13 +447,12 @@ const Dashboard = ({ isCollapsed }) => {
     },
   }), [colors]);
 
-
+  // Styles (remain the same)
   const styles = {
     container: { display: "flex", minHeight: "100vh", bgcolor: colors.grey[800], marginLeft: isCollapsed ? "80px" : "270px", transition: "margin 0.3s ease" },
     content: { flex: 1, p: 3, overflowY: 'auto' },
     filterRow: { marginBottom: theme.spacing(3), padding: theme.spacing(2), backgroundColor: colors.grey[900], borderRadius: theme.shape.borderRadius },
     filterFormControl: { minWidth: 180, '& .MuiInputLabel-root': { color: colors.grey[300], '&.Mui-focused': { color: colors.blueAccent[300] } }, '& .MuiOutlinedInput-root': { color: colors.grey[100], '& .MuiOutlinedInput-notchedOutline': { borderColor: colors.grey[600] }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: colors.primary[300] }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: colors.blueAccent[400] }, '& .MuiSelect-icon': { color: colors.grey[300] } } },
-    // Adjusted statsGrid for potentially 4 items if "Total Tree Volume" card is enabled
     statsGrid: { display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(4, 1fr)" }, gap: 2, mt: 3 },
     card: { minHeight: 150, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", p: 2, bgcolor: colors.grey[900], position: 'relative' },
     cardTitle: { mb: 1, fontWeight: "bold", color: colors.grey[100] },
@@ -466,208 +469,342 @@ const Dashboard = ({ isCollapsed }) => {
   const chartBoxHeight = 280;
   styles.chartContainer = { height: chartBoxHeight, width: "100%" };
 
-
+  // --- MODIFIED commonMenuProps with fallbacks for alpha() ---
   const commonMenuProps = {
     PaperProps: {
       sx: {
-        backgroundColor: colors.primary[700], color: colors.grey[100],
-        '& .MuiMenuItem-root:hover': { backgroundColor: colors.primary[500] },
-        '& .MuiMenuItem-root.Mui-selected': { backgroundColor: colors.blueAccent[700] + '!important', color: colors.grey[100] },
-        '& .MuiMenuItem-root.Mui-disabled': { opacity: 0.5, color: colors.grey[500] }
+        backgroundColor: colors.primary?.[800] || colors.grey?.[800] || '#1F1F1F', // Fallback for primary[800]
+        color: colors.grey?.[100] || '#FFFFFF',
+        borderRadius: theme.shape.borderRadius,
+        marginTop: '4px',
+        // Provide a fallback for colors.black if it's undefined
+        boxShadow: `0px 5px 15px ${alpha(colors.black || theme.palette.common.black || '#000000', 0.35)}`,
+        border: `1px solid ${colors.grey?.[700] || '#424242'}`,
+        maxHeight: 280,
+        overflowY: 'auto',
+        '&::-webkit-scrollbar': {
+          width: '8px',
+        },
+        '&::-webkit-scrollbar-track': {
+          backgroundColor: colors.primary?.[900] || colors.grey?.[900] || '#121212',
+        },
+        '&::-webkit-scrollbar-thumb': {
+          backgroundColor: colors.grey?.[600] || '#616161',
+          borderRadius: '4px',
+          border: `2px solid ${colors.primary?.[900] || colors.grey?.[900] || '#121212'}`,
+        },
+        '&::-webkit-scrollbar-thumb:hover': {
+          backgroundColor: colors.grey?.[500] || '#757575',
+        },
+        '& .MuiMenuItem-root': {
+          padding: '10px 16px',
+          fontSize: '0.9rem',
+          '&:hover': {
+            // Fallback for blueAccent[700]
+            backgroundColor: alpha(colors.blueAccent?.[700] || colors.grey?.[700] || '#2A3F54', 0.8),
+            color: colors.grey?.[100] || '#FFFFFF',
+          },
+          '&.Mui-selected': {
+            backgroundColor: `${colors.blueAccent?.[500] || colors.grey?.[600] || '#1976D2'} !important`,
+            color: colors.grey?.[50] || '#E0E0E0',
+            fontWeight: '600',
+            '&:hover': {
+              // Fallback for blueAccent[400]
+              backgroundColor: `${alpha(colors.blueAccent?.[400] || colors.grey?.[500] || '#4778A9', 0.9)} !important`,
+            }
+          },
+          '&.Mui-disabled': {
+            opacity: 0.45,
+            color: `${colors.grey?.[600] || '#757575'} !important`,
+            backgroundColor: 'transparent !important',
+            cursor: 'not-allowed',
+            '& em': {
+                color: `${colors.grey?.[500] || '#9E9E9E'} !important`,
+            }
+          },
+        },
+         '& .MuiMenuItem-root.Mui-disabled .MuiCircularProgress-root': {
+            color: `${colors.grey?.[500] || '#9E9E9E'} !important`,
+        },
       },
+    },
+    anchorOrigin: {
+      vertical: 'bottom',
+      horizontal: 'left',
+    },
+    transformOrigin: {
+      vertical: 'top',
+      horizontal: 'left',
     },
   };
 
   const filterDisabled = loadingFilters || isFetchingFileCount || isFetchingTreeCount || loadingPlots || loadingHeightsChart || loadingDbhsChart || loadingVolumesChart || isFetchingSumVolumes;
+
+  const plotFilterDisabledReason = useMemo(() => {
+    // ... (remains the same)
+    if (filterDisabled) return "";
+    if (!canFetchPlots) {
+      if (filterDivisionId === 'all' && (filterProjectId === 'all' || filterProjectId === 'unassigned')) {
+        return "Select a Division and a specific Project to enable Plot filter.";
+      } else if (filterDivisionId === 'all') {
+        return "Select a Division first to see Projects and Plots.";
+      } else if (filterProjectId === 'all' || filterProjectId === 'unassigned') {
+        return "Select a specific Project to enable Plot filter.";
+      }
+    }
+    return "";
+  }, [canFetchPlots, filterDivisionId, filterProjectId, filterDisabled]);
 
 
   return (
     <Box sx={styles.container}>
       <Box sx={styles.content}>
 
-        {/* Filter Row */}
         <Box sx={styles.filterRow}>
-          <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} sm={6} md={4} lg={3}>
+          <Typography variant="h6" gutterBottom sx={{ color: colors.grey[100], mb: 2 }}>
+            Filter Dashboard Data
+          </Typography>
+          <Grid container spacing={2} alignItems="flex-end">
+            {/* Filter Grid Items (remain the same, MenuProps will apply new styles) */}
+            <Grid item xs={12} sm={6} md={3}>
               <FormControl fullWidth variant="outlined" size="small" sx={styles.filterFormControl}>
                 <InputLabel id="division-filter-label-dash">Filter Division</InputLabel>
-                <Select labelId="division-filter-label-dash" value={filterDivisionId} label="Filter Division" onChange={handleDivisionFilterChange}
-                  disabled={filterDisabled} MenuProps={commonMenuProps} >
+                <Select
+                  labelId="division-filter-label-dash"
+                  value={filterDivisionId}
+                  label="Filter Division"
+                  onChange={handleDivisionFilterChange}
+                  disabled={filterDisabled}
+                  MenuProps={commonMenuProps}
+                >
                   <MenuItem value="all"><em>All Divisions</em></MenuItem>
                   {loadingFilters ? <MenuItem disabled><CircularProgress size={20} sx={{ mr: 1 }} /> Loading...</MenuItem>
-                    : divisionsList.length === 0 ? <MenuItem disabled>No divisions</MenuItem>
-                    : divisionsList.map(d => (<MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>))
+                    : (divisionsList || []).length === 0 ? <MenuItem disabled><em>No divisions</em></MenuItem>
+                    : (divisionsList || []).map(d => (<MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>))
                   }
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} sm={6} md={4} lg={3}>
+            <Grid item xs={12} sm={6} md={3}>
               <FormControl fullWidth variant="outlined" size="small" sx={styles.filterFormControl}>
                 <InputLabel id="project-filter-label-dash">Filter Project</InputLabel>
-                <Select labelId="project-filter-label-dash" value={filterProjectId} label="Filter Project" onChange={handleProjectFilterChange}
-                  disabled={filterDisabled || (filterDivisionId === 'all' && projectsList.length === 0 && !loadingFilters)} MenuProps={commonMenuProps} >
+                <Select
+                  labelId="project-filter-label-dash"
+                  value={filterProjectId}
+                  label="Filter Project"
+                  onChange={handleProjectFilterChange}
+                  disabled={filterDisabled || (filterDivisionId === 'all' && (projectsList || []).length === 0 && !loadingFilters)}
+                  MenuProps={commonMenuProps}
+                >
                   <MenuItem value="all"><em>All Projects</em></MenuItem>
                   {loadingFilters ? <MenuItem disabled><CircularProgress size={20} sx={{ mr: 1 }} /> Loading...</MenuItem>
-                    : filteredProjectsForDropdown.length === 0 && filterDivisionId !== 'all' ? <MenuItem disabled sx={{ fontStyle: 'italic' }}>No projects in division</MenuItem>
-                    : projectsList.length === 0 && filterDivisionId === 'all' && !loadingFilters ? <MenuItem disabled sx={{ fontStyle: 'italic' }}>No projects available</MenuItem>
-                    : filteredProjectsForDropdown.map(p => (<MenuItem key={p.id} value={p.id}>{p.name}{filterDivisionId === 'all' && p.division_name && ` (${p.division_name})`}</MenuItem>))
+                    : (filteredProjectsForDropdown || []).length === 0 && filterDivisionId !== 'all' ? <MenuItem disabled><em>No projects in division</em></MenuItem>
+                    : (projectsList || []).length === 0 && filterDivisionId === 'all' && !loadingFilters ? <MenuItem disabled><em>No projects available</em></MenuItem>
+                    : (filteredProjectsForDropdown || []).map(p => (<MenuItem key={p.id} value={p.id}>{p.name}{filterDivisionId === 'all' && p.division_name && ` (${p.division_name})`}</MenuItem>))
                   }
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} sm={6} md={4} lg={3}>
-              <FormControl fullWidth variant="outlined" size="small" sx={styles.filterFormControl}>
-                <InputLabel id="plot-filter-label-dash">Filter Plot</InputLabel>
-                <Select labelId="plot-filter-label-dash" value={filterPlotName} label="Filter Plot" onChange={handlePlotFilterChange}
-                  disabled={!canFetchPlots || filterDisabled} MenuProps={commonMenuProps} >
-                  <MenuItem value="all"><em>All Plots</em></MenuItem>
-                  {loadingPlots ? <MenuItem disabled><CircularProgress size={20} sx={{ mr: 1 }} /> Loading plots...</MenuItem>
-                    : !canFetchPlots ? <MenuItem disabled sx={{ fontStyle: 'italic' }}>Select project to see plots</MenuItem>
-                    : plotsList.length === 0 ? <MenuItem disabled sx={{ fontStyle: 'italic' }}>No plots for this project</MenuItem>
-                    : plotsList.map(plot => (<MenuItem key={plot} value={plot}>{plot}</MenuItem>))
+            <Grid item xs={12} sm={6} md={3}>
+              <MuiTooltip title={plotFilterDisabledReason} arrow placement="top">
+                <span>
+                  <FormControl
+                    fullWidth
+                    variant="outlined"
+                    size="small"
+                    sx={{
+                      ...styles.filterFormControl,
+                      ...( (!canFetchPlots && !filterDisabled) && { opacity: 0.65, cursor: 'not-allowed' } )
+                    }}
+                  >
+                    <InputLabel id="plot-filter-label-dash">Filter Plot</InputLabel>
+                    <Select
+                      labelId="plot-filter-label-dash"
+                      value={filterPlotName}
+                      label="Filter Plot"
+                      onChange={handlePlotFilterChange}
+                      disabled={!canFetchPlots || filterDisabled}
+                      MenuProps={commonMenuProps}
+                    >
+                      <MenuItem value="all"><em>All Plots</em></MenuItem>
+                      {loadingPlots ? <MenuItem disabled><CircularProgress size={20} sx={{ mr: 1 }} /> Loading plots...</MenuItem>
+                        : !canFetchPlots && !filterDisabled ? (
+                            <MenuItem disabled>
+                                <em>{filterDivisionId === 'all' ? "Select Division & Project" : "Select Project"}</em>
+                            </MenuItem>
+                          )
+                        : (plotsList || []).length === 0 && canFetchPlots && !filterDisabled ? (
+                            <MenuItem disabled><em>No plots for this project</em></MenuItem>
+                          )
+                        : (plotsList || []).length > 0 && canFetchPlots && !filterDisabled ? (
+                            (plotsList || []).map(plot => (<MenuItem key={plot} value={plot}>{plot}</MenuItem>))
+                          )
+                        : (
+                            <MenuItem disabled>
+                                <em>{filterDisabled ? "Filters loading..." : "Plot selection unavailable"}</em>
+                            </MenuItem>
+                          )
+                      }
+                    </Select>
+                  </FormControl>
+                </span>
+              </MuiTooltip>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Button
+                fullWidth
+                variant="outlined"
+                onClick={handleResetFilters}
+                disabled={filterDisabled || areFiltersDefault}
+                startIcon={<ReplayIcon />}
+                sx={{
+                  color: colors.grey?.[300] || '#B0BEC5',
+                  borderColor: colors.grey?.[600] || '#616161',
+                  height: '40px',
+                  textTransform: 'none',
+                  '&:hover': {
+                    borderColor: colors.primary?.[300] || colors.grey?.[500] || '#757575',
+                    // Fallback for primary[700]
+                    backgroundColor: alpha(colors.primary?.[700] || colors.grey?.[800] || '#2C2C2C', 0.3),
+                  },
+                  '&.Mui-disabled': {
+                    color: colors.grey?.[700] || '#424242',
+                    borderColor: colors.grey?.[800] || '#303030',
                   }
-                </Select>
-              </FormControl>
+                }}
+              >
+                Reset Filters
+              </Button>
             </Grid>
           </Grid>
         </Box>
 
-        {/* Stats Section - Potentially 4 cards now */}
+        {/* Stats Section (remains the same) */}
         <Box sx={styles.statsGrid}>
-          <Card sx={styles.card}>
-            {totalMembers === null && (<Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30} /></Box>)}
-            <Typography variant="h1" sx={{ ...styles.cardTitle, visibility: totalMembers === null ? 'hidden' : 'visible' }}>
-              {totalMembers === 'Error' ? 'N/A' : totalMembers ?? '-'}
-            </Typography>
-            <Box sx={{ ...styles.cardIconBox, visibility: totalMembers === null ? 'hidden' : 'visible' }}>
-              <span className="material-symbols-outlined">group</span>
-              <Typography variant="body2" sx={styles.body2Text}>Total Members</Typography>
-            </Box>
-          </Card>
-          <Card sx={styles.card}>
-            {isFetchingFileCount && (<Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30} /></Box>)}
-            <Typography variant="h1" sx={{ ...styles.cardTitle, visibility: isFetchingFileCount ? 'hidden' : 'visible' }}>
-              {filesUploadedCount === 'Error' ? 'N/A' : filesUploadedCount ?? '-'}
-            </Typography>
-            <Box sx={{ ...styles.cardIconBox, visibility: isFetchingFileCount ? 'hidden' : 'visible' }}>
-              <span className="material-symbols-outlined">upload_file</span>
-              <Typography variant="body2" sx={styles.body2Text}>Files Uploaded</Typography>
-            </Box>
-          </Card>
-          <Card sx={{ ...styles.card, justifyContent: 'center' }}>
-            {isFetchingTreeCount && (<Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30} /></Box>)}
-            <Typography variant="h1" sx={{ ...styles.cardTitle, visibility: isFetchingTreeCount ? 'hidden' : 'visible', mb: 2 }}>
-              {totalTreesCount === 'Error' ? 'N/A' : totalTreesCount ?? '-'}
-            </Typography>
-            <Box sx={{ ...styles.cardIconBox, visibility: isFetchingTreeCount ? 'hidden' : 'visible' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: '2rem' }}>forest</span>
-              <Typography variant="h6" sx={styles.body2Text}>Total Trees</Typography>
-            </Box>
-          </Card>
-          {/* Optional: Total Tree Volume Card. Uncomment to enable.
-              Ensure styles.statsGrid is configured for 4 items, e.g.,
-              gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(4, 1fr)" }
-          */}
-
-          <Card sx={styles.card}>
-            {isFetchingSumVolumes && (<Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30}/></Box>)}
-            <Typography variant="h1" sx={{...styles.cardTitle, visibility: isFetchingSumVolumes ? 'hidden' : 'visible'}}>
-              {totalSumTreeVolumes === 'Error' ? 'N/A' : totalSumTreeVolumes !== null ? `${parseFloat(totalSumTreeVolumes).toFixed(2)} m³` : '-'}
-            </Typography>
-            <Box sx={{...styles.cardIconBox, visibility: isFetchingSumVolumes ? 'hidden' : 'visible'}}>
-              <span className="material-symbols-outlined">straighten</span> {/* Icon for volume/measurement */}
-              <Typography variant="body2" sx={styles.body2Text}>Total Tree Volume</Typography>
-            </Box>
-          </Card>
-
+            <Card sx={styles.card}>
+                {totalMembers === null && (<Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30} /></Box>)}
+                <Typography variant="h1" sx={{ ...styles.cardTitle, visibility: totalMembers === null ? 'hidden' : 'visible' }}>
+                {totalMembers === 'Error' ? 'N/A' : totalMembers ?? '-'}
+                </Typography>
+                <Box sx={{ ...styles.cardIconBox, visibility: totalMembers === null ? 'hidden' : 'visible' }}>
+                <span className="material-symbols-outlined">group</span>
+                <Typography variant="body2" sx={styles.body2Text}>Total Members</Typography>
+                </Box>
+            </Card>
+            <Card sx={styles.card}>
+                {isFetchingFileCount && (<Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30} /></Box>)}
+                <Typography variant="h1" sx={{ ...styles.cardTitle, visibility: isFetchingFileCount ? 'hidden' : 'visible' }}>
+                {filesUploadedCount === 'Error' ? 'N/A' : filesUploadedCount ?? '-'}
+                </Typography>
+                <Box sx={{ ...styles.cardIconBox, visibility: isFetchingFileCount ? 'hidden' : 'visible' }}>
+                <span className="material-symbols-outlined">upload_file</span>
+                <Typography variant="body2" sx={styles.body2Text}>Files Uploaded</Typography>
+                </Box>
+            </Card>
+            <Card sx={{ ...styles.card, justifyContent: 'center' }}>
+                {isFetchingTreeCount && (<Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30} /></Box>)}
+                <Typography variant="h1" sx={{ ...styles.cardTitle, visibility: isFetchingTreeCount ? 'hidden' : 'visible', mb: 2 }}>
+                {totalTreesCount === 'Error' ? 'N/A' : totalTreesCount ?? '-'}
+                </Typography>
+                <Box sx={{ ...styles.cardIconBox, visibility: isFetchingTreeCount ? 'hidden' : 'visible' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '2rem' }}>forest</span>
+                <Typography variant="h6" sx={styles.body2Text}>Total Trees</Typography>
+                </Box>
+            </Card>
+            <Card sx={styles.card}>
+                {isFetchingSumVolumes && (<Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30}/></Box>)}
+                <Typography variant="h1" sx={{...styles.cardTitle, visibility: isFetchingSumVolumes ? 'hidden' : 'visible'}}>
+                {totalSumTreeVolumes === 'Error' ? 'N/A' : totalSumTreeVolumes !== null ? `${parseFloat(totalSumTreeVolumes).toFixed(2)} m³` : '-'}
+                </Typography>
+                <Box sx={{...styles.cardIconBox, visibility: isFetchingSumVolumes ? 'hidden' : 'visible'}}>
+                <span className="material-symbols-outlined">straighten</span>
+                <Typography variant="body2" sx={styles.body2Text}>Total Tree Volume</Typography>
+                </Box>
+            </Card>
         </Box>
 
-        {/* Row 2: Tree Volume Histogram & Tree Height Histogram */}
+        {/* Charts & Timeline Sections (remain the same) */}
         <Box sx={styles.chartsGridRow2}>
-          {/* NEW Tree Volume Histogram Card */}
-          <Card>
-            <CardContent sx={{ height: chartBoxHeight + 40, display: 'flex', flexDirection: 'column' }}>
-              <Box sx={{ flexGrow: 1, position: 'relative', width: '100%', height: '100%' }}>
-                {loadingVolumesChart ? (
-                  <Box display="flex" justifyContent="center" alignItems="center" height="100%"><CircularProgress /></Box>
-                ) : treeVolumeHistogramData.datasets.length > 0 && treeVolumeHistogramData.datasets[0].data.some(d => d > 0) ? (
-                  <Bar data={treeVolumeHistogramData} options={treeVolumeHistogramOptions} />
-                ) : (
-                  <Typography sx={{ textAlign: 'center', color: colors.grey[400], mt: 'auto', mb: 'auto', p: 1 }}>
-                    {loadingFilters ? "Loading filters..." : "No tree volume data for current selection."}
-                  </Typography>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
-
-          {/* Existing Tree Height Histogram Card */}
-          <Card>
-            <CardContent sx={{ height: chartBoxHeight + 40, display: 'flex', flexDirection: 'column' }}>
-              <Box sx={{ flexGrow: 1, position: 'relative', width: '100%', height: '100%' }}>
-                {loadingHeightsChart ? (
-                  <Box display="flex" justifyContent="center" alignItems="center" height="100%"><CircularProgress /></Box>
-                ) : treeHeightHistogramData.datasets.length > 0 && treeHeightHistogramData.datasets[0].data.some(d => d > 0) ? (
-                  <Bar data={treeHeightHistogramData} options={treeHeightHistogramOptions} />
-                ) : (
-                  <Typography sx={{ textAlign: 'center', color: colors.grey[400], mt: 'auto', mb: 'auto', p: 1 }}>
-                    {loadingFilters ? "Loading filters..." : "No tree height data for current selection."}
-                  </Typography>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
+            <Card>
+                <CardContent sx={{ height: chartBoxHeight + 40, display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ flexGrow: 1, position: 'relative', width: '100%', height: '100%' }}>
+                    {loadingVolumesChart ? (
+                    <Box display="flex" justifyContent="center" alignItems="center" height="100%"><CircularProgress /></Box>
+                    ) : treeVolumeHistogramData.datasets.length > 0 && treeVolumeHistogramData.datasets[0].data.some(d => d > 0) ? (
+                    <Bar data={treeVolumeHistogramData} options={treeVolumeHistogramOptions} />
+                    ) : (
+                    <Typography sx={{ textAlign: 'center', color: colors.grey[400], mt: 'auto', mb: 'auto', p: 1 }}>
+                        {loadingFilters ? "Loading filters..." : "No tree volume data for current selection."}
+                    </Typography>
+                    )}
+                </Box>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardContent sx={{ height: chartBoxHeight + 40, display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ flexGrow: 1, position: 'relative', width: '100%', height: '100%' }}>
+                    {loadingHeightsChart ? (
+                    <Box display="flex" justifyContent="center" alignItems="center" height="100%"><CircularProgress /></Box>
+                    ) : treeHeightHistogramData.datasets.length > 0 && treeHeightHistogramData.datasets[0].data.some(d => d > 0) ? (
+                    <Bar data={treeHeightHistogramData} options={treeHeightHistogramOptions} />
+                    ) : (
+                    <Typography sx={{ textAlign: 'center', color: colors.grey[400], mt: 'auto', mb: 'auto', p: 1 }}>
+                        {loadingFilters ? "Loading filters..." : "No tree height data for current selection."}
+                    </Typography>
+                    )}
+                </Box>
+                </CardContent>
+            </Card>
         </Box>
 
-        {/* Row 3: DBH Histogram & Timeline */}
         <Box sx={styles.chartsGridRow3}>
-          <Card>
-            <CardContent sx={{ height: chartBoxHeight + 40, display: 'flex', flexDirection: 'column' }}>
-              <Box sx={{ flexGrow: 1, position: 'relative', width: '100%', height: '100%' }}>
-                {loadingDbhsChart ? (
-                  <Box display="flex" justifyContent="center" alignItems="center" height="100%"><CircularProgress /></Box>
-                ) : treeDbhHistogramData.datasets.length > 0 && treeDbhHistogramData.datasets[0].data.some(d => d > 0) ? (
-                  <Bar data={treeDbhHistogramData} options={treeDbhHistogramOptions} />
-                ) : (
-                  <Typography sx={{ textAlign: 'center', color: colors.grey[400], mt: 'auto', mb: 'auto', p: 1 }}>
-                    {loadingFilters ? "Loading filters..." : "No tree diameter data for current selection."}
-                  </Typography>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
-          <Card sx={styles.timelineBox}>
-            <CardContent sx={styles.timelineCardContent}>
-              <Typography variant="h5" sx={{ ...styles.chartTitleText, flexShrink: 0 }}>Recent File Uploads</Typography>
-              <Box sx={styles.timelineScroll}>
-                {loadingTimeline ? <Box display="flex" justifyContent="center" alignItems="center" height="100%"><CircularProgress /></Box>
-                  : recentUploads.length === 0 ?
-                    <Typography sx={{ textAlign: 'center', color: colors.grey[400], mt: 4, p: 1 }}>
-                      {loadingFilters ? "Loading filters..." :
-                        filterDivisionId !== 'all' || filterProjectId !== 'all' || (filterPlotName !== 'all' && canFetchPlots)
-                          ? 'No recent uploads match filters.'
-                          : 'No recent uploads found.'
-                      }
+            <Card>
+                <CardContent sx={{ height: chartBoxHeight + 40, display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ flexGrow: 1, position: 'relative', width: '100%', height: '100%' }}>
+                    {loadingDbhsChart ? (
+                    <Box display="flex" justifyContent="center" alignItems="center" height="100%"><CircularProgress /></Box>
+                    ) : treeDbhHistogramData.datasets.length > 0 && treeDbhHistogramData.datasets[0].data.some(d => d > 0) ? (
+                    <Bar data={treeDbhHistogramData} options={treeDbhHistogramOptions} />
+                    ) : (
+                    <Typography sx={{ textAlign: 'center', color: colors.grey[400], mt: 'auto', mb: 'auto', p: 1 }}>
+                        {loadingFilters ? "Loading filters..." : "No tree diameter data for current selection."}
                     </Typography>
-                    : <Timeline position="alternate" sx={{ p: 0, mt: 1 }}>
-                      {recentUploads.map((upload, index) => (
-                        <TimelineItem key={upload.id || index}>
-                          <TimelineSeparator>
-                            <TimelineDot color="primary" variant="outlined" />
-                            {index < recentUploads.length - 1 && <TimelineConnector sx={{ bgcolor: colors.primary[500] }} />}
-                          </TimelineSeparator>
-                          <TimelineContent sx={{ py: '10px', px: 2 }}>
-                            <Typography variant="caption" sx={{ color: colors.grey[400] }}>{upload.date} - {upload.time}</Typography>
-                            <Typography variant="body2" sx={{ fontWeight: "bold", color: colors.grey[100], whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={upload.file}>{upload.file}</Typography>
-                            <Typography variant="caption" sx={{ color: colors.grey[300], display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={upload.context}>{upload.context}</Typography>
-                          </TimelineContent>
-                        </TimelineItem>
-                      ))}
-                    </Timeline>
-                }
-              </Box>
-            </CardContent>
-          </Card>
+                    )}
+                </Box>
+                </CardContent>
+            </Card>
+            <Card sx={styles.timelineBox}>
+                <CardContent sx={styles.timelineCardContent}>
+                <Typography variant="h5" sx={{ ...styles.chartTitleText, flexShrink: 0 }}>Recent File Uploads</Typography>
+                <Box sx={styles.timelineScroll}>
+                    {loadingTimeline ? <Box display="flex" justifyContent="center" alignItems="center" height="100%"><CircularProgress /></Box>
+                    : (recentUploads || []).length === 0 ?
+                        <Typography sx={{ textAlign: 'center', color: colors.grey[400], mt: 4, p: 1 }}>
+                        {loadingFilters ? "Loading filters..." :
+                            filterDivisionId !== 'all' || filterProjectId !== 'all' || (filterPlotName !== 'all' && canFetchPlots)
+                            ? 'No recent uploads match filters.'
+                            : 'No recent uploads found.'
+                        }
+                        </Typography>
+                        : <Timeline position="alternate" sx={{ p: 0, mt: 1 }}>
+                        {(recentUploads || []).map((upload, index) => (
+                            <TimelineItem key={upload.id || index}>
+                            <TimelineSeparator>
+                                <TimelineDot color="primary" variant="outlined" />
+                                {index < (recentUploads || []).length - 1 && <TimelineConnector sx={{ bgcolor: colors.primary[500] }} />}
+                            </TimelineSeparator>
+                            <TimelineContent sx={{ py: '10px', px: 2 }}>
+                                <Typography variant="caption" sx={{ color: colors.grey[400] }}>{upload.date} - {upload.time}</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: "bold", color: colors.grey[100], whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={upload.file}>{upload.file}</Typography>
+                                <Typography variant="caption" sx={{ color: colors.grey[300], display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={upload.context}>{upload.context}</Typography>
+                            </TimelineContent>
+                            </TimelineItem>
+                        ))}
+                        </Timeline>
+                    }
+                </Box>
+                </CardContent>
+            </Card>
         </Box>
 
       </Box>

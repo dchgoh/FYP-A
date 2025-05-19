@@ -18,7 +18,7 @@ const Topbar = ({ isCollapsed, handleLogout }) => {
         setPageTitle("Manage Team");
         break;
       case "/upload":
-        setPageTitle("Files Upload");
+        setPageTitle("File Management");
         break;
       case "/treecount":
         setPageTitle("Tree Count");
