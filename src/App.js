@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"; // Import useEffect
-import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate} from "react-router-dom";
 import { jwtDecode } from "jwt-decode";
 import Topbar from "./scenes/global/topbar";
 import Sidebar from "./scenes/global/sidebar";
