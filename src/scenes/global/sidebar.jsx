@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { ProSidebar, Menu, MenuItem } from "react-pro-sidebar";
 import { Box, IconButton, Typography, useTheme } from "@mui/material";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import "react-pro-sidebar/dist/css/styles.css";
 import { tokens } from "../../theme";
 import MenuOutlinedIcon from "@mui/icons-material/MenuOutlined";
@@ -27,12 +27,32 @@ const Item = ({ title, to, icon, selected, setSelected }) => {
 const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
+  const location = useLocation();
   const [selected, setSelected] = useState("Dashboard");
-  const [actualUserRole, setActualUserRole] = useState(null); // Store the raw role for logic
+  const [actualUserRole, setActualUserRole] = useState(null);
 
   // Add state for user details
-  const [username, setUsername] = useState("User"); // Default value
-  const [userRole, setUserRole] = useState("Role"); // Default value
+  const [username, setUsername] = useState("User");
+  const [userRole, setUserRole] = useState("Role");
+
+  // Map of paths to menu titles
+  const pathToTitle = {
+    '/': 'Dashboard',
+    '/team': 'Manage Team',
+    '/upload': 'Files Upload',
+    '/map': 'Map Overview',
+    '/treecount': 'Tree Count',
+    '/area': 'Area Data'
+  };
+
+  // Update selected menu item based on current path
+  useEffect(() => {
+    const currentPath = location.pathname;
+    const title = pathToTitle[currentPath];
+    if (title) {
+      setSelected(title);
+    }
+  }, [location.pathname]);
 
   // Use useEffect to read from localStorage when the component mounts
   useEffect(() => {
@@ -43,12 +63,10 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
       setUsername(storedUsername);
     }
     if (storedUserRole) {
-      // Capitalize the first letter of the role for display
       setUserRole(storedUserRole.charAt(0).toUpperCase() + storedUserRole.slice(1));
       setActualUserRole(storedUserRole.toLowerCase());
     }
-    // No cleanup needed here unless we were subscribing to something
-  }, []); // Empty dependency array means this runs once on mount
+  }, []);
 
   return (
     <Box
@@ -136,7 +154,7 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
             <Item
               title="Dashboard"
               to="/"
-              icon={<span className="material-symbols-outlined" >home</span>}
+              icon={<span className="material-symbols-outlined">home</span>}
               selected={selected}
               setSelected={setSelected}
             />
@@ -177,7 +195,6 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
               selected={selected}
               setSelected={setSelected}
             />
-            
           </Box>
         </Menu>
       </ProSidebar>

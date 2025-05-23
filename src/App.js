@@ -82,6 +82,13 @@ function App() {
     localStorage.removeItem("authToken");
     localStorage.removeItem("userRole");
     localStorage.removeItem("username");
+    localStorage.setItem("colorMode", "light"); // Reset theme to light mode
+    
+    // Force light mode if currently in dark mode
+    if (theme.palette.mode === "dark") {
+      colorMode.toggleColorMode();
+    }
+    
     setIsAuthenticated(false);
     navigate("/login");
   };
