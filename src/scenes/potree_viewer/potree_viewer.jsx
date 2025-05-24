@@ -88,12 +88,15 @@ const PotreeViewer = ({ isCollapsed }) => {
     if (draggableButtonRef.current) {
       draggableButtonRef.current.style.cursor = 'grab';
     }
-    // updateMiniMapPosition will be called by the useEffect watching buttonPosition
+    // Force immediate position update
+    requestAnimationFrame(() => {
+      updateMiniMapPosition();
+    });
   };
 
   const updateMiniMapPosition = useCallback(() => {
     if (!showMiniMap || !draggableButtonRef.current || !viewerWrapperRef.current) {
-      if (showMiniMap) { // If it's supposed to be shown but refs aren't ready or button not rendered
+      if (showMiniMap) {
         setMiniMapContainerStyle(prev => ({ ...prev, visibility: 'hidden' }));
       }
       return;
@@ -102,19 +105,23 @@ const PotreeViewer = ({ isCollapsed }) => {
     const buttonNode = draggableButtonRef.current;
     const parentNode = viewerWrapperRef.current;
 
+    // Get the current transform matrix of the button
+    const buttonTransform = window.getComputedStyle(buttonNode).transform;
+    const matrix = new DOMMatrix(buttonTransform);
+    
+    // Get the button's position including the transform
     const buttonRect = buttonNode.getBoundingClientRect();
     const parentRect = parentNode.getBoundingClientRect();
 
-    // Button's position relative to the parent (viewerWrapper)
-    // This uses the actual rendered position of the button, which includes its transform from Draggable
+    // Calculate the button's position relative to the parent, including transform
     const buttonTopInParent = buttonRect.top - parentRect.top;
-    const buttonLeftInParent = buttonRect.left - parentRect.top;
+    const buttonLeftInParent = buttonRect.left - parentRect.left;
 
     // Parent's dimensions
     const parentWidth = parentRect.width;
     const parentHeight = parentRect.height;
 
-    // Determine current effective minimap size (very basic responsive logic)
+    // Determine current effective minimap size
     const currentMapEffectiveWidth = parentWidth < (MINIMAP_ESTIMATED_WIDTH_XS + MINIMAP_ESTIMATED_WIDTH_SM) / 2
         ? MINIMAP_ESTIMATED_WIDTH_XS
         : MINIMAP_ESTIMATED_WIDTH_SM;
@@ -124,37 +131,36 @@ const PotreeViewer = ({ isCollapsed }) => {
     
     let idealTop, idealLeft;
 
-    // Try to position the map "opposite" to the button within the viewport
-    // If button is more than halfway down, try to place map above it
+    // Calculate ideal position based on button location
     if (buttonTopInParent + BUTTON_FIXED_SIZE / 2 > parentHeight / 2) {
       idealTop = buttonTopInParent - currentMapEffectiveHeight - MINIMAP_BUTTON_GAP;
-    } else { // Button is in top half, place map below it
+    } else {
       idealTop = buttonTopInParent + BUTTON_FIXED_SIZE + MINIMAP_BUTTON_GAP;
     }
 
-    // If button is more than halfway right, try to place map to its left
     if (buttonLeftInParent + BUTTON_FIXED_SIZE / 2 > parentWidth / 2) {
       idealLeft = buttonLeftInParent - currentMapEffectiveWidth - MINIMAP_BUTTON_GAP;
-    } else { // Button is in left half, place map to its right
+    } else {
       idealLeft = buttonLeftInParent + BUTTON_FIXED_SIZE + MINIMAP_BUTTON_GAP;
     }
 
-    // Clamp values to stay within parent boundaries
+    // Clamp values to stay within parent boundaries with padding
     const finalTop = Math.max(MINIMAP_BUTTON_GAP, Math.min(idealTop, parentHeight - currentMapEffectiveHeight - MINIMAP_BUTTON_GAP));
     const finalLeft = Math.max(MINIMAP_BUTTON_GAP, Math.min(idealLeft, parentWidth - currentMapEffectiveWidth - MINIMAP_BUTTON_GAP));
     
+    // Update the minimap position with a smooth transition
     setMiniMapContainerStyle(prev => ({
       ...prev,
       top: `${finalTop}px`,
       left: `${finalLeft}px`,
-      right: 'auto', // Explicitly set auto if using top/left
+      right: 'auto',
       bottom: 'auto',
       visibility: 'visible',
-      // Update width/height based on current viewport if needed (using the same logic as above)
       width: `${currentMapEffectiveWidth}px`,
       height: `${currentMapEffectiveHeight}px`,
+      transition: 'top 0.2s ease-out, left 0.2s ease-out', // Add smooth transition
     }));
-  }, [showMiniMap]); // useCallback dependencies
+  }, [showMiniMap]);
 
   // Effect to update MiniMap position on relevant changes
   useEffect(() => {
@@ -180,6 +186,20 @@ const PotreeViewer = ({ isCollapsed }) => {
     return () => clearTimeout(timer);
   }, [updateMiniMapPosition]); // Runs once on mount because updateMiniMapPosition is memoized
 
+  // Add a resize observer to handle container size changes
+  useEffect(() => {
+    if (!viewerWrapperRef.current) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateMiniMapPosition();
+    });
+
+    resizeObserver.observe(viewerWrapperRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [updateMiniMapPosition]);
 
   // Potree Annotation Patch
   useEffect(() => {

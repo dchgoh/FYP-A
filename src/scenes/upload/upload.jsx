@@ -1237,8 +1237,8 @@ const handleBulkDelete = async () => {
       marginTop: theme.spacing(1),
       '& .MuiInputLabel-root': { color: colors.grey[300], '&.Mui-focused': { color: colors.blueAccent[300] } },
       '& .MuiOutlinedInput-root': {
-        color: colors.grey[100],
-        '& .MuiOutlinedInput-notchedOutline': { borderColor: colors.grey[500] },
+        color: colors.grey[300],
+        '& .MuiOutlinedInput-notchedOutline': { borderColor: colors.grey[400] },
         '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: colors.primary[300] },
         '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: colors.blueAccent[400] },
         '& .MuiSelect-icon': { color: colors.grey[300] },
@@ -1248,7 +1248,7 @@ const handleBulkDelete = async () => {
       '& label.Mui-focused': { color: colors.blueAccent[300] },
       '& .MuiOutlinedInput-root': {
         color: colors.grey[100],
-        '& fieldset': { borderColor: colors.grey[500] },
+        '& fieldset': { borderColor: colors.grey[400] },
         '&:hover fieldset': { borderColor: colors.primary[300] },
         '&.Mui-focused fieldset': { borderColor: colors.blueAccent[400] },
       },
