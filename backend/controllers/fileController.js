@@ -6,11 +6,70 @@ const ROLES = require('../config/roles'); // Adjust path relative to controllers
 const segmentationService = require('../services/segmentationService');
 const lasProcessingService = require('../services/lasProcessingService');
 const potreeConversionService = require('../services/potreeConversionService');
-// Optional: Import the utility if you created it
-// const { processLasFile } = require('../utils/processLas'); // Adjust path
+
 
 const formatFileRecord = (dbRecord) => {
     if (!dbRecord) return null;
+
+    // --- COMBINATION LOGIC START ---
+    let combinedTreeData = {}; // Initialize as an empty object
+
+    // Check if tree_midpoints exists and is an object
+    if (dbRecord.tree_midpoints && typeof dbRecord.tree_midpoints === 'object') {
+        for (const treeId in dbRecord.tree_midpoints) {
+            // Make sure treeId is an own property of dbRecord.tree_midpoints
+            if (Object.prototype.hasOwnProperty.call(dbRecord.tree_midpoints, treeId)) {
+                // Initialize the entry for this treeId with its lat/lon
+                // Ensure dbRecord.tree_midpoints[treeId] is an object before accessing properties
+                const currentMidpoint = dbRecord.tree_midpoints[treeId];
+                if (currentMidpoint && typeof currentMidpoint.latitude === 'number' && typeof currentMidpoint.longitude === 'number') {
+                    combinedTreeData[treeId] = {
+                        latitude: currentMidpoint.latitude,
+                        longitude: currentMidpoint.longitude,
+                    };
+
+                    // Add height if available from tree_heights_adjusted
+                    if (dbRecord.tree_heights_adjusted && dbRecord.tree_heights_adjusted[treeId] !== undefined) {
+                        combinedTreeData[treeId].height_m = dbRecord.tree_heights_adjusted[treeId];
+                    }
+                    // Add DBH if available
+                    if (dbRecord.tree_dbhs_cm && dbRecord.tree_dbhs_cm[treeId] !== undefined) {
+                        combinedTreeData[treeId].dbh_cm = dbRecord.tree_dbhs_cm[treeId];
+                    }
+                    // Add stem volume if available
+                    if (dbRecord.tree_stem_volumes_m3 && dbRecord.tree_stem_volumes_m3[treeId] !== undefined) {
+                        combinedTreeData[treeId].stem_volume_m3 = dbRecord.tree_stem_volumes_m3[treeId];
+                    }
+                    // Add carbon if available
+                    if (dbRecord.tree_carbon_tonnes && dbRecord.tree_carbon_tonnes[treeId] !== undefined) {
+                        combinedTreeData[treeId].carbon_tonnes = dbRecord.tree_carbon_tonnes[treeId];
+                    }
+                    // Add ag_volume_m3 if available
+                    if (dbRecord.tree_above_ground_volumes_m3 && dbRecord.tree_above_ground_volumes_m3[treeId] !== undefined) {
+                        combinedTreeData[treeId].ag_volume_m3 = dbRecord.tree_above_ground_volumes_m3[treeId];
+                    }
+                    // Add total_volume_m3 if available
+                    if (dbRecord.tree_total_volumes_m3 && dbRecord.tree_total_volumes_m3[treeId] !== undefined) {
+                        combinedTreeData[treeId].total_volume_m3 = dbRecord.tree_total_volumes_m3[treeId];
+                    }
+                    // Add biomass_tonnes if available
+                    if (dbRecord.tree_biomass_tonnes && dbRecord.tree_biomass_tonnes[treeId] !== undefined) {
+                        combinedTreeData[treeId].biomass_tonnes = dbRecord.tree_biomass_tonnes[treeId];
+                    }
+                    // Add co2_equivalent_tonnes if available
+                    if (dbRecord.tree_co2_equivalent_tonnes && dbRecord.tree_co2_equivalent_tonnes[treeId] !== undefined) {
+                        combinedTreeData[treeId].co2_equivalent_tonnes = dbRecord.tree_co2_equivalent_tonnes[treeId];
+                    }
+                    // Add any other metrics you need here, following the same pattern
+                } else {
+                    // Log if a treeId in tree_midpoints doesn't have valid lat/lon
+                    console.warn(`Skipping treeId ${treeId} for file ${dbRecord.id}: missing or invalid latitude/longitude in tree_midpoints.`);
+                }
+            }
+        }
+    }
+    // --- COMBINATION LOGIC END ---
+
     return {
         id: dbRecord.id,
         name: dbRecord.original_name || dbRecord.name,
@@ -24,16 +83,11 @@ const formatFileRecord = (dbRecord) => {
         longitude: dbRecord.longitude,
         status: dbRecord.status || 'unknown',
         processing_error: dbRecord.processing_error || null,
-
-        // --- Existing tree metrics ---
-        tree_midpoints: dbRecord.tree_midpoints || null,
+        tree_midpoints: combinedTreeData,
         tree_heights_adjusted: dbRecord.tree_heights_adjusted || null,
         tree_dbhs_cm: dbRecord.tree_dbhs_cm || null,
-        // tree_volumes_m3: dbRecord.tree_volumes_m3 || null, // This was the old "generic" volume
         assumed_d2_cm_for_volume: dbRecord.assumed_d2_cm_for_volume !== undefined ? dbRecord.assumed_d2_cm_for_volume : null,
-
-        // --- NEW Tree Metrics from Python table ---
-        tree_stem_volumes_m3: dbRecord.tree_stem_volumes_m3 || null, // Renamed from tree_volumes_m3
+        tree_stem_volumes_m3: dbRecord.tree_stem_volumes_m3 || null,
         tree_above_ground_volumes_m3: dbRecord.tree_above_ground_volumes_m3 || null,
         tree_total_volumes_m3: dbRecord.tree_total_volumes_m3 || null,
         tree_biomass_tonnes: dbRecord.tree_biomass_tonnes || null,
@@ -48,7 +102,6 @@ const formatFileRecord = (dbRecord) => {
         divisionName: dbRecord.division_name || "Unassigned",
         projectName: dbRecord.project_name || "Unassigned",
         division_id: dbRecord.division_id || null,
-        // project_name: dbRecord.project_name || null // Already covered by projectName
     };
 };
 
@@ -418,7 +471,7 @@ exports.getRecentFiles = async (req, res) => {
 
 // Get List of Files
 exports.getFiles = async (req, res) => {
-    const { projectId, divisionId, plotName } = req.query; // <--- 1. ADD plotName HERE
+    const { projectId, divisionId, plotName } = req.query;
 
     let query = `
       SELECT
@@ -435,6 +488,16 @@ exports.getFiles = async (req, res) => {
           f.status,
           f.processing_error,
           f.tree_midpoints,
+          f.tree_heights_adjusted,       
+          f.tree_dbhs_cm,                
+          f.tree_count,                 
+          f.tree_stem_volumes_m3,        
+          f.assumed_d2_cm_for_volume,    
+          f.tree_above_ground_volumes_m3, 
+          f.tree_total_volumes_m3,        
+          f.tree_biomass_tonnes,          
+          f.tree_carbon_tonnes,           
+          f.tree_co2_equivalent_tonnes,   
           p.name AS project_name,
           p.division_id,
           d.name AS division_name
@@ -459,12 +522,11 @@ exports.getFiles = async (req, res) => {
         whereConditions.push(`p.division_id = $${queryParams.length}`);
     }
 
-    // --- 2. ADD PLOT NAME FILTER LOGIC ---
+    // ADD PLOT NAME FILTER LOGIC
     if (plotName && typeof plotName === 'string' && plotName.trim() !== '' && plotName.toLowerCase() !== 'all') {
-        queryParams.push(plotName.trim()); // Use the trimmed, original case plotName
+        queryParams.push(plotName.trim());
         whereConditions.push(`f.plot_name = $${queryParams.length}`);
     }
-    // ------------------------------------
 
     if (whereConditions.length > 0) {
         query += ` WHERE ${whereConditions.join(' AND ')}`;
@@ -473,11 +535,25 @@ exports.getFiles = async (req, res) => {
     query += ` ORDER BY f.upload_date DESC`;
 
     try {
-        console.log("Executing getFiles query:", query); // For debugging
-        console.log("Query parameters:", queryParams);  // For debugging
+        console.log("Executing getFiles query:", query);
+        console.log("Query parameters:", queryParams);
 
         const result = await pool.query(query, queryParams);
-        const formattedFiles = result.rows.map(formatFileRecord);
+
+        // *** TEMPORARY LOGGING - Check if raw rows now have the data ***
+        if (result.rows.length > 0) {
+            console.log("RAW DB ROW (first file) AFTER UPDATING QUERY:", JSON.stringify(result.rows[0], null, 2));
+        }
+        // *** END TEMPORARY LOGGING ***
+
+        const formattedFiles = result.rows.map(formatFileRecord); // formatFileRecord should now get these new fields
+
+        // *** TEMPORARY LOGGING - Check if formatted files have the data ***
+        if (formattedFiles.length > 0) {
+            console.log("FORMATTED FILE (first file) AFTER UPDATING QUERY:", JSON.stringify(formattedFiles[0], null, 2));
+        }
+        // *** END TEMPORARY LOGGING ***
+
         res.json(formattedFiles);
     } catch (error) {
         console.error("Database error fetching files. Query:", query, "Params:", queryParams, "Full Error:", error);

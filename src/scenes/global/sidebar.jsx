@@ -181,20 +181,6 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
               selected={selected}
               setSelected={setSelected}
             />
-            <Item
-              title="Tree Count"
-              to="/treecount"
-              icon={<span className="material-symbols-outlined">nature</span>}
-              selected={selected}
-              setSelected={setSelected}
-            />
-            <Item
-              title="Area Data"
-              to="/area"
-              icon={<span className="material-symbols-outlined">bar_chart</span>}
-              selected={selected}
-              setSelected={setSelected}
-            />
           </Box>
         </Menu>
       </ProSidebar>

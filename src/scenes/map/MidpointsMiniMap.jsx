@@ -1,6 +1,6 @@
 // src/scenes/map/MidpointsMiniMap.jsx
 import React, { useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, CircleMarker, FeatureGroup, Tooltip } from 'react-leaflet'; // Added Tooltip
+import { MapContainer, TileLayer, CircleMarker, FeatureGroup, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -10,10 +10,10 @@ const OSM_MAX_NATIVE_ZOOM = 19;
 
 // --- Styling for Midpoint CircleMarkers in Mini-Map ---
 const miniMidpointInitialRadius = 5;
-const miniMidpointHoverRadius = 7; // Slightly larger on hover
+const miniMidpointHoverRadius = 7;
 
-const miniMidpointPathOptions = { // Initial style
-  fillColor: "#ff7800", // Orange
+const miniMidpointPathOptions = {
+  fillColor: "#ff7800",
   color: "#000",
   weight: 1,
   opacity: 1,
@@ -21,7 +21,7 @@ const miniMidpointPathOptions = { // Initial style
   className: 'mini-map-midpoint-circle' // Class for CSS transition
 };
 
-const miniMidpointHoverPathOptions = { // Style for hover
+const miniMidpointHoverPathOptions = {
   fillColor: "#ff9933", // Lighter orange
   weight: 2,
   fillOpacity: 0.9,
@@ -47,21 +47,15 @@ const MidpointsMiniMap = ({ midpoints, centerCoords, mainFileName }) => {
       `;
       document.head.appendChild(styleSheet);
     }
-    // No cleanup needed for this simple global style injection in this context
   }, []);
 
 
-useEffect(() => {
-    // This effect runs when the component mounts or when the mainFileName changes (due to the key on MapContainer)
-    // It's intended to set up the map correctly when it first appears or is re-instantiated.
+  useEffect(() => {
     if (mapRef.current) {
       const map = mapRef.current;
-
-      // Invalidate size after a short delay to ensure the popup DOM is ready
       const timer = setTimeout(() => {
-        if (mapRef.current) { // Check if map still exists (component might have unmounted)
+        if (mapRef.current) { // Check again as mapRef could be nulled out
           map.invalidateSize();
-
           if (midpoints && Object.keys(midpoints).length > 0) {
             const points = Object.values(midpoints)
               .filter(m => m && typeof m.latitude === 'number' && typeof m.longitude === 'number')
@@ -79,16 +73,20 @@ useEffect(() => {
             map.setView(centerCoords, 15);
           }
         }
-      }, 10); // Increased delay slightly, can be experimented with. 0 might be too fast for complex popups.
-
-      return () => clearTimeout(timer); // Cleanup timer
+      }, 100); // Increased timeout slightly for complex parent components
+      return () => clearTimeout(timer);
     }
-  }, [midpoints, centerCoords, mainFileName]); 
+  }, [midpoints, centerCoords, mainFileName]);
 
+  // Conditional rendering if no midpoints are available
   if (!midpoints || Object.keys(midpoints).length === 0) {
-    return <div style={{padding: '10px', textAlign: 'center', fontStyle: 'italic'}}>No midpoints to display on map for {mainFileName}.</div>;
+    const message = mainFileName
+      ? `No midpoints to display on map for ${mainFileName}.`
+      : "No midpoints to display on map.";
+    return <div style={{padding: '10px', textAlign: 'center', fontStyle: 'italic'}}>{message}</div>;
   }
 
+  // Determine initial map center and zoom
   let initialCenter = centerCoords || [0,0];
   let initialZoom = centerCoords ? 15 : 2;
   const validMidpoints = Object.values(midpoints).filter(m => m && typeof m.latitude === 'number' && typeof m.longitude === 'number');
@@ -98,10 +96,39 @@ useEffect(() => {
     initialZoom = validMidpoints.length === 1 ? MAX_MINI_MAP_ZOOM - 3 : 16;
   }
 
+  // Helper to format numbers for the tooltip
+  const formatNumber = (value, decimals = 2, unit = '') => {
+    if (typeof value === 'number' && !isNaN(value)) {
+      return `${value.toFixed(decimals)}${unit ? ` ${unit}` : ''}`;
+    }
+    return 'N/A';
+  };
+
+  // --- Styles for Tooltip Content ---
+  const tooltipContentStyle = {
+    fontFamily: '"Helvetica Neue", Arial, sans-serif',
+    fontSize: '13px',
+    lineHeight: '1.6',
+    padding: '4px 6px', // Add some internal padding
+  };
+
+  const metricLabelStyle = {
+    display: 'inline-block',
+    minWidth: '80px', // Adjust based on your longest label
+    fontWeight: '500', // Semi-bold for labels
+    color: '#444',    // Darker grey for labels
+    marginRight: '5px',
+  };
+
+  const valueStyle = {
+    color: '#111', // Almost black for values
+  };
+
+
   return (
     <div ref={mapContainerRef} style={{ height: '300px', width: '100%', marginBottom: '10px', border: '1px solid #ccc' }}>
       <MapContainer
-        key={mainFileName || 'mini-map'}
+        key={mainFileName || 'mini-map-default-key'}
         center={initialCenter}
         zoom={initialZoom}
         maxZoom={MAX_MINI_MAP_ZOOM}
@@ -117,14 +144,42 @@ useEffect(() => {
             maxNativeZoom={OSM_MAX_NATIVE_ZOOM}
         />
         <FeatureGroup>
-          {Object.entries(midpoints).map(([treeId, midpoint]) => {
-            if (midpoint && typeof midpoint.latitude === 'number' && typeof midpoint.longitude === 'number') {
+          {Object.entries(midpoints).map(([treeId, midpointData]) => {
+            if (midpointData && typeof midpointData.latitude === 'number' && typeof midpointData.longitude === 'number') {
+              // Prepare array of metrics to display
+              const metricsToDisplay = [];
+              if (midpointData.hasOwnProperty('dbh_cm') && midpointData.dbh_cm !== undefined) {
+                metricsToDisplay.push({ label: 'DBH:', value: formatNumber(midpointData.dbh_cm, 1, 'cm') });
+              }
+              if (midpointData.hasOwnProperty('height_m') && midpointData.height_m !== undefined) {
+                metricsToDisplay.push({ label: 'Height:', value: formatNumber(midpointData.height_m, 1, 'm') });
+              }
+              if (midpointData.hasOwnProperty('stem_volume_m3') && midpointData.stem_volume_m3 !== undefined) {
+                metricsToDisplay.push({ label: 'Stem Vol:', value: formatNumber(midpointData.stem_volume_m3, 3, 'm³') });
+              }
+              if (midpointData.hasOwnProperty('ag_volume_m3') && midpointData.ag_volume_m3 !== undefined) {
+                metricsToDisplay.push({ label: 'AG Vol:', value: formatNumber(midpointData.ag_volume_m3, 3, 'm³') });
+              }
+              if (midpointData.hasOwnProperty('total_volume_m3') && midpointData.total_volume_m3 !== undefined) {
+                metricsToDisplay.push({ label: 'Total Vol:', value: formatNumber(midpointData.total_volume_m3, 3, 'm³') });
+              }
+              if (midpointData.hasOwnProperty('biomass_tonnes') && midpointData.biomass_tonnes !== undefined) {
+                metricsToDisplay.push({ label: 'Biomass:', value: formatNumber(midpointData.biomass_tonnes, 3, 'tonnes') });
+              }
+              if (midpointData.hasOwnProperty('carbon_tonnes') && midpointData.carbon_tonnes !== undefined) {
+                metricsToDisplay.push({ label: 'Carbon:', value: formatNumber(midpointData.carbon_tonnes, 3, 'tonnes') });
+              }
+              if (midpointData.hasOwnProperty('co2_equivalent_tonnes') && midpointData.co2_equivalent_tonnes !== undefined) {
+                metricsToDisplay.push({ label: 'CO₂eq:', value: formatNumber(midpointData.co2_equivalent_tonnes, 3, 'tonnes') });
+              }
+              // Add other metrics here using the same pattern
+
               return (
                 <CircleMarker
                   key={treeId}
-                  center={[midpoint.latitude, midpoint.longitude]}
-                  radius={miniMidpointInitialRadius}         // Use initial radius
-                  pathOptions={miniMidpointPathOptions}     // Use initial pathOptions (with className)
+                  center={[midpointData.latitude, midpointData.longitude]}
+                  radius={miniMidpointInitialRadius}
+                  pathOptions={miniMidpointPathOptions}
                   eventHandlers={{
                     mouseover: (event) => {
                         const layer = event.target;
@@ -134,16 +189,36 @@ useEffect(() => {
                     },
                     mouseout: (event) => {
                         const layer = event.target;
-                        // Reset to original style, excluding className
                         const { className, ...restInitialOptions } = miniMidpointPathOptions;
                         layer.setStyle(restInitialOptions);
                         layer.setRadius(miniMidpointInitialRadius);
                     },
                   }}
                 >
-                  <Tooltip sticky> {/* Sticky tooltip on hover */}
-                    Tree ID: {treeId} <br />
-                    Coords: {midpoint.latitude.toFixed(4)}, {midpoint.longitude.toFixed(4)}
+                  <Tooltip sticky>
+                    <div style={tooltipContentStyle}>
+                      <div style={{ marginBottom: '4px' }}>
+                        <strong style={{ marginRight: '5px' }}>Tree ID:</strong>
+                        <span style={valueStyle}>{treeId}</span>
+                      </div>
+                      <div style={{ marginBottom: '6px' }}>
+                        <strong style={{ marginRight: '5px' }}>Coords:</strong>
+                        <span style={valueStyle}>
+                          {formatNumber(midpointData.latitude, 4)}, {formatNumber(midpointData.longitude, 4)}
+                        </span>
+                      </div>
+
+                      {metricsToDisplay.length > 0 && (
+                        <div style={{ borderTop: '1px solid #e0e0e0', paddingTop: '6px', marginTop: '4px' }}>
+                          {metricsToDisplay.map((metric, index) => (
+                            <div key={index}> {/* Using index as key is fine here if metrics order is stable for a given point */}
+                              <span style={metricLabelStyle}>{metric.label}</span>
+                              <span style={valueStyle}>{metric.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </Tooltip>
                 </CircleMarker>
               );

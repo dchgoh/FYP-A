@@ -152,14 +152,6 @@ function App() {
                 element={isAuthenticated ? <Upload isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
               />
               <Route
-                path="/treecount"
-                element={isAuthenticated ? <TreeCountDashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
-              />
-              <Route
-                path="/area"
-                element={isAuthenticated ? <AreaDataDashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
-              />
-              <Route
                 path="/map"
                 element={isAuthenticated ? <MapDashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
               />

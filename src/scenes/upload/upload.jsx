@@ -1496,7 +1496,26 @@ const handleBulkDelete = async () => {
                         label="Filter Division"
                         onChange={handleDivisionFilterChange}
                         disabled={isLoading || loadingDivisionsList || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId} 
-                        MenuProps={{ PaperProps: { sx: { color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.primary[500] }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: colors.blueAccent[700]+'!important', color:colors.grey[100] }}} }}
+                        MenuProps={{
+                            PaperProps: {
+                                sx: {
+                                    color: colors.grey[100], 
+                                    '& .MuiMenuItem-root:hover': {
+                                        backgroundColor: '#28ade2',
+                                        color: 'white',             
+                                    },
+                                    '& .MuiMenuItem-root.Mui-selected': {
+                                        backgroundColor: colors.blueAccent[700] + '!important', 
+                                        color: colors.grey[100] + '!important',              
+                                    },
+                                    
+                                    '& .MuiMenuItem-root.Mui-selected:hover': {
+                                        backgroundColor: colors.blueAccent[700] + '!important',
+                                        color: colors.grey[100] + '!important',
+                                    }
+                                }
+                            }
+                        }}
                     >
                         <MenuItem value="all"><em>All Divisions</em></MenuItem>
                         {divisionsList.map(d=>(<MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>))}
@@ -1513,7 +1532,26 @@ const handleBulkDelete = async () => {
                   label="Filter Project"
                   onChange={handleProjectFilterChange}
                   disabled={isLoading || loadingProjectsList || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId}
-                  MenuProps={{ PaperProps: { sx: { color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.primary[500] }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: colors.blueAccent[700]+'!important', color:colors.grey[100] }}} }}
+                  MenuProps={{
+                            PaperProps: {
+                                sx: {
+                                    color: colors.grey[100], 
+                                    '& .MuiMenuItem-root:hover': {
+                                        backgroundColor: '#28ade2',
+                                        color: 'white',             
+                                    },
+                                    '& .MuiMenuItem-root.Mui-selected': {
+                                        backgroundColor: colors.blueAccent[700] + '!important', 
+                                        color: colors.grey[100] + '!important',              
+                                    },
+                                    
+                                    '& .MuiMenuItem-root.Mui-selected:hover': {
+                                        backgroundColor: colors.blueAccent[700] + '!important',
+                                        color: colors.grey[100] + '!important',
+                                    }
+                                }
+                            }
+                        }}
                 >
                   <MenuItem value="all"><em>All Projects</em></MenuItem>
                   {loadingProjectsList

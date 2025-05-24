@@ -289,52 +289,22 @@ const MapComponent = ({ isCollapsed }) => {
   const commonMenuProps = {
     PaperProps: {
       sx: {
-        backgroundColor: colors.primary?.[800] || colors.grey?.[800] || '#1F1F1F',
-        color: colors.grey?.[100] || '#FFFFFF',
-        borderRadius: theme.shape.borderRadius,
-        marginTop: '4px',
-        boxShadow: `0px 5px 15px ${alpha(colors.black || theme.palette.common.black || '#000000', 0.35)}`,
-        border: `1px solid ${colors.grey?.[700] || '#424242'}`,
-        maxHeight: 280,
-        overflowY: 'auto',
-        '&::-webkit-scrollbar': { width: '8px' },
-        '&::-webkit-scrollbar-track': { backgroundColor: colors.primary?.[900] || colors.grey?.[900] || '#121212' },
-        '&::-webkit-scrollbar-thumb': {
-          backgroundColor: colors.grey?.[600] || '#616161',
-          borderRadius: '4px',
-          border: `2px solid ${colors.primary?.[900] || colors.grey?.[900] || '#121212'}`,
-        },
-        '&::-webkit-scrollbar-thumb:hover': { backgroundColor: colors.grey?.[500] || '#757575' },
-        '& .MuiMenuItem-root': {
-          padding: '10px 16px',
-          fontSize: '0.9rem',
-          '&:hover': {
-            backgroundColor: alpha(colors.blueAccent?.[700] || colors.grey?.[700] || '#2A3F54', 0.8),
-            color: colors.grey?.[100] || '#FFFFFF',
+          color: colors.grey[100], // Default text color for menu items
+          '& .MuiMenuItem-root:hover': {
+              backgroundColor: '#28ade2', // Your desired hover background
+              color: 'white',             // Your desired hover text color
           },
-          '&.Mui-selected': {
-            backgroundColor: `${colors.blueAccent?.[500] || colors.grey?.[600] || '#1976D2'} !important`,
-            color: colors.grey?.[50] || '#E0E0E0',
-            fontWeight: '600',
-            '&:hover': {
-              backgroundColor: `${alpha(colors.blueAccent?.[400] || colors.grey?.[500] || '#4778A9', 0.9)} !important`,
-            }
+          '& .MuiMenuItem-root.Mui-selected': {
+              backgroundColor: colors.blueAccent[700] + '!important', // Keep selected style
+              color: colors.grey[100] + '!important',                // Keep selected text color (add !important)
           },
-          '&.Mui-disabled': {
-            opacity: 0.45,
-            color: `${colors.grey?.[600] || '#757575'} !important`,
-            backgroundColor: 'transparent !important',
-            cursor: 'not-allowed',
-            '& em': { color: `${colors.grey?.[500] || '#9E9E9E'} !important` }
-          },
-        },
-         '& .MuiMenuItem-root.Mui-disabled .MuiCircularProgress-root': {
-            color: `${colors.grey?.[500] || '#9E9E9E'} !important`,
-        },
-      },
-    },
-    anchorOrigin: { vertical: 'bottom', horizontal: 'left' },
-    transformOrigin: { vertical: 'top', horizontal: 'left' },
+          // Ensure selected item maintains its style on hover
+          '& .MuiMenuItem-root.Mui-selected:hover': {
+              backgroundColor: colors.blueAccent[700] + '!important',
+              color: colors.grey[100] + '!important',
+          }
+      }
+  }
   };
 
   const anyFiltersLoading = isLoadingDivisions || isLoadingProjects || loadingPlots; // Don't include isLoadingFiles for disabling filters themselves
