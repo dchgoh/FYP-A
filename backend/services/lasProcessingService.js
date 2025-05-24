@@ -6,9 +6,9 @@ const { pool } = require('../config/db'); // Assuming shared DB config
 
 async function processLasData (fileIdToUpdate, stored_path_absolute) {
     return new Promise(async (resolve, reject) => {
-        const pythonScriptName = 'process_las.py'; // Your Python script name
+        const pythonScriptName = 'process_las.py';
         const pythonScriptPath = path.resolve(__dirname, '..', pythonScriptName);
-        const pythonCommand = 'python'; // Or 'python3' or your specific command
+        const pythonCommand = 'python';
 
         if (!fs.existsSync(pythonScriptPath)) {
             const errMsg = `Python script not found at ${pythonScriptPath}. Cannot process file.`;
@@ -75,6 +75,7 @@ async function processLasData (fileIdToUpdate, stored_path_absolute) {
                         processingErrorMsgForDb = `Python script error: ${pythonResultData.error}`;
                         console.error(`[LAS Service] Error (FileID ${fileIdToUpdate}): ${processingErrorMsgForDb}`);
                     } else {
+                        // --- Existing fields ---
                         const calculatedLat = pythonResultData.latitude !== undefined ? pythonResultData.latitude : null;
                         const calculatedLon = pythonResultData.longitude !== undefined ? pythonResultData.longitude : null;
                         const midpointsWGS84 = pythonResultData.tree_midpoints_wgs84 !== undefined ? pythonResultData.tree_midpoints_wgs84 : null;
@@ -84,25 +85,32 @@ async function processLasData (fileIdToUpdate, stored_path_absolute) {
                              console.warn(`[LAS Service] (FileID ${fileIdToUpdate}): num_trees was NaN, defaulting to 0. Raw: ${pythonResultData.num_trees}`);
                              treeCount = 0;
                         }
-                        
-                        // --- Aligning with Python output keys ---
-                        // tree_heights_adjusted in DB now corresponds to tree_segment_lengths_L_m from Python
                         const segmentLengthsLM = pythonResultData.tree_segment_lengths_L_m !== undefined ? pythonResultData.tree_segment_lengths_L_m : null;
-                        // tree_dbhs_cm in DB now corresponds to tree_dbhs_d1_cm from Python
                         const treeDbhsD1Cm = pythonResultData.tree_dbhs_d1_cm !== undefined ? pythonResultData.tree_dbhs_d1_cm : null;
-                        
-                        // --- GET NEW VOLUME DATA ---
-                        const treeVolumesM3 = pythonResultData.tree_volumes_m3 !== undefined ? pythonResultData.tree_volumes_m3 : null;
                         const assumedD2Cm = pythonResultData.assumed_d2_cm_for_volume !== undefined ? pythonResultData.assumed_d2_cm_for_volume : null;
-                        // --------------------------
 
+                        // --- NEW FIELDS from Python output based on your table ---
+                        const treeStemVolumesM3 = pythonResultData.tree_stem_volumes_m3 !== undefined ? pythonResultData.tree_stem_volumes_m3 : null;
+                        const treeAboveGroundVolumesM3 = pythonResultData.tree_above_ground_volumes_m3 !== undefined ? pythonResultData.tree_above_ground_volumes_m3 : null;
+                        const treeTotalVolumesM3 = pythonResultData.tree_total_volumes_m3 !== undefined ? pythonResultData.tree_total_volumes_m3 : null;
+                        const treeBiomassTonnes = pythonResultData.tree_biomass_tonnes !== undefined ? pythonResultData.tree_biomass_tonnes : null;
+                        const treeCarbonTonnes = pythonResultData.tree_carbon_tonnes !== undefined ? pythonResultData.tree_carbon_tonnes : null;
+                        const treeCo2EquivalentTonnes = pythonResultData.tree_co2_equivalent_tonnes !== undefined ? pythonResultData.tree_co2_equivalent_tonnes : null;
+                        // ----------------------------------------------------------
+
+                        // --- Stringify JSONB fields ---
                         const midpointsJsonString = midpointsWGS84 ? JSON.stringify(midpointsWGS84) : null;
-                        const segmentLengthsJsonString = segmentLengthsLM ? JSON.stringify(segmentLengthsLM) : null; // Renamed for clarity
-                        const treeDbhsD1CmJsonString = treeDbhsD1Cm ? JSON.stringify(treeDbhsD1Cm) : null; // Renamed for clarity
-                        
-                        // --- Stringify NEW VOLUME data if not null ---
-                        const treeVolumesM3JsonString = treeVolumesM3 ? JSON.stringify(treeVolumesM3) : null;
-                        // -------------------------------------------
+                        const segmentLengthsJsonString = segmentLengthsLM ? JSON.stringify(segmentLengthsLM) : null;
+                        const treeDbhsD1CmJsonString = treeDbhsD1Cm ? JSON.stringify(treeDbhsD1Cm) : null;
+
+                        // --- Stringify NEW JSONB fields ---
+                        const treeStemVolumesM3JsonString = treeStemVolumesM3 ? JSON.stringify(treeStemVolumesM3) : null;
+                        const treeAboveGroundVolumesM3JsonString = treeAboveGroundVolumesM3 ? JSON.stringify(treeAboveGroundVolumesM3) : null;
+                        const treeTotalVolumesM3JsonString = treeTotalVolumesM3 ? JSON.stringify(treeTotalVolumesM3) : null;
+                        const treeBiomassTonnesJsonString = treeBiomassTonnes ? JSON.stringify(treeBiomassTonnes) : null;
+                        const treeCarbonTonnesJsonString = treeCarbonTonnes ? JSON.stringify(treeCarbonTonnes) : null;
+                        const treeCo2EquivalentTonnesJsonString = treeCo2EquivalentTonnes ? JSON.stringify(treeCo2EquivalentTonnes) : null;
+                        // -----------------------------------
 
                         const pythonErrorsInJson = pythonResultData.errors || [];
                         if (pythonErrorsInJson.length > 0) {
@@ -110,7 +118,7 @@ async function processLasData (fileIdToUpdate, stored_path_absolute) {
                              finalStatus = 'processed_with_errors';
                              processingErrorMsgForDb = `Python processing completed with errors: ${pythonErrorsInJson.join('; ').substring(0,200)}`;
                         } else {
-                             finalStatus = 'processed_ready_for_potree';
+                             finalStatus = 'processed_ready_for_potree'; // Or your desired success status
                              processingErrorMsgForDb = null;
                              processingSuccess = true;
                         }
@@ -122,25 +130,35 @@ async function processLasData (fileIdToUpdate, stored_path_absolute) {
                                 longitude = $2,
                                 tree_midpoints = $3,
                                 tree_count = $4,
-                                tree_heights_adjusted = $5, -- Corresponds to segment_lengths_L_m
-                                tree_dbhs_cm = $6,          -- Corresponds to tree_dbhs_d1_cm
-                                tree_volumes_m3 = $7,       -- <<<< NEW FIELD FOR VOLUME
-                                assumed_d2_cm_for_volume = $8, -- <<<< NEW FIELD FOR D2 ASSUMPTION
-                                status = $9,
-                                processing_error = $10
-                            WHERE id = $11`;
+                                tree_heights_adjusted = $5,
+                                tree_dbhs_cm = $6,
+                                assumed_d2_cm_for_volume = $7,
+                                tree_stem_volumes_m3 = $8,        -- New
+                                tree_above_ground_volumes_m3 = $9, -- New
+                                tree_total_volumes_m3 = $10,      -- New
+                                tree_biomass_tonnes = $11,        -- New
+                                tree_carbon_tonnes = $12,         -- New
+                                tree_co2_equivalent_tonnes = $13, -- New
+                                status = $14,
+                                processing_error = $15
+                            WHERE id = $16`;
                         queryParams = [
-                            calculatedLat,
-                            calculatedLon,
-                            midpointsJsonString,
-                            treeCount,
-                            segmentLengthsJsonString,    // Use the aligned variable
-                            treeDbhsD1CmJsonString,      // Use the aligned variable
-                            treeVolumesM3JsonString,     // <<<< PASS THE STRINGIFIED VOLUME JSON
-                            assumedD2Cm,                 // <<<< PASS THE ASSUMED D2 VALUE (it's a number)
-                            finalStatus,
-                            processingErrorMsgForDb,
-                            fileIdToUpdate
+                            calculatedLat,                  // $1
+                            calculatedLon,                  // $2
+                            midpointsJsonString,            // $3
+                            treeCount,                      // $4
+                            segmentLengthsJsonString,       // $5
+                            treeDbhsD1CmJsonString,         // $6
+                            assumedD2Cm,                    // $7
+                            treeStemVolumesM3JsonString,    // $8
+                            treeAboveGroundVolumesM3JsonString, // $9
+                            treeTotalVolumesM3JsonString,   // $10
+                            treeBiomassTonnesJsonString,    // $11
+                            treeCarbonTonnesJsonString,     // $12
+                            treeCo2EquivalentTonnesJsonString, // $13
+                            finalStatus,                    // $14
+                            processingErrorMsgForDb,        // $15
+                            fileIdToUpdate                  // $16
                         ];
                         // -----------------------------------------------------------
                     }
@@ -150,7 +168,7 @@ async function processLasData (fileIdToUpdate, stored_path_absolute) {
                 }
             }
 
-            if (!updateQueryText) {
+            if (!updateQueryText) { // Fallback if parsing failed or script error
                 if (code !== 0) {
                     processingErrorMsgForDb = `LAS Python script failed (code ${code}). Stderr: ${stderrData.substring(0, 200)}...`;
                 } else if (!stdoutData.trim() && code === 0) {
@@ -185,7 +203,7 @@ async function processLasData (fileIdToUpdate, stored_path_absolute) {
 
             if (processingSuccess) {
                 resolve({
-                    message: "LAS data processed successfully.",
+                    message: "LAS data processed successfully with all metrics.",
                     fileId: fileIdToUpdate,
                     data: pythonResultData // Contains all data from Python
                 });

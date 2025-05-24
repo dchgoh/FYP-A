@@ -9,6 +9,7 @@ import { Chart as ChartJS, ArcElement, Tooltip, Legend, LineElement, LinearScale
 import ChartDataLabels from "chartjs-plugin-datalabels";
 import { Timeline, TimelineItem, TimelineSeparator, TimelineConnector, TimelineContent, TimelineDot } from "@mui/lab";
 import ReplayIcon from '@mui/icons-material/Replay';
+// import EcoIcon from '@mui/icons-material/Eco'; // Example if you prefer a specific MUI icon
 import { tokens } from "../../theme";
 import axios from 'axios';
 
@@ -46,10 +47,14 @@ const Dashboard = ({ isCollapsed }) => {
   const [allTreeDbhsData, setAllTreeDbhsData] = useState([]);
   const [loadingDbhsChart, setLoadingDbhsChart] = useState(false);
 
+  // State for Tree Volume Distribution Chart (if you keep it)
   const [allTreeVolumesData, setAllTreeVolumesData] = useState([]);
   const [loadingVolumesChart, setLoadingVolumesChart] = useState(false);
-  const [totalSumTreeVolumes, setTotalSumTreeVolumes] = useState(null);
-  const [isFetchingSumVolumes, setIsFetchingSumVolumes] = useState(false);
+
+  // --- State for Total Carbon Estimation ---
+  const [totalSumCarbonTonnes, setTotalSumCarbonTonnes] = useState(null);
+  const [isFetchingSumCarbon, setIsFetchingSumCarbon] = useState(false);
+  // --- End State for Carbon ---
 
 
   const canFetchPlots = useMemo(() => {
@@ -83,7 +88,7 @@ const Dashboard = ({ isCollapsed }) => {
       setPlotsList([]); return;
     }
     setLoadingPlots(true);
-    setPlotsList([]);
+    setPlotsList([]); // Reset plots list before fetching
     try {
       const params = { divisionId: divisionId, projectId: projectId };
       const response = await axios.get(`${API_BASE_URL}/files/plots`, {
@@ -194,6 +199,7 @@ const Dashboard = ({ isCollapsed }) => {
     }
   }, [canFetchPlots]);
 
+  // Fetch function for Tree Volume Distribution Chart (if kept)
   const fetchAllTreeVolumesForChart = useCallback(async (divisionId, projectId, plotName) => {
     const token = localStorage.getItem('authToken');
     if (!token) { setAllTreeVolumesData([]); return; }
@@ -219,10 +225,11 @@ const Dashboard = ({ isCollapsed }) => {
     }
   }, [canFetchPlots]);
 
-  const fetchSumTreeVolumes = useCallback(async (divisionId, projectId, plotName) => {
+  // --- Fetch Sum of Carbon Tonnes ---
+  const fetchSumCarbonTonnes = useCallback(async (divisionId, projectId, plotName) => {
     const token = localStorage.getItem('authToken');
-    if (!token) { setTotalSumTreeVolumes('Error'); return; }
-    setIsFetchingSumVolumes(true); setTotalSumTreeVolumes(null);
+    if (!token) { setTotalSumCarbonTonnes('Error'); return; }
+    setIsFetchingSumCarbon(true); setTotalSumCarbonTonnes(null);
     try {
       const params = {};
       if (divisionId && divisionId !== 'all') params.divisionId = divisionId;
@@ -230,18 +237,20 @@ const Dashboard = ({ isCollapsed }) => {
       else if (projectId === 'unassigned') params.projectId = 'unassigned';
       if (plotName && plotName !== 'all' && canFetchPlots) params.plotName = plotName;
 
-      const response = await axios.get(`${API_BASE_URL}/files/statistics/sum-tree-volumes-m3`, {
+      const response = await axios.get(`${API_BASE_URL}/files/stats/sum-carbon-tonnes`, {
         headers: { 'Authorization': `Bearer ${token}` },
         params: params
       });
-      setTotalSumTreeVolumes(response.data.sum);
+      // Assuming backend returns { "sum_carbon_tonnes": VALUE }
+      setTotalSumCarbonTonnes(response.data.sum_carbon_tonnes);
     } catch (error) {
-      console.error("Failed to fetch sum of tree volumes:", error.response?.data?.message || error.message);
-      setTotalSumTreeVolumes('Error');
+      console.error("Failed to fetch sum of carbon tonnes:", error.response?.data?.message || error.message);
+      setTotalSumCarbonTonnes('Error');
     } finally {
-      setIsFetchingSumVolumes(false);
+      setIsFetchingSumCarbon(false);
     }
   }, [canFetchPlots]);
+
 
   useEffect(() => {
     const fetchUserCount = async () => {
@@ -264,39 +273,40 @@ const Dashboard = ({ isCollapsed }) => {
       fetchPlotsList(filterDivisionId, filterProjectId);
     } else if (!canFetchPlots) {
       setPlotsList([]);
-      if (filterPlotName !== 'all') setFilterPlotName('all');
+      if (filterPlotName !== 'all') setFilterPlotName('all'); // Reset plot filter if project/division makes it invalid
     }
   }, [filterDivisionId, filterProjectId, loadingFilters, canFetchPlots, fetchPlotsList, filterPlotName]);
 
 
   useEffect(() => {
-    if (!loadingFilters) {
+    if (!loadingFilters) { // Only fetch if initial filter data (divisions, projects) is loaded
       fetchRecentUploads(filterDivisionId, filterProjectId, filterPlotName);
       fetchFilesUploadedCount(filterDivisionId, filterProjectId, filterPlotName);
       fetchTotalTreesCount(filterDivisionId, filterProjectId, filterPlotName);
       fetchAllTreeHeightsForChart(filterDivisionId, filterProjectId, filterPlotName);
       fetchAllTreeDbhsForChart(filterDivisionId, filterProjectId, filterPlotName);
-      fetchAllTreeVolumesForChart(filterDivisionId, filterProjectId, filterPlotName);
-      fetchSumTreeVolumes(filterDivisionId, filterProjectId, filterPlotName);
+      fetchAllTreeVolumesForChart(filterDivisionId, filterProjectId, filterPlotName); // If volume chart is kept
+      fetchSumCarbonTonnes(filterDivisionId, filterProjectId, filterPlotName); // Fetch carbon sum
     }
   }, [
-    filterDivisionId, filterProjectId, filterPlotName, loadingFilters,
+    filterDivisionId, filterProjectId, filterPlotName, loadingFilters, // Key filter dependencies
     fetchRecentUploads, fetchFilesUploadedCount, fetchTotalTreesCount,
     fetchAllTreeHeightsForChart, fetchAllTreeDbhsForChart,
-    fetchAllTreeVolumesForChart, fetchSumTreeVolumes
+    fetchAllTreeVolumesForChart, // If volume chart is kept
+    fetchSumCarbonTonnes // Dependency for carbon sum
   ]);
 
   const handleDivisionFilterChange = (event) => {
     const newDivisionId = event.target.value;
     setFilterDivisionId(newDivisionId);
-    setFilterProjectId('all');
-    setFilterPlotName('all');
+    setFilterProjectId('all'); // Reset project when division changes
+    setFilterPlotName('all');  // Reset plot when division changes
   };
 
   const handleProjectFilterChange = (event) => {
     const newProjectId = event.target.value;
     setFilterProjectId(newProjectId);
-    setFilterPlotName('all');
+    setFilterPlotName('all'); // Reset plot when project changes
   };
 
   const handlePlotFilterChange = (event) => {
@@ -316,13 +326,12 @@ const Dashboard = ({ isCollapsed }) => {
 
   const filteredProjectsForDropdown = useMemo(() => {
     const safeProjectsList = Array.isArray(projectsList) ? projectsList : [];
-    if (loadingFilters || !safeProjectsList) return [];
-    if (filterDivisionId === 'all') return safeProjectsList;
+    if (loadingFilters || !safeProjectsList) return []; // Ensure projectsList is loaded and an array
+    if (filterDivisionId === 'all') return safeProjectsList; // Show all if no division filter
     const numericDivisionId = parseInt(filterDivisionId, 10);
     return safeProjectsList.filter(p => p.division_id === numericDivisionId);
   }, [projectsList, filterDivisionId, loadingFilters]);
 
-  // Chart Data & Options Memos (remain the same)
   const treeHeightHistogramData = useMemo(() => {
     const currentData = Array.isArray(allTreeHeightsData) ? allTreeHeightsData : [];
     if (currentData.length === 0) {
@@ -401,6 +410,7 @@ const Dashboard = ({ isCollapsed }) => {
     },
   }), [colors]);
 
+  // Tree Volume Distribution Chart Data & Options (if kept)
   const treeVolumeHistogramData = useMemo(() => {
     const currentData = Array.isArray(allTreeVolumesData) ? allTreeVolumesData : [];
     if (currentData.length === 0) {
@@ -447,102 +457,71 @@ const Dashboard = ({ isCollapsed }) => {
     },
   }), [colors]);
 
-  // Styles (remain the same)
+
+  // Styles
   const styles = {
     container: { display: "flex", minHeight: "100vh", bgcolor: colors.grey[800], marginLeft: isCollapsed ? "80px" : "270px", transition: "margin 0.3s ease" },
-    content: { flex: 1, p: 3, overflowY: 'auto' },
+    content: { flex: 1, p: { xs: 1, sm: 2, md: 3 }, overflowY: 'auto' },
     filterRow: { marginBottom: theme.spacing(3), padding: theme.spacing(2), backgroundColor: colors.grey[900], borderRadius: theme.shape.borderRadius },
-    filterFormControl: { minWidth: 180, '& .MuiInputLabel-root': { color: colors.grey[300], '&.Mui-focused': { color: colors.blueAccent[300] } }, '& .MuiOutlinedInput-root': { color: colors.grey[100], '& .MuiOutlinedInput-notchedOutline': { borderColor: colors.grey[600] }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: colors.primary[300] }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: colors.blueAccent[400] }, '& .MuiSelect-icon': { color: colors.grey[300] } } },
-    statsGrid: { display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(4, 1fr)" }, gap: 2, mt: 3 },
+    filterFormControl: { minWidth: 150,
+      '& .MuiInputLabel-root': { color: colors.grey[300], '&.Mui-focused': { color: colors.blueAccent[300] } },
+      '& .MuiOutlinedInput-root': {
+        color: colors.grey[100],
+        '& .MuiOutlinedInput-notchedOutline': { borderColor: colors.grey[600] },
+        '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: colors.primary[300] },
+        '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: colors.blueAccent[400] },
+        '& .MuiSelect-icon': { color: colors.grey[300] }
+      }
+    },
+    statsGrid: { display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(4, 1fr)" }, gap: theme.spacing(2), mt: 3 },
     card: { minHeight: 150, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", p: 2, bgcolor: colors.grey[900], position: 'relative' },
-    cardTitle: { mb: 1, fontWeight: "bold", color: colors.grey[100] },
-    cardIconBox: { display: "flex", alignItems: "center", gap: 1, color: colors.blueAccent[400] },
+    cardTitle: { mb: 1, fontWeight: "bold", color: colors.grey[100], textAlign: 'center' },
+    cardIconBox: { display: "flex", alignItems: "center", gap: 1, color: colors.blueAccent[400], textAlign: 'center' },
     body2Text: { fontWeight: "bold", color: colors.blueAccent[300] },
     cardLoadingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2, borderRadius: 'inherit', color: colors.grey[100] },
-    chartsGridRow2: { display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2, mt: 3 },
-    chartsGridRow3: { display: "grid", gridTemplateColumns: { xs: "1fr", lg: "3fr 2fr" }, gap: 2, mt: 3 },
-    chartTitleText: { marginBottom: 2, marginTop: 1, color: colors.grey[100] },
-    timelineBox: { height: 370, width: "100%", bgcolor: colors.grey[900] },
+    chartsGridRow2: { display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: theme.spacing(2), mt: 3 },
+    chartsGridRow3: { display: "grid", gridTemplateColumns: { xs: "1fr", lg: "3fr 2fr" }, gap: theme.spacing(2), mt: 3 },
+    chartTitleText: { marginBottom: 2, marginTop: 1, color: colors.grey[100], textAlign: 'center' },
+    timelineBox: { height: { xs: 320, sm: 370 }, width: "100%", bgcolor: colors.grey[900] },
     timelineCardContent: { height: '100%', display: 'flex', flexDirection: 'column' },
     timelineScroll: { flexGrow: 1, overflowY: 'auto', "&::-webkit-scrollbar": { width: "6px" }, "&::-webkit-scrollbar-track": { background: colors.grey[700] }, "&::-webkit-scrollbar-thumb": { backgroundColor: colors.grey[500], borderRadius: "10px" } }
   };
-  const chartBoxHeight = 280;
+  const chartBoxHeight = { xs: 220, sm: 250, md: 280 };
   styles.chartContainer = { height: chartBoxHeight, width: "100%" };
 
-  // --- MODIFIED commonMenuProps with fallbacks for alpha() ---
   const commonMenuProps = {
     PaperProps: {
       sx: {
-        backgroundColor: colors.primary?.[800] || colors.grey?.[800] || '#1F1F1F', // Fallback for primary[800]
+        backgroundColor: colors.primary?.[800] || colors.grey?.[800] || '#1F1F1F',
         color: colors.grey?.[100] || '#FFFFFF',
         borderRadius: theme.shape.borderRadius,
         marginTop: '4px',
-        // Provide a fallback for colors.black if it's undefined
         boxShadow: `0px 5px 15px ${alpha(colors.black || theme.palette.common.black || '#000000', 0.35)}`,
         border: `1px solid ${colors.grey?.[700] || '#424242'}`,
         maxHeight: 280,
         overflowY: 'auto',
-        '&::-webkit-scrollbar': {
-          width: '8px',
-        },
-        '&::-webkit-scrollbar-track': {
-          backgroundColor: colors.primary?.[900] || colors.grey?.[900] || '#121212',
-        },
-        '&::-webkit-scrollbar-thumb': {
-          backgroundColor: colors.grey?.[600] || '#616161',
-          borderRadius: '4px',
-          border: `2px solid ${colors.primary?.[900] || colors.grey?.[900] || '#121212'}`,
-        },
-        '&::-webkit-scrollbar-thumb:hover': {
-          backgroundColor: colors.grey?.[500] || '#757575',
-        },
+        '&::-webkit-scrollbar': { width: '8px' },
+        '&::-webkit-scrollbar-track': { backgroundColor: colors.primary?.[900] || colors.grey?.[900] || '#121212' },
+        '&::-webkit-scrollbar-thumb': { backgroundColor: colors.grey?.[600] || '#616161', borderRadius: '4px', border: `2px solid ${colors.primary?.[900] || colors.grey?.[900] || '#121212'}` },
+        '&::-webkit-scrollbar-thumb:hover': { backgroundColor: colors.grey?.[500] || '#757575' },
         '& .MuiMenuItem-root': {
           padding: '10px 16px',
           fontSize: '0.9rem',
-          '&:hover': {
-            // Fallback for blueAccent[700]
-            backgroundColor: alpha(colors.blueAccent?.[700] || colors.grey?.[700] || '#2A3F54', 0.8),
-            color: colors.grey?.[100] || '#FFFFFF',
-          },
-          '&.Mui-selected': {
-            backgroundColor: `${colors.blueAccent?.[500] || colors.grey?.[600] || '#1976D2'} !important`,
-            color: colors.grey?.[50] || '#E0E0E0',
-            fontWeight: '600',
-            '&:hover': {
-              // Fallback for blueAccent[400]
-              backgroundColor: `${alpha(colors.blueAccent?.[400] || colors.grey?.[500] || '#4778A9', 0.9)} !important`,
-            }
-          },
-          '&.Mui-disabled': {
-            opacity: 0.45,
-            color: `${colors.grey?.[600] || '#757575'} !important`,
-            backgroundColor: 'transparent !important',
-            cursor: 'not-allowed',
-            '& em': {
-                color: `${colors.grey?.[500] || '#9E9E9E'} !important`,
-            }
-          },
+          '&:hover': { backgroundColor: alpha(colors.blueAccent?.[700] || colors.grey?.[700] || '#2A3F54', 0.8), color: colors.grey?.[100] || '#FFFFFF' },
+          '&.Mui-selected': { backgroundColor: `${colors.blueAccent?.[500] || colors.grey?.[600] || '#1976D2'} !important`, color: colors.grey?.[50] || '#E0E0E0', fontWeight: '600', '&:hover': { backgroundColor: `${alpha(colors.blueAccent?.[400] || colors.grey?.[500] || '#4778A9', 0.9)} !important` } },
+          '&.Mui-disabled': { opacity: 0.45, color: `${colors.grey?.[600] || '#757575'} !important`, backgroundColor: 'transparent !important', cursor: 'not-allowed', '& em': { color: `${colors.grey?.[500] || '#9E9E9E'} !important` } }
         },
-         '& .MuiMenuItem-root.Mui-disabled .MuiCircularProgress-root': {
-            color: `${colors.grey?.[500] || '#9E9E9E'} !important`,
-        },
-      },
+        '& .MuiMenuItem-root.Mui-disabled .MuiCircularProgress-root': { color: `${colors.grey?.[500] || '#9E9E9E'} !important` }
+      }
     },
-    anchorOrigin: {
-      vertical: 'bottom',
-      horizontal: 'left',
-    },
-    transformOrigin: {
-      vertical: 'top',
-      horizontal: 'left',
-    },
+    anchorOrigin: { vertical: 'bottom', horizontal: 'left' },
+    transformOrigin: { vertical: 'top', horizontal: 'left' }
   };
 
-  const filterDisabled = loadingFilters || isFetchingFileCount || isFetchingTreeCount || loadingPlots || loadingHeightsChart || loadingDbhsChart || loadingVolumesChart || isFetchingSumVolumes;
+  const filterDisabled = loadingFilters || isFetchingFileCount || isFetchingTreeCount || loadingPlots || loadingHeightsChart || loadingDbhsChart || loadingVolumesChart || isFetchingSumCarbon; // Updated to use isFetchingSumCarbon
 
   const plotFilterDisabledReason = useMemo(() => {
-    // ... (remains the same)
-    if (filterDisabled) return "";
+    if (filterDisabled) return ""; // If any main loading is active, no specific reason needed
     if (!canFetchPlots) {
       if (filterDivisionId === 'all' && (filterProjectId === 'all' || filterProjectId === 'unassigned')) {
         return "Select a Division and a specific Project to enable Plot filter.";
@@ -552,7 +531,7 @@ const Dashboard = ({ isCollapsed }) => {
         return "Select a specific Project to enable Plot filter.";
       }
     }
-    return "";
+    return ""; // No reason if plots can be fetched or if filters are generally disabled
   }, [canFetchPlots, filterDivisionId, filterProjectId, filterDisabled]);
 
 
@@ -565,7 +544,6 @@ const Dashboard = ({ isCollapsed }) => {
             Filter Dashboard Data
           </Typography>
           <Grid container spacing={2} alignItems="flex-end">
-            {/* Filter Grid Items (remain the same, MenuProps will apply new styles) */}
             <Grid item xs={12} sm={6} md={3}>
               <FormControl fullWidth variant="outlined" size="small" sx={styles.filterFormControl}>
                 <InputLabel id="division-filter-label-dash">Filter Division</InputLabel>
@@ -607,7 +585,7 @@ const Dashboard = ({ isCollapsed }) => {
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
               <MuiTooltip title={plotFilterDisabledReason} arrow placement="top">
-                <span>
+                <span> {/* Span is necessary for Tooltip when child is disabled */}
                   <FormControl
                     fullWidth
                     variant="outlined"
@@ -639,7 +617,7 @@ const Dashboard = ({ isCollapsed }) => {
                         : (plotsList || []).length > 0 && canFetchPlots && !filterDisabled ? (
                             (plotsList || []).map(plot => (<MenuItem key={plot} value={plot}>{plot}</MenuItem>))
                           )
-                        : (
+                        : ( /* Fallback for other disabled states or if plotsList is unexpectedly not an array */
                             <MenuItem disabled>
                                 <em>{filterDisabled ? "Filters loading..." : "Plot selection unavailable"}</em>
                             </MenuItem>
@@ -660,11 +638,10 @@ const Dashboard = ({ isCollapsed }) => {
                 sx={{
                   color: colors.grey?.[300] || '#B0BEC5',
                   borderColor: colors.grey?.[600] || '#616161',
-                  height: '40px',
+                  height: '40px', 
                   textTransform: 'none',
                   '&:hover': {
                     borderColor: colors.primary?.[300] || colors.grey?.[500] || '#757575',
-                    // Fallback for primary[700]
                     backgroundColor: alpha(colors.primary?.[700] || colors.grey?.[800] || '#2C2C2C', 0.3),
                   },
                   '&.Mui-disabled': {
@@ -679,11 +656,10 @@ const Dashboard = ({ isCollapsed }) => {
           </Grid>
         </Box>
 
-        {/* Stats Section (remains the same) */}
         <Box sx={styles.statsGrid}>
             <Card sx={styles.card}>
                 {totalMembers === null && (<Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30} /></Box>)}
-                <Typography variant="h1" sx={{ ...styles.cardTitle, visibility: totalMembers === null ? 'hidden' : 'visible' }}>
+                <Typography variant="h1" sx={{ ...styles.cardTitle, fontSize: {xs: '2rem', md: '3rem'}, visibility: totalMembers === null ? 'hidden' : 'visible' }}>
                 {totalMembers === 'Error' ? 'N/A' : totalMembers ?? '-'}
                 </Typography>
                 <Box sx={{ ...styles.cardIconBox, visibility: totalMembers === null ? 'hidden' : 'visible' }}>
@@ -693,7 +669,7 @@ const Dashboard = ({ isCollapsed }) => {
             </Card>
             <Card sx={styles.card}>
                 {isFetchingFileCount && (<Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30} /></Box>)}
-                <Typography variant="h1" sx={{ ...styles.cardTitle, visibility: isFetchingFileCount ? 'hidden' : 'visible' }}>
+                <Typography variant="h1" sx={{ ...styles.cardTitle, fontSize: {xs: '2rem', md: '3rem'}, visibility: isFetchingFileCount ? 'hidden' : 'visible' }}>
                 {filesUploadedCount === 'Error' ? 'N/A' : filesUploadedCount ?? '-'}
                 </Typography>
                 <Box sx={{ ...styles.cardIconBox, visibility: isFetchingFileCount ? 'hidden' : 'visible' }}>
@@ -703,30 +679,32 @@ const Dashboard = ({ isCollapsed }) => {
             </Card>
             <Card sx={{ ...styles.card, justifyContent: 'center' }}>
                 {isFetchingTreeCount && (<Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30} /></Box>)}
-                <Typography variant="h1" sx={{ ...styles.cardTitle, visibility: isFetchingTreeCount ? 'hidden' : 'visible', mb: 2 }}>
+                <Typography variant="h1" sx={{ ...styles.cardTitle, fontSize: {xs: '2rem', md: '3rem'}, visibility: isFetchingTreeCount ? 'hidden' : 'visible', mb: 2 }}>
                 {totalTreesCount === 'Error' ? 'N/A' : totalTreesCount ?? '-'}
                 </Typography>
                 <Box sx={{ ...styles.cardIconBox, visibility: isFetchingTreeCount ? 'hidden' : 'visible' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: '2rem' }}>forest</span>
-                <Typography variant="h6" sx={styles.body2Text}>Total Trees</Typography>
+                <Typography variant="h6" sx={{...styles.body2Text, fontSize: {xs: '0.9rem', md: '1.15rem'}}}>Total Trees</Typography>
                 </Box>
             </Card>
+            {/* --- Total Carbon Estimation Card --- */}
             <Card sx={styles.card}>
-                {isFetchingSumVolumes && (<Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30}/></Box>)}
-                <Typography variant="h1" sx={{...styles.cardTitle, visibility: isFetchingSumVolumes ? 'hidden' : 'visible'}}>
-                {totalSumTreeVolumes === 'Error' ? 'N/A' : totalSumTreeVolumes !== null ? `${parseFloat(totalSumTreeVolumes).toFixed(2)} m³` : '-'}
+                {isFetchingSumCarbon && (<Box sx={styles.cardLoadingOverlay}><CircularProgress color="inherit" size={30}/></Box>)}
+                <Typography variant="h1" sx={{...styles.cardTitle, fontSize: {xs: '1.7rem', md: '2.5rem'}, visibility: isFetchingSumCarbon ? 'hidden' : 'visible'}}>
+                {totalSumCarbonTonnes === 'Error' ? 'N/A' : totalSumCarbonTonnes !== null ? `${parseFloat(totalSumCarbonTonnes).toFixed(2)} t` : '-'}
                 </Typography>
-                <Box sx={{...styles.cardIconBox, visibility: isFetchingSumVolumes ? 'hidden' : 'visible'}}>
-                <span className="material-symbols-outlined">straighten</span>
-                <Typography variant="body2" sx={styles.body2Text}>Total Tree Volume</Typography>
+                <Box sx={{...styles.cardIconBox, visibility: isFetchingSumCarbon ? 'hidden' : 'visible'}}>
+                <span className="material-symbols-outlined">eco</span> {/* Using Google Material Symbols "eco" icon */}
+                {/* Or if you imported EcoIcon: <EcoIcon sx={{ fontSize: '1.8rem' }} /> */}
+                <Typography variant="body2" sx={styles.body2Text}>Total Carbon (t)</Typography>
                 </Box>
             </Card>
         </Box>
 
-        {/* Charts & Timeline Sections (remain the same) */}
         <Box sx={styles.chartsGridRow2}>
+            {/* Tree Volume Distribution Chart (if kept) */}
             <Card>
-                <CardContent sx={{ height: chartBoxHeight + 40, display: 'flex', flexDirection: 'column' }}>
+                <CardContent sx={{ height: { xs: chartBoxHeight.xs + 50, sm: chartBoxHeight.sm + 50, md: chartBoxHeight.md + 60 }, display: 'flex', flexDirection: 'column' }}>
                 <Box sx={{ flexGrow: 1, position: 'relative', width: '100%', height: '100%' }}>
                     {loadingVolumesChart ? (
                     <Box display="flex" justifyContent="center" alignItems="center" height="100%"><CircularProgress /></Box>
@@ -740,8 +718,9 @@ const Dashboard = ({ isCollapsed }) => {
                 </Box>
                 </CardContent>
             </Card>
+            {/* Tree Height Distribution Chart */}
             <Card>
-                <CardContent sx={{ height: chartBoxHeight + 40, display: 'flex', flexDirection: 'column' }}>
+                <CardContent sx={{ height: { xs: chartBoxHeight.xs + 50, sm: chartBoxHeight.sm + 50, md: chartBoxHeight.md + 60 }, display: 'flex', flexDirection: 'column' }}>
                 <Box sx={{ flexGrow: 1, position: 'relative', width: '100%', height: '100%' }}>
                     {loadingHeightsChart ? (
                     <Box display="flex" justifyContent="center" alignItems="center" height="100%"><CircularProgress /></Box>
@@ -758,8 +737,9 @@ const Dashboard = ({ isCollapsed }) => {
         </Box>
 
         <Box sx={styles.chartsGridRow3}>
+            {/* Tree DBH Distribution Chart */}
             <Card>
-                <CardContent sx={{ height: chartBoxHeight + 40, display: 'flex', flexDirection: 'column' }}>
+                <CardContent sx={{ height: { xs: chartBoxHeight.xs + 50, sm: chartBoxHeight.sm + 50, md: chartBoxHeight.md + 60 }, display: 'flex', flexDirection: 'column' }}>
                 <Box sx={{ flexGrow: 1, position: 'relative', width: '100%', height: '100%' }}>
                     {loadingDbhsChart ? (
                     <Box display="flex" justifyContent="center" alignItems="center" height="100%"><CircularProgress /></Box>
@@ -773,6 +753,7 @@ const Dashboard = ({ isCollapsed }) => {
                 </Box>
                 </CardContent>
             </Card>
+            {/* Recent File Uploads Timeline */}
             <Card sx={styles.timelineBox}>
                 <CardContent sx={styles.timelineCardContent}>
                 <Typography variant="h5" sx={{ ...styles.chartTitleText, flexShrink: 0 }}>Recent File Uploads</Typography>

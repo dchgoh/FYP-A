@@ -42,6 +42,8 @@ router.get('/statistics/sum-tree-volumes-m3', fileController.getSumTreeVolumesM3
 // Get ALL Tree Volumes (m³) Data for Histogram - All logged-in users (or add specific role checks if needed)
 router.get('/statistics/all-tree-volumes-m3-data', fileController.getAllTreeVolumesM3Data);
 
+router.get('/stats/sum-carbon-tonnes', fileController.getSumTreeCarbonTonnes);
+
 // Delete: Admin/Assigned DM (checkProjectAssignment applied *after* checkRole)
 router.delete('/:id', checkRole([ROLES.ADMIN, ROLES.DATA_MANAGER]), checkProjectAssignment, fileController.deleteFile);
 

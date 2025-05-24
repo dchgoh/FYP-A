@@ -167,26 +167,35 @@ const createFilesTable = async () => {
           size_bytes BIGINT,
           upload_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
           potree_metadata_path TEXT,
-          project_id INTEGER, -- Allow NULL for unassigned files
-          plot_name VARCHAR(255), -- Allow NULL if plot name is optional during upload
+          project_id INTEGER,
+          plot_name VARCHAR(255),
           latitude DOUBLE PRECISION,
           longitude DOUBLE PRECISION,
-          status VARCHAR(50) DEFAULT 'uploaded', -- Add the status column with a default value
-          processing_error TEXT, -- Add a column to store processing errors
-          tree_midpoints JSONB, 
+          status VARCHAR(50) DEFAULT 'uploaded',
+          processing_error TEXT,
+          tree_midpoints JSONB,
           tree_heights_adjusted JSONB,
           tree_dbhs_cm JSONB,
           tree_count INTEGER,
-          tree_volumes_m3 JSONB,
+          -- tree_volumes_m3 JSONB, -- This will now store the "stem volume"
+                                 -- Consider renaming to tree_stem_volumes_m3 for clarity
+                                 -- If renaming, adjust Python output key or mapping layer
+          tree_stem_volumes_m3 JSONB, -- Explicitly naming it stem volume
           assumed_d2_cm_for_volume DOUBLE PRECISION,
+          -- New columns for additional metrics from your table:
+          tree_above_ground_volumes_m3 JSONB,
+          tree_total_volumes_m3 JSONB,
+          tree_biomass_tonnes JSONB,
+          tree_carbon_tonnes JSONB,
+          tree_co2_equivalent_tonnes JSONB,
           CONSTRAINT fk_project
             FOREIGN KEY(project_id)
             REFERENCES projects(id)
-            ON DELETE SET NULL -- Changed from CASCADE to SET NULL so files aren't deleted when project is deleted
+            ON DELETE SET NULL
             ON UPDATE CASCADE
       );
     `);
-    console.log("Uploaded_files table checked/updated.");
+    console.log("Uploaded_files table checked/updated with new biomass/carbon metrics columns.");
 
     // Index remains useful
     await pool.query(`
@@ -194,41 +203,34 @@ const createFilesTable = async () => {
     `);
     console.log("Index on uploaded_files(project_id) checked/created.");
 
-    // *** Optional: Add an index on the status column if you filter by status often ***
-    // await pool.query(`
-    //   CREATE INDEX IF NOT EXISTS idx_uploaded_files_status ON uploaded_files(status);
-    // `);
-    // console.log("Index on uploaded_files(status) checked/created.");
-
   } catch (error) {
     console.error("Error creating/updating uploaded_files table:", error);
     throw error; // Propagate error
   } finally {
-     if(pool) await pool.end(); // Added pool.end() in finally
+     if(pool) await pool.end();
   }
 };
 
-// Function: Create the project_data_managers table
 const createProjectDataManagersTable = async () => {
   let pool = null;
   try {
-    pool = new Pool({ ...dbConfig, database: "uasuserdata" });
+    pool = new Pool({ ...dbConfig, database: "uasuserdata" }); // Ensure "uasuserdata" is your correct database name
     await pool.query(`
         CREATE TABLE IF NOT EXISTS project_data_managers (
             user_id INTEGER NOT NULL,
             project_id INTEGER NOT NULL,
             assigned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (user_id, project_id),
-            CONSTRAINT fk_user
+            CONSTRAINT fk_pdm_user_id  -- Using a more specific constraint name
                 FOREIGN KEY(user_id)
                 REFERENCES users(id)
                 ON DELETE CASCADE,
-            CONSTRAINT fk_project_assignment
+            CONSTRAINT fk_pdm_project_id -- Using a more specific constraint name
                 FOREIGN KEY(project_id)
                 REFERENCES projects(id)
-                ON DELETE CASCADE 
+                ON DELETE CASCADE
         );
-    `);
+    `); // The SQL query is now correctly within backticks
     console.log("Project_data_managers table checked/created.");
 
     // Index for faster lookups (optional but recommended)
@@ -242,6 +244,7 @@ const createProjectDataManagersTable = async () => {
 
   } catch (error) {
     console.error("Error creating project_data_managers table:", error);
+    throw error; // It's good practice to re-throw the error so initDatabase can catch it and exit if critical
   } finally {
     if (pool) await pool.end();
   }
