@@ -1,0 +1,70 @@
+import os
+import numpy as np
+import laspy
+import torch
+from torch.utils.data import Dataset
+import warnings
+
+warnings.filterwarnings('ignore')
+
+def pc_normalize(pc):
+    """ Normalize the point cloud to zero mean and unit variance. """
+    centroid = np.mean(pc, axis=0)
+    pc = pc - centroid
+    m = np.max(np.sqrt(np.sum(pc ** 2, axis=1)))
+    pc = pc / m
+    return pc
+
+class TreeSegDataset(Dataset):
+    def __init__(self, root_dir, split='train', npoints=4096):
+        """
+        Args:
+            root_dir (str): Path to dataset directory containing .las files.
+            split (str): 'train' or 'test' split.
+            npoints (int): Number of points to sample per cloud.
+        """
+        self.root_dir = root_dir
+        self.npoints = npoints
+        self.split = split
+        self.data_list = self._get_file_list()
+
+    def _get_file_list(self):
+        """ Get list of .las files for the given split. """
+        split_file = os.path.join(self.root_dir, f'{self.split}_list.txt')  # Assume a text file lists filenames
+        if not os.path.exists(split_file):
+            raise FileNotFoundError(f"{split_file} not found! Ensure split files exist.")
+
+        with open(split_file, 'r') as f:
+            files = [line.strip() for line in f]
+        return [os.path.join(self.root_dir, fname) for fname in files]
+
+    def __len__(self):
+        return len(self.data_list)
+
+    def __getitem__(self, index):
+        """ Load point cloud, normalize, and return with labels. """
+        las_file = self.data_list[index]
+        las = laspy.read(las_file)
+
+        # Extract XYZ coordinates
+        points = np.vstack((las.x, las.y, las.z)).T
+
+        # Extract instance labels (treeID) and semantic labels (tree parts)
+        tree_ids = np.array(las.point_record['treeID'], dtype=np.int32)  # Instance segmentation
+        sem_labels = np.array(las.point_record['classification'], dtype=np.int32)  # Semantic segmentation
+
+        # Normalize XYZ
+        points = pc_normalize(points)
+
+        # Random sampling (for large point clouds)
+        if len(points) > self.npoints:
+            choice = np.random.choice(len(points), self.npoints, replace=False)
+            points = points[choice, :]
+            tree_ids = tree_ids[choice]
+            sem_labels = sem_labels[choice]
+
+        return torch.tensor(points, dtype=torch.float32), torch.tensor(tree_ids, dtype=torch.long), torch.tensor(sem_labels, dtype=torch.long)
+
+# Example usage:
+# dataset = TreeSegDataset(root_dir="path/to/dataset", split='train')
+# point_cloud, tree_ids, sem_labels = dataset[0]  # Access first sample
