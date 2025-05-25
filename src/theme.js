@@ -54,9 +54,7 @@ export const tokens = (mode) => ({
         },
         blueAccent: {
           100: "#dff1fd",
-          // ...
-          400: "#4ba5f8", // <-- Make sure this exists
-          // ...
+          400: "#4ba5f8",
           900: "#0a253a",
         },
       }
@@ -110,9 +108,7 @@ export const tokens = (mode) => ({
         },
         blueAccent: {
           100: "#dff1fd",
-          // ...
-          400: "#4ba5f8", // <-- Make sure this exists
-          // ...
+          400: "#4ba5f8",
           900: "#0a253a",
         },
       }),

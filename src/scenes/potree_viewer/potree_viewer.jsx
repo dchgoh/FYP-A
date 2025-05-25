@@ -294,6 +294,16 @@ const PotreeViewer = ({ isCollapsed }) => {
       .jstree-default .jstree-clicked { background-color: ${colors.primary[700]} !important; }
       .jstree-anchor:hover { background-color: ${colors.primary[800]} !important; }
       .current-location-div-icon { background: transparent !important; border: none !important; }
+
+      /* Hide camera animation icon */
+      img[data-i18n="[title]tt.camera_animation"] {
+        display: none !important;
+      }
+
+      /* Hide screen clip box icon */
+      img[data-i18n="[title]tt.screen_clip_box"] {
+        display: none !important;
+      }
     `;
   }, [colors]);
   

@@ -81,11 +81,16 @@ const createUsersTable = async () => {
       const result = await pool.query("SELECT COUNT(*) FROM users");
       if (parseInt(result.rows[0].count) === 0) {
         const hashedPassword = await bcrypt.hash("root", 10);
+        // Insert default user
         await pool.query(
           "INSERT INTO users (username, email, password, age, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (email) DO NOTHING",
           ["Darren", "dchgoh@gmail.com", hashedPassword, 21, "Administrator"]
         );
-        console.log("Default admin user created");
+        await pool.query(
+          "INSERT INTO users (username, email, password, age, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (email) DO NOTHING",
+          ["Ethan", "ethting@gmail.com", hashedPassword, 21, "Administrator"]
+        );
+        console.log("Default admin users created");
       } else {
         console.log("Users already exist, skipping default user creation.");
       }
