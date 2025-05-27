@@ -438,8 +438,6 @@ exports.getRecentFiles = async (req, res) => {
     queryParams.push(limit); // Add limit value to params array
 
     try {
-        console.log("Executing filtered recent files query:", query); // Log query
-        console.log("Query parameters:", queryParams); // Log params
 
         const result = await pool.query(query, queryParams);
 
@@ -535,24 +533,10 @@ exports.getFiles = async (req, res) => {
     query += ` ORDER BY f.upload_date DESC`;
 
     try {
-        console.log("Executing getFiles query:", query);
-        console.log("Query parameters:", queryParams);
 
         const result = await pool.query(query, queryParams);
 
-        // *** TEMPORARY LOGGING - Check if raw rows now have the data ***
-        if (result.rows.length > 0) {
-            console.log("RAW DB ROW (first file) AFTER UPDATING QUERY:", JSON.stringify(result.rows[0], null, 2));
-        }
-        // *** END TEMPORARY LOGGING ***
-
         const formattedFiles = result.rows.map(formatFileRecord); // formatFileRecord should now get these new fields
-
-        // *** TEMPORARY LOGGING - Check if formatted files have the data ***
-        if (formattedFiles.length > 0) {
-            console.log("FORMATTED FILE (first file) AFTER UPDATING QUERY:", JSON.stringify(formattedFiles[0], null, 2));
-        }
-        // *** END TEMPORARY LOGGING ***
 
         res.json(formattedFiles);
     } catch (error) {
@@ -1363,8 +1347,6 @@ exports.getTreeCount = async (req, res) => {
         query += ` WHERE ${whereConditions.join(' AND ')}`;
     }
     try {
-        console.log("Executing total tree count query:", query);
-        console.log("Query parameters:", queryParams);
         const result = await pool.query(query, queryParams);
 
         const totalTrees = result.rows[0] && result.rows[0].total_trees !== null
@@ -1619,7 +1601,6 @@ exports.getAllTreeVolumesM3Data = async (req, res) => {
     if (whereConditions.length > 0) query += ` WHERE ${whereConditions.join(' AND ')}`;
 
     try {
-        console.log("Executing getAllTreeVolumesM3Data query:", query, queryParams);
         const result = await pool.query(query, queryParams);
         let allVolumes = [];
         result.rows.forEach(row => {
@@ -1694,7 +1675,6 @@ exports.getSumTreeCarbonTonnes = async (req, res) => {
     }
 
     try {
-        console.log("Executing getSumTreeCarbonTonnes query:", query, queryParams);
         const result = await pool.query(query, queryParams);
         let totalCarbonSum = 0;
 
