@@ -60,10 +60,7 @@ router.patch('/:id', checkRole([ROLES.ADMIN, ROLES.DATA_MANAGER]), fileControlle
 
 // Reassign File Details (PATCH)
 router.patch(
-    '/:id/reassign', // Using :id for the fileId
-    // protect, // Already applied globally
-    // Permission check will be mostly inside the controller for this complex case
-    // checkRole([ROLES.ADMIN, ROLES.DATA_MANAGER]), // Basic role check
+    '/:id/reassign', 
     fileController.reassignFileDetails // <-- Use the new controller
 );
 

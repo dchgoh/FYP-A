@@ -2,6 +2,7 @@
 
 # dependencies
 /public/potree
+/public/pointclouds
 /node_modules
 /backend/uploads
 /.pnp
