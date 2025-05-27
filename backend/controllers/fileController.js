@@ -1474,7 +1474,6 @@ exports.getAllTreeDbhsCm = async (req, res) => {
     if (whereConditions.length > 0) query += ` WHERE ${whereConditions.join(' AND ')}`;
 
     try {
-        console.log("Executing getAllTreeDbhsCm query:", query, queryParams);
         const result = await pool.query(query, queryParams);
         let allDbhs = [];
         result.rows.forEach(row => {
@@ -1484,7 +1483,6 @@ exports.getAllTreeDbhsCm = async (req, res) => {
                 allDbhs.push(...Object.values(row.tree_dbhs_cm).filter(d => typeof d === 'number'));
             }
         });
-        console.log("Fetched all DBHs (cm):", allDbhs.length, "values.");
         res.json({ dbhs_cm: allDbhs }); // Send an array of DBH values in cm
     } catch (error) {
         console.error("Error fetching all tree DBHs (cm):", error);
@@ -1562,7 +1560,6 @@ exports.getSumTreeVolumesM3 = async (req, res) => {
                 });
             }
         });
-        console.log("Calculated sum of tree volumes (m³):", totalSum);
         res.json({ sum: totalSum }); // Send the sum
     } catch (error) {
         console.error("Error fetching sum of tree volumes (m³):", error);
@@ -1630,7 +1627,6 @@ exports.getAllTreeVolumesM3Data = async (req, res) => {
                 allVolumes.push(...Object.values(row.tree_stem_volumes_m3).filter(v => typeof v === 'number' && !isNaN(v)));
             }
         });
-        console.log("Fetched all tree volumes (m³) for chart:", allVolumes.length, "values.");
         res.json({ volumes_m3: allVolumes }); // Send an array of volume values in m³
     } catch (error) {
         console.error("Error fetching all tree volumes (m³) for chart:", error);
@@ -1715,7 +1711,6 @@ exports.getSumTreeCarbonTonnes = async (req, res) => {
         // Round to a reasonable number of decimal places, e.g., 3 for tonnes
         totalCarbonSum = parseFloat(totalCarbonSum.toFixed(3));
 
-        console.log("Calculated sum of tree carbon (tonnes):", totalCarbonSum);
         res.json({ sum_carbon_tonnes: totalCarbonSum }); // Send the sum
     } catch (error) {
         console.error("Error fetching sum of tree carbon (tonnes):", error);

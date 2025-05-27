@@ -1195,227 +1195,245 @@ const handleBulkDelete = async () => {
 };
 
 
-  // --- STYLES ---
-  const styles = {
-    container: {
-      display: "flex",
-      minHeight: "100vh",
-      bgcolor: colors.grey[800],
-      marginLeft: isCollapsed ? "80px" : "270px",
-      transition: "margin 0.3s ease",
-      padding: 0
-    },
-    content: {
-      flex: 1,
-      p: 3,
-      overflowY: 'auto'
-    },
-    controlsRow: {
-      marginBottom: theme.spacing(3)
-    },
-    filterFormControl: {
-      minWidth: 180,
-      '& .MuiInputLabel-root': { color: colors.grey[300], '&.Mui-focused': { color: colors.blueAccent[300] } },
-      '& .MuiOutlinedInput-root': {
-        color: colors.grey[100],
-        '& .MuiOutlinedInput-notchedOutline': { borderColor: colors.grey[500] },
-        '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: colors.primary[300] },
-        '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: colors.blueAccent[400] },
-        '& .MuiSelect-icon': { color: colors.grey[300] },
-      }
-    },
-    dialogPaper: {
-      backgroundColor: colors.grey[800] || theme.palette.background.paper,
-      color: colors.grey[100] || theme.palette.text.primary
-    },
-    dialogActions: {
-      padding: theme.spacing(2, 3),
-      backgroundColor: colors.primary[700] || theme.palette.action.hover,
-      borderTop: `1px solid ${colors.grey[700] || theme.palette.divider}`
-    },
-    dialogSelectControl: { 
-      marginTop: theme.spacing(1),
-      '& .MuiInputLabel-root': { color: colors.grey[300], '&.Mui-focused': { color: colors.blueAccent[300] } },
-      '& .MuiOutlinedInput-root': {
-        color: colors.grey[300],
-        '& .MuiOutlinedInput-notchedOutline': { borderColor: colors.grey[400] },
-        '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: colors.primary[300] },
-        '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: colors.blueAccent[400] },
-        '& .MuiSelect-icon': { color: colors.grey[300] },
-      }
-    },
-    dialogTextField: { 
-      '& label.Mui-focused': { color: colors.blueAccent[300] },
-      '& .MuiOutlinedInput-root': {
-        color: colors.grey[100],
-        '& fieldset': { borderColor: colors.grey[400] },
-        '&:hover fieldset': { borderColor: colors.primary[300] },
-        '&.Mui-focused fieldset': { borderColor: colors.blueAccent[400] },
-      },
-      '& .MuiInputLabel-root': { color: colors.grey[300] },
-    },
-    dialogTitle: {
-      textAlign: "center",
-      color: colors.grey?.[100] ?? "#000",
-      paddingBottom: 0,
-      fontWeight: 'bold'
-    },
-    dialogContent: {
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      minWidth: '350px',
-      paddingTop: theme.spacing(2),
-      paddingBottom: theme.spacing(1),
-      color: colors.grey?.[100] ?? "#000"
-    },
-    fileDisplay: {
-      textAlign: "center",
-      padding: "15px",
-      border: `1px dashed ${colors.grey?.[500] ?? "#888"}`,
-      borderRadius: "5px",
-      width: '80%',
-      wordBreak: 'break-word',
-      color: colors.grey?.[100] ?? "#000",
-      backgroundColor: colors.grey[800],
-      minHeight: '80px',
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'center',
-      alignItems: 'center'
-    },
-    uploadProgressContainer: {
-      width: '80%',
-      marginTop: theme.spacing(2)
-    },
-    tableContainer: {
-      marginTop: theme.spacing(1), // Reduced margin if bulk actions bar is present
-      backgroundColor: colors.grey[900],
-      borderRadius: 2,
-      maxHeight: 'calc(100vh - 280px)', // Adjust if bulk bar takes space
-      overflow: 'auto',
-      position: 'relative',
-      "&::-webkit-scrollbar": { width: "8px" },
-      "&::-webkit-scrollbar-track": { background: colors.grey?.[700] },
-      "&::-webkit-scrollbar-thumb": {
-        backgroundColor: colors.grey?.[500] ?? "#888",
-        borderRadius: "10px",
-        border: `2px solid ${colors.grey?.[700] ?? "#3e4396"}`,
-        "&:hover": { backgroundColor: colors.primary?.[300] ?? "#555" },
-      }
-    },
-    table: {
-      minWidth: 750, // Increased minWidth for checkbox
-      width: '100%',
-      tableLayout: 'fixed'
-    },
-    tableHead: {
-      backgroundColor: colors.primary[700],
-      position: 'sticky',
-      top: 0,
-      zIndex: 1
-    },
-    headCell: {
-      color: colors.grey?.[100] ?? "white",
-      fontWeight: "bold",
-      whiteSpace: 'nowrap',
-      borderBottom: `1px solid ${colors.grey[700]}`,
-      padding: '18px 8px', // Adjusted padding
-    },
-    bodyCell: {
-      color: colors.grey?.[100] ?? "white",
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
-      whiteSpace: 'nowrap',
-      borderBottom: `1px solid ${colors.grey[800]}`,
-      padding: '8px 8px', // Adjusted padding
-    },
-
-    actionButton: { 
-      color: colors.grey?.[300] ?? '#cccccc',
-      padding: '4px',
-      '&:hover': {
-        color: colors.blueAccent?.[400] ?? '#4ba5f8',
-        backgroundColor: 'rgba(0, 123, 255, 0.1)',
-      },
-      '&.Mui-disabled': {
-        color: colors.grey?.[600] ?? '#777777',
-      }
-    },
-    statusText: { 
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: '4px'
-    },
-    menuItemIcon: {
-      minWidth: '36px',
-      color: 'inherit'
-    },
-    menuItemDisabledText: {
-      color: `${colors.grey[600]} !important`,
-      '.MuiListItemIcon-root': {
+    // --- STYLES ---
+    const styles = {
+        container: {
+        display: "flex",
+        minHeight: "100vh",
+        bgcolor: colors.grey[800],
+        // marginLeft and width are now applied directly in JSX sx prop for responsiveness
+        // with isCollapsed state
+        transition: "margin 0.3s ease",
+        padding: 0
+        // overflowX: 'hidden' will be on the JSX sx prop
+        },
+        content: {
+        flex: 1,
+        p: { xs: 1.5, sm: 2, md: 3 }, // Responsive padding
+        overflowY: 'auto',
+        overflowX: 'hidden', // Prevent content horizontal scroll
+        maxWidth: '100%',    // Ensure content stays within bounds
+        },
+        controlsRow: {
+        mb: { xs: 2, sm: 3 } // Responsive margin bottom
+        },
+        filterFormControl: {
+        minWidth: { xs: 130, sm: 160, md: 180 }, // Responsive minWidth
+        width: '100%', // Make form control take full width of its grid item
+        '& .MuiInputLabel-root': {
+            color: colors.grey[300],
+            fontSize: { xs: '0.8rem', sm: '0.9rem', md: '1rem' }, // Responsive label
+            '&.Mui-focused': { color: colors.blueAccent[300] }
+        },
+        '& .MuiOutlinedInput-root': {
+            color: colors.grey[100],
+            fontSize: { xs: '0.8rem', sm: '0.9rem', md: '1rem' }, // Responsive input text
+            '& .MuiOutlinedInput-notchedOutline': { borderColor: colors.grey[500] },
+            '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: colors.primary[300] },
+            '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: colors.blueAccent[400] },
+            '& .MuiSelect-icon': { color: colors.grey[300] },
+        }
+        },
+        // --- Dialog Styles (Apply responsive principles here too) ---
+        dialogPaper: {
+        backgroundColor: colors.grey[800] || theme.palette.background.paper,
+        color: colors.grey[100] || theme.palette.text.primary,
+        // Consider responsive minWidth/maxWidth for dialogs if needed
+        // e.g., minWidth: { xs: '90vw', sm: 'auto' }
+        },
+        dialogActions: {
+        padding: { xs: theme.spacing(1.5, 2), sm: theme.spacing(2, 3) }, // Responsive padding
+        backgroundColor: colors.primary[700] || theme.palette.action.hover,
+        borderTop: `1px solid ${colors.grey[700] || theme.palette.divider}`,
+        display: 'flex', // Added for flex properties
+        flexDirection: { xs: 'column-reverse', sm: 'row' }, // Stack buttons on xs
+        justifyContent: 'flex-end',
+        '& > :not(style)': { // Spacing for buttons
+            m: { xs: 0.5, sm: 0 },
+            ml: { xs: 0, sm: 1 },
+            width: { xs: '100%', sm: 'auto' } // Full width when stacked
+        }
+        },
+        dialogSelectControl: {
+        marginTop: theme.spacing(1),
+        // Apply responsive font sizes to labels and selected values if needed
+        '& .MuiInputLabel-root': { color: colors.grey[300], '&.Mui-focused': { color: colors.blueAccent[300] } },
+        '& .MuiOutlinedInput-root': { /* ... */ color: colors.grey[300], /* ... */ }
+        },
+        dialogTextField: {
+        // Apply responsive font sizes to labels and input text if needed
+        '& label.Mui-focused': { color: colors.blueAccent[300] },
+        '& .MuiOutlinedInput-root': { /* ... */ color: colors.grey[100], /* ... */ },
+        '& .MuiInputLabel-root': { color: colors.grey[300] },
+        },
+        dialogTitle: {
+        textAlign: "center",
+        color: colors.grey?.[100] ?? "#000",
+        paddingBottom: 0,
+        fontWeight: 'bold',
+        fontSize: { xs: '1.1rem', sm: '1.25rem', md: '1.5rem' } // Responsive font size
+        },
+        dialogContent: {
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        minWidth: { xs: '280px', sm: '350px' }, // Responsive minWidth
+        padding: { xs: theme.spacing(1.5, 2), sm: theme.spacing(2,3) }, // Responsive padding
+        color: colors.grey?.[100] ?? "#000"
+        },
+        fileDisplay: {
+        textAlign: "center",
+        padding: "15px",
+        border: `1px dashed ${colors.grey?.[500] ?? "#888"}`,
+        borderRadius: "5px",
+        width: { xs: '95%', sm: '80%' }, // Responsive width
+        wordBreak: 'break-word',
+        color: colors.grey?.[100] ?? "#000",
+        backgroundColor: colors.grey[800],
+        minHeight: '80px',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center'
+        },
+        uploadProgressContainer: {
+        width: { xs: '95%', sm: '80%' }, // Responsive width
+        marginTop: theme.spacing(2)
+        },
+        // --- Table Styles ---
+        tableContainer: {
+        marginTop: selectedFileIds.size > 0 ? 1 : 2, // Dynamic margin based on bulk bar
+        backgroundColor: colors.grey[900],
+        borderRadius: 2,
+        maxHeight: `calc(100vh - ${selectedFileIds.size > 0 ? '340px' : '280px'})`, // Dynamic height
+        overflow: 'auto', // Enables both vertical and horizontal scroll
+        position: 'relative',
+        "&::-webkit-scrollbar": { width: "8px", height: "8px" }, // Added height for horizontal
+        "&::-webkit-scrollbar-track": { background: colors.grey?.[700] },
+        "&::-webkit-scrollbar-thumb": {
+            backgroundColor: colors.grey?.[500] ?? "#888",
+            borderRadius: "10px",
+            border: `2px solid ${colors.grey?.[700] ?? "#3e4396"}`,
+            "&:hover": { backgroundColor: colors.primary?.[300] ?? "#555" },
+        }
+        },
+        table: {
+        minWidth: { xs: 600, md: 750, lg: 900 }, // Responsive minWidth for the table
+        width: '100%', // Ensures table tries to fit container before scrolling
+        // tableLayout: 'fixed' // Uncomment if you want fixed column widths (more complex to manage)
+        },
+        tableHead: {
+        backgroundColor: colors.primary[700],
+        position: 'sticky', // Makes header sticky during vertical scroll
+        top: 0,
+        zIndex: 1 // Ensures header is above table body content
+        },
+        headCell: {
+        color: colors.grey?.[100] ?? "white",
+        fontWeight: "bold",
+        whiteSpace: 'nowrap', // Prevents header text from wrapping
+        borderBottom: `1px solid ${colors.grey[700]}`,
+        p: { xs: '12px 6px', sm: '16px 8px' }, // Responsive padding
+        fontSize: { xs: '0.75rem', sm: '0.875rem' }, // Responsive font size
+        },
+        bodyCell: {
+        color: colors.grey?.[100] ?? "white",
+        overflow: 'hidden', // Needed for textOverflow
+        textOverflow: 'ellipsis', // Adds '...' for overflowed text
+        whiteSpace: 'nowrap', // Prevents text from wrapping to next line
+        borderBottom: `1px solid ${colors.grey[800]}`,
+        p: { xs: '6px 6px', sm: '8px 8px' }, // Responsive padding
+        fontSize: { xs: '0.75rem', sm: '0.875rem' }, // Responsive font size
+        maxWidth: 150, // Default maxWidth for cells, override per column if needed
+        },
+        actionButton: {
+        color: colors.grey?.[300] ?? '#cccccc',
+        padding: { xs: '2px', sm: '4px' }, // Responsive padding for action icon
+        '&:hover': {
+            color: colors.blueAccent?.[400] ?? '#4ba5f8',
+            backgroundColor: 'rgba(0, 123, 255, 0.1)',
+        },
+        '&.Mui-disabled': {
+            color: colors.grey?.[600] ?? '#777777',
+        }
+        },
+        statusText: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '4px',
+        fontSize: { xs: '0.7rem', sm: '0.8rem' }, // Responsive font size for status
+        },
+        menuItemIcon: {
+        minWidth: '36px',
+        color: 'inherit'
+        },
+        menuItemDisabledText: {
         color: `${colors.grey[600]} !important`,
-      }
-    },
-    loadingOverlay: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      zIndex: 2,
-      borderRadius: 'inherit' 
-    },
-    modalDialogPaper: { 
-      backgroundColor: colors.grey[800],
-      color: colors.grey[100],
-      minWidth: '600px',
-      maxWidth: '800px'
-    },
-    modalDialogContent: {
-      padding: theme.spacing(0, 3, 2, 3),
-      maxHeight: '70vh',
-      overflowY: 'auto'
-    },
-    modalDialogActions: {
-      padding: theme.spacing(1, 3),
-      backgroundColor: colors.primary[700], 
-      borderTop: `1px solid ${colors.grey[700]}`
-    },
-    modalAccordion: {
-      backgroundColor: colors.grey[800],
-      color: colors.grey[100],
-      mb: 1,
-      '&.Mui-expanded': { margin: '8px 0' }
-    },
-    modalAccordionDetails: {
-      backgroundColor: colors.grey[800], 
-      p: 2
-    },
-    modalListItemIcon: { 
-      color: colors.redAccent[400],
-      minWidth: 'auto',
-      '&:hover': {
-        backgroundColor: 'rgba(255, 0, 0, 0.1)',
-      }
-    },
-    settingsModalDeleteButton: {
-      color: colors.redAccent[400], 
-      marginLeft: 'auto', 
-      padding: '4px',
-      '&:hover': {
-        backgroundColor: 'rgba(255, 0, 0, 0.1)', 
-      },
-       '&.Mui-disabled': {
-          color: colors.grey[600], 
-       }
-    },
-  };
+        '.MuiListItemIcon-root': {
+            color: `${colors.grey[600]} !important`,
+        }
+        },
+        loadingOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 2, // Above table content, below sticky header if header zIndex is higher
+        borderRadius: 'inherit'
+        },
+        // --- Styles for Settings Modals (Project Assignments, Division/Project Management) ---
+        modalDialogPaper: { // For larger modals like settings
+        backgroundColor: colors.grey[800],
+        color: colors.grey[100],
+        minWidth: { xs: '95vw', sm: '70vw', md: '600px' }, // Responsive minWidth
+        maxWidth: {md: '800px'}, // Max width on larger screens
+        },
+        modalDialogContent: { // For settings modals
+        padding: { xs: theme.spacing(1.5, 1.5), sm: theme.spacing(2, 3) }, // Responsive padding
+        maxHeight: { xs: '80vh', sm: '70vh' }, // Responsive maxHeight
+        overflowY: 'auto'
+        },
+        modalDialogActions: { // For settings modals
+        padding: { xs: theme.spacing(1, 1.5), sm: theme.spacing(1, 3) }, // Responsive padding
+        backgroundColor: colors.primary[700],
+        borderTop: `1px solid ${colors.grey[700]}`,
+        // Responsive flex direction handled in dialogActions above, can be reused or specified
+        },
+        modalAccordion: {
+        backgroundColor: colors.grey[800], // Keep as is or make slightly different from paper for depth
+        color: colors.grey[100],
+        mb: 1,
+        '&.Mui-expanded': { margin: '8px 0' }
+        },
+        modalAccordionDetails: {
+        backgroundColor: colors.grey[800], // Or slightly darker/lighter than accordion summary
+        p: { xs: 1, sm: 2 } // Responsive padding
+        },
+        modalListItemIcon: {
+        color: colors.redAccent[400],
+        minWidth: 'auto',
+        '&:hover': {
+            backgroundColor: 'rgba(255, 0, 0, 0.1)',
+        }
+        },
+        settingsModalDeleteButton: {
+        color: colors.redAccent[400],
+        marginLeft: 'auto',
+        padding: { xs: '2px', sm: '4px' }, // Responsive padding
+        '&:hover': {
+            backgroundColor: 'rgba(255, 0, 0, 0.1)',
+        },
+        '&.Mui-disabled': {
+            color: colors.grey[600],
+        }
+        },
+    };
 
   // --- RENDER LOGIC ---
   if (isLoadingPermissions) {
@@ -1439,137 +1457,162 @@ const handleBulkDelete = async () => {
   }
 
   return (
-    <Box sx={styles.container}> 
+    <Box sx={{ 
+        display: "flex",
+        minHeight: "100vh",
+        bgcolor: colors.grey[800],
+        marginLeft: { // Responsive margin
+            xs: isCollapsed ? "80px" : "80px",
+            sm: isCollapsed ? "80px" : "270px",
+        },
+        transition: "margin 0.3s ease",
+        padding: 0,
+        width: { // Ensure it takes available width after margin
+        xs: `calc(100% - ${isCollapsed ? "80px" : "80px"})`,
+        sm: `calc(100% - ${isCollapsed ? "80px" : "270px"})`
+        },
+        overflowX: 'hidden',
+    }}>
       <Box sx={styles.content}> 
-        <Grid container spacing={2} sx={styles.controlsRow} alignItems="center" justifyContent="space-between">
-          <Grid item>
+        <Grid
+          container
+          spacing={{ xs: 1, sm: 2 }} // Responsive spacing between grid items
+          sx={styles.controlsRow}
+          alignItems="center"
+          // justifyContent="space-between" // This can be tricky with conditional elements. We'll manage spacing with grid items.
+        >
+          {/* Upload Button - Takes full width on xs, auto on sm up */}
+          <Grid item xs={12} sm={6} md="auto"> {/* Allow it to take more space initially */}
             {canPerformAction('upload') && (
               <Button
+                fullWidth // Button will be fullWidth within its Grid item
                 variant="contained"
                 startIcon={<UploadFileIcon />}
-                sx={{ backgroundColor: colors.primary[700], color: "white", "&:hover": { backgroundColor: colors.primary[400] }, textTransform: 'none' }}
+                size={theme.breakpoints.down('sm') ? "small" : "medium"} // Responsive size
+                sx={{
+                    backgroundColor: colors.primary[700],
+                    color: "white",
+                    "&:hover": { backgroundColor: colors.primary[400] },
+                    textTransform: 'none',
+                    py: { xs: 0.8, sm: 1 },
+                }}
                 onClick={handleOpenUploadModal}
-                disabled={isUploading || isLoading || loadingProjectsList || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId } 
+                disabled={isUploading || isLoading || loadingProjectsList || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId }
               >
                 Upload File
               </Button>
             )}
           </Grid>
-          <Grid item container xs spacing={2} justifyContent="flex-end" alignItems="center">
-          {userRole === ROLES.ADMIN && (
-                <Grid item>
+
+          {/* Spacer: Pushes subsequent items to the right. Only active if not xs. */}
+          <Grid item xs={false} sm />
+
+
+          {/* Admin Buttons & Filters - Grouped for flex-end behavior */}
+          {/* This inner Grid helps group items that should be pushed to the end */}
+            {userRole === ROLES.ADMIN && (
+                <>
+                <Grid item xs={12} sm={6} md="auto" sx={{ mt: { xs: 1, sm: 0 } }}> {/* Margin top on xs if stacked */}
                     <Tooltip title="Manage Division and Project Settings">
                         <Button
+                            fullWidth // Full width within its Grid item
                             variant="outlined"
+                            size={theme.breakpoints.down('sm') ? "small" : "medium"}
                             startIcon={<SettingsIcon />}
-                            sx={{ borderColor: colors.blueAccent[500], color: colors.blueAccent[400], '&:hover': { borderColor: colors.blueAccent[300], backgroundColor: 'rgba(75, 165, 248, 0.1)' }, textTransform: 'none' }}
+                            sx={{
+                                borderColor: colors.blueAccent[500], color: colors.blueAccent[400],
+                                '&:hover': { borderColor: colors.blueAccent[300], backgroundColor: 'rgba(75, 165, 248, 0.1)' },
+                                textTransform: 'none',
+                                '.MuiButton-startIcon': { mr: {xs: 0.5, sm: 1} },
+                                py: { xs: 0.8, sm: 1 },
+                            }}
                             onClick={handleOpenDivisionProjectSettingsModal}
-                            disabled={loadingProjectsList || loadingDivisionsList || isLoading || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId} 
+                            disabled={loadingProjectsList || loadingDivisionsList || isLoading || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId}
                         >
-                            Manage Division & Project
+                            {/* Conditional text rendering */}
+                            <Typography component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>Manage Structure</Typography>
+                            <Typography component="span" sx={{ display: { xs: 'inline', md: 'none' } }}>Structure</Typography>
                         </Button>
                     </Tooltip>
                 </Grid>
-             )}
-             {userRole === ROLES.ADMIN && (
-                <Grid item>
+                <Grid item xs={12} sm={6} md="auto" sx={{ mt: { xs: 1, sm: 0 } }}>
                     <Tooltip title="Manage Data Manager Assignments">
                         <Button
+                            fullWidth
                             variant="outlined"
-                            startIcon={<AdminPanelSettingsIcon />} // Changed icon
-                            sx={{ borderColor: colors.blueAccent[500], color: colors.blueAccent[400], '&:hover': { borderColor: colors.blueAccent[300], backgroundColor: 'rgba(75, 165, 248, 0.1)' }, textTransform: 'none' }}
+                            size={theme.breakpoints.down('sm') ? "small" : "medium"}
+                            startIcon={<AdminPanelSettingsIcon />}
+                            sx={{
+                                borderColor: colors.blueAccent[500], color: colors.blueAccent[400],
+                                '&:hover': { borderColor: colors.blueAccent[300], backgroundColor: 'rgba(75, 165, 248, 0.1)' },
+                                textTransform: 'none',
+                                '.MuiButton-startIcon': { mr: {xs: 0.5, sm: 1} },
+                                py: { xs: 0.8, sm: 1 },
+                            }}
                             onClick={handleOpenProjectSettingsModal}
-                            disabled={loadingProjectsList || loadingModalDMs || isLoading || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId} 
+                            disabled={loadingProjectsList || loadingModalDMs || isLoading || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId}
                         >
-                            Assignments
+                            <Typography component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>Assignments</Typography>
+                            <Typography component="span" sx={{ display: { xs: 'inline', md: 'none' } }}>Assign</Typography>
                         </Button>
                     </Tooltip>
                 </Grid>
-             )}
-             <Grid item xs={12} sm="auto">
+                </>
+            )}
+
+            {/* Division Filter */}
+            <Grid item xs={12} sm={userRole === ROLES.ADMIN ? 6 : 6} md="auto" sx={{ mt: { xs: 1, sm: (userRole === ROLES.ADMIN ? 0 : 0), md: 0 } }}>
                 <FormControl fullWidth variant="outlined" size="small" sx={styles.filterFormControl}>
-                    <InputLabel id="division-filter-label">Filter Division</InputLabel>
+                    {/* Pass responsive fontSize to InputLabel if defined in styles.filterFormControl */}
+                    <InputLabel id="division-filter-label" sx={{fontSize: styles.filterFormControl?.['& .MuiInputLabel-root']?.fontSize}}>
+                        Filter Division
+                    </InputLabel>
                     <Select
                         labelId="division-filter-label"
                         id="division-filter-select"
                         value={filterDivisionId}
                         label="Filter Division"
                         onChange={handleDivisionFilterChange}
-                        disabled={isLoading || loadingDivisionsList || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId} 
-                        MenuProps={{
-                            PaperProps: {
-                                sx: {
-                                    color: colors.grey[100], 
-                                    '& .MuiMenuItem-root:hover': {
-                                        backgroundColor: '#28ade2',
-                                        color: 'white',             
-                                    },
-                                    '& .MuiMenuItem-root.Mui-selected': {
-                                        backgroundColor: colors.blueAccent[700] + '!important', 
-                                        color: colors.grey[100] + '!important',              
-                                    },
-                                    
-                                    '& .MuiMenuItem-root.Mui-selected:hover': {
-                                        backgroundColor: colors.blueAccent[700] + '!important',
-                                        color: colors.grey[100] + '!important',
-                                    }
-                                }
-                            }
-                        }}
+                        disabled={isLoading || loadingDivisionsList || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId}
+                        MenuProps={{ /* ... your MenuProps ... */ }}
                     >
                         <MenuItem value="all"><em>All Divisions</em></MenuItem>
                         {divisionsList.map(d=>(<MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>))}
                     </Select>
                 </FormControl>
-             </Grid>
-             <Grid item xs={12} sm="auto">
-              <FormControl fullWidth variant="outlined" size="small" sx={styles.filterFormControl}>
-                <InputLabel id="project-filter-label">Filter Project</InputLabel>
-                <Select
-                  labelId="project-filter-label"
-                  id="project-filter-select"
-                  value={filterProjectId}
-                  label="Filter Project"
-                  onChange={handleProjectFilterChange}
-                  disabled={isLoading || loadingProjectsList || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId}
-                  MenuProps={{
-                            PaperProps: {
-                                sx: {
-                                    color: colors.grey[100], 
-                                    '& .MuiMenuItem-root:hover': {
-                                        backgroundColor: '#28ade2',
-                                        color: 'white',             
-                                    },
-                                    '& .MuiMenuItem-root.Mui-selected': {
-                                        backgroundColor: colors.blueAccent[700] + '!important', 
-                                        color: colors.grey[100] + '!important',              
-                                    },
-                                    
-                                    '& .MuiMenuItem-root.Mui-selected:hover': {
-                                        backgroundColor: colors.blueAccent[700] + '!important',
-                                        color: colors.grey[100] + '!important',
-                                    }
-                                }
-                            }
-                        }}
-                >
-                  <MenuItem value="all"><em>All Projects</em></MenuItem>
-                  {loadingProjectsList
-                    ? <MenuItem disabled><CircularProgress size={20} sx={{mr: 1}}/> Loading...</MenuItem>
-                    : filteredProjectsForDropdown.map(p => (
-                        <MenuItem key={p.id} value={p.id}>
-                            {p.name}
-                            {filterDivisionId === 'all' && ` (${p.division_name || 'No Div'})`}
-                        </MenuItem>
-                      ))
-                  }
-                    {!loadingProjectsList && filterDivisionId !== 'all' && filteredProjectsForDropdown.length === 0 && (
-                        <MenuItem disabled sx={{ fontStyle: 'italic' }}>No projects in this division</MenuItem>
-                    )}
-                </Select>
-              </FormControl>
             </Grid>
-          </Grid>
+
+            {/* Project Filter */}
+            <Grid item xs={12} sm={userRole === ROLES.ADMIN ? 6 : 6} md="auto" sx={{ mt: { xs: 1, sm: (userRole === ROLES.ADMIN ? 0 : 0), md: 0 } }}>
+                <FormControl fullWidth variant="outlined" size="small" sx={styles.filterFormControl}>
+                    <InputLabel id="project-filter-label" sx={{fontSize: styles.filterFormControl?.['& .MuiInputLabel-root']?.fontSize}}>
+                        Filter Project
+                    </InputLabel>
+                    <Select
+                        labelId="project-filter-label"
+                        id="project-filter-select"
+                        value={filterProjectId}
+                        label="Filter Project"
+                        onChange={handleProjectFilterChange}
+                        disabled={isLoading || loadingProjectsList || !!deletingProjectId || isDeletingBulk || !!deletingDivisionId}
+                        MenuProps={{ /* ... your MenuProps ... */ }}
+                    >
+                        <MenuItem value="all"><em>All Projects</em></MenuItem>
+                        {loadingProjectsList
+                            ? <MenuItem disabled><CircularProgress size={20} sx={{mr: 1}}/> Loading...</MenuItem>
+                            : filteredProjectsForDropdown.map(p => (
+                                <MenuItem key={p.id} value={p.id}>
+                                    {p.name}
+                                    {filterDivisionId === 'all' && ` (${p.division_name || 'No Div'})`}
+                                </MenuItem>
+                            ))
+                        }
+                        {!loadingProjectsList && filterDivisionId !== 'all' && filteredProjectsForDropdown.length === 0 && (
+                            <MenuItem disabled sx={{ fontStyle: 'italic' }}>No projects in this division</MenuItem>
+                        )}
+                    </Select>
+                </FormControl>
+            </Grid>
         </Grid>
 
         {/* --- Bulk Actions Bar --- */}
@@ -2208,25 +2251,26 @@ const handleBulkDelete = async () => {
                 <Table sx={styles.table} aria-label="file table" size="small">
                     <TableHead sx={styles.tableHead}>
                         <TableRow>
-                            <TableCell sx={{...styles.headCell, width: '60px', paddingLeft: '7px', padding: '0'}}>
-                                <Checkbox
-                                    color="primary"
-                                    indeterminate={selectedFileIds.size > 0 && selectedFileIds.size < numTotalSelectableForDelete}
-                                    checked={numTotalSelectableForDelete > 0 && selectedFileIds.size === numTotalSelectableForDelete}
-                                    onChange={handleSelectAllClick}
-                                    inputProps={{ 'aria-label': 'select all files' }}
-                                    disabled={isLoading || isDeletingBulk || !!deletingProjectId || !!deletingDivisionId || numTotalSelectableForDelete === 0}
-                                    sx={{ color: colors.grey[300], '&.Mui-checked': {color: colors.blueAccent[300]}, '&.Mui-disabled': {color: colors.grey[600]} }}
-                                />
+                            {/* Checkbox Column */}
+                            <TableCell sx={{...styles.headCell, width: {xs: 40, sm: 60}, p: {xs: '0 4px', sm: '0 8px'} }}>
+                                <Checkbox /* ... select all props ... */ />
                             </TableCell>
-                            <TableCell sx={styles.headCell}>Name</TableCell>
-                            <TableCell sx={styles.headCell}>Plot</TableCell>
-                            <TableCell sx={styles.headCell}>Division</TableCell>
-                            <TableCell sx={styles.headCell}>Project</TableCell>
-                            <TableCell sx={styles.headCell}>Size</TableCell>
-                            <TableCell sx={styles.headCell}>Uploaded</TableCell>
-                            <TableCell sx={{...styles.headCell, textAlign:'center'}}>Potree</TableCell>
-                            <TableCell sx={{...styles.headCell, textAlign:'center', width: '100px'}}>Actions</TableCell>
+                            {/* Name Column */}
+                            <TableCell sx={{...styles.headCell, width: {xs: '30%', sm: '25%'}, minWidth: {xs: 100, sm: 120} }}>Name</TableCell>
+                            {/* Plot Column - NO LONGER HIDDEN */}
+                            <TableCell sx={{...styles.headCell, width: '15%', minWidth: 80 }}>Plot</TableCell>
+                            {/* Division Column - NO LONGER HIDDEN */}
+                            <TableCell sx={{...styles.headCell, width: '15%', minWidth: 100 }}>Division</TableCell>
+                            {/* Project Column */}
+                            <TableCell sx={{...styles.headCell, width: {xs: '25%', sm: '15%'}, minWidth: {xs: 80, sm:100} }}>Project</TableCell>
+                            {/* Size Column - NO LONGER HIDDEN */}
+                            <TableCell sx={{...styles.headCell, width: '10%', minWidth: 70 }}>Size</TableCell>
+                            {/* Uploaded Column - NO LONGER HIDDEN */}
+                            <TableCell sx={{...styles.headCell, width: '10%', minWidth: 80 }}>Uploaded</TableCell>
+                            {/* Potree Status Column */}
+                            <TableCell sx={{...styles.headCell, width: {xs: '20%', sm: '10%'}, textAlign:'center'}}>Potree</TableCell>
+                            {/* Actions Column */}
+                            <TableCell sx={{...styles.headCell, width: {xs: 50, sm: 70}, textAlign:'center', p: {xs: '0 2px', sm: '0 4px'}}}>Actions</TableCell>
                         </TableRow>
                     </TableHead>
                         <TableBody>
@@ -2276,7 +2320,6 @@ const handleBulkDelete = async () => {
                                     key={file.id}
                                     hover
                                     onClick={(event) => {
-                                        // Allow clicking row to toggle checkbox if not clicking on an interactive element within the row
                                         if (event.target.type !== 'checkbox' && !event.target.closest('button')) {
                                              if (!isEffectivelyConverting && canDeleteThisFile && !isGlobalDeleteActive) {
                                                 handleRowCheckboxClick({ target: { checked: !isSelected } }, file.id);
@@ -2290,47 +2333,148 @@ const handleBulkDelete = async () => {
                                         '&:last-child td,&:last-child th':{border:0},
                                         opacity: isEffectivelyConverting || isGlobalDeleteActive ? 0.6 : 1,
                                         cursor: (!isEffectivelyConverting && canDeleteThisFile && !isGlobalDeleteActive) ? 'pointer' : 'default',
+                                        backgroundColor: isSelected ? `${colors.blueAccent[800]} !important` : 'transparent', // Persist selection color
                                         '&:hover': {
-                                            backgroundColor: (isEffectivelyConverting || isGlobalDeleteActive || !canDeleteThisFile) ? 'inherit' : colors.primary[800]
+                                            // Only apply hover if not selected and not disabled by processing/global delete
+                                            backgroundColor: (isSelected || isEffectivelyConverting || isGlobalDeleteActive || !canDeleteThisFile) ? undefined : colors.primary[800]
                                         },
-                                        ...(isSelected && {
-                                            backgroundColor: `${colors.blueAccent[800]} !important` // Persist selection color
-                                        })
                                     }}
                                 >
-                                    <TableCell padding="checkbox" sx={{...styles.bodyCell, width: '60px', padding: '0'}}>
+                                    {/* ---- Checkbox Cell ---- */}
+                                    <TableCell
+                                        padding="checkbox"
+                                        sx={{
+                                            ...styles.bodyCell, // Inherit base bodyCell styles (like font size, default padding)
+                                            width: {xs: 40, sm: 60}, // Responsive width
+                                            p: {xs: '0 4px', sm: '0 8px'} // Specific responsive padding for this cell
+                                        }}
+                                    >
                                         <Checkbox
                                             color="primary"
                                             checked={isSelected}
                                             onChange={(event) => handleRowCheckboxClick(event, file.id)}
-                                            onClick={(e) => e.stopPropagation()} // Prevent row click from also firing
+                                            onClick={(e) => e.stopPropagation()}
                                             inputProps={{ 'aria-labelledby': `file-name-${file.id}` }}
                                             disabled={isEffectivelyConverting || !canDeleteThisFile || isGlobalDeleteActive}
-                                            sx={{ color: colors.grey[300], '&.Mui-checked': {color: colors.blueAccent[300]}, '&.Mui-disabled': {color: colors.grey[600]} }}
+                                            sx={{
+                                                color: colors.grey[300],
+                                                '&.Mui-checked': {color: colors.blueAccent[300]},
+                                                '&.Mui-disabled': {color: colors.grey[600]},
+                                                p: {xs: 0.5, sm: 1} // Padding for the checkbox itself
+                                            }}
+                                            size="small"
                                         />
                                     </TableCell>
-                                     <TableCell sx={styles.bodyCell} title={file.name} id={`file-name-${file.id}`}>{file.name}</TableCell>
-                                     <TableCell sx={styles.bodyCell}>{file.plot_name || 'N/A'}</TableCell>
-                                     <TableCell sx={styles.bodyCell}>{file.divisionName || 'N/A'}</TableCell>
-                                     <TableCell sx={styles.bodyCell} title={file.projectName}>{file.projectName}</TableCell>
-                                     <TableCell sx={styles.bodyCell}>{file.size}</TableCell>
-                                     <TableCell sx={styles.bodyCell}>{file.uploadDate}</TableCell>
 
-                                    <TableCell sx={{...styles.bodyCell,textAlign:'center'}}>
+                                    {/* ---- Name Cell ---- */}
+                                    <TableCell
+                                        sx={{
+                                            ...styles.bodyCell,
+                                            width: {xs: '35%', sm: '30%', md: '25%'}, // Responsive width
+                                            minWidth: {xs: 100, sm: 120},         // Responsive minWidth
+                                            maxWidth: {xs: 120, sm: 150, md: 250}  // Responsive maxWidth for ellipsis
+                                        }}
+                                        title={file.name}
+                                        id={`file-name-${file.id}`}
+                                    >
+                                        {file.name}
+                                    </TableCell>
+
+                                    {/* ---- Plot Cell (Hidden on xs) ---- */}
+                                    <TableCell
+                                        sx={{
+                                            ...styles.bodyCell,
+                                            width: '15%',
+                                            minWidth: 80,
+                                            maxWidth: 120,
+                                            // display: { xs: 'none', md: 'table-cell' } // Hidden on xs & sm
+                                        }}
+                                    >
+                                        {file.plot_name || 'N/A'}
+                                    </TableCell>
+
+                                    {/* ---- Division Cell (Hidden on xs & sm) ---- */}
+                                    <TableCell
+                                        sx={{
+                                            ...styles.bodyCell,
+                                            width: '15%',
+                                            minWidth: 100,
+                                            maxWidth: 150,
+                                            // display: { xs: 'none', lg: 'table-cell' } // Hidden on xs, sm, md
+                                        }}
+                                    >
+                                        {file.divisionName || 'N/A'}
+                                    </TableCell>
+
+                                    {/* ---- Project Cell ---- */}
+                                    <TableCell
+                                        sx={{
+                                            ...styles.bodyCell,
+                                            width: {xs: '30%', sm: '20%', md: '15%'},
+                                            minWidth: {xs: 80, sm: 100},
+                                            maxWidth: {xs: 100, sm: 120, md: 180}
+                                        }}
+                                        title={file.projectName}
+                                    >
+                                        {file.projectName}
+                                    </TableCell>
+
+                                    {/* ---- Size Cell (Hidden on xs & sm) ---- */}
+                                    <TableCell
+                                        sx={{
+                                            ...styles.bodyCell,
+                                            width: '10%',
+                                            minWidth: 70,
+                                            // display: { xs: 'none', lg: 'table-cell' }
+                                        }}
+                                    >
+                                        {file.size}
+                                    </TableCell>
+
+                                    {/* ---- Uploaded Cell (Hidden on xs) ---- */}
+                                    <TableCell
+                                        sx={{
+                                            ...styles.bodyCell,
+                                            width: '10%',
+                                            minWidth: 80,
+                                            // display: { xs: 'none', md: 'table-cell' }
+                                        }}
+                                    >
+                                        {file.uploadDate}
+                                    </TableCell>
+
+                                    {/* ---- Potree Status Cell ---- */}
+                                    <TableCell
+                                        sx={{
+                                            ...styles.bodyCell,
+                                            width: {xs: '20%', sm: '15%', md: '10%'},
+                                            minWidth: {xs: 80, sm: 100},
+                                            textAlign:'center'
+                                        }}
+                                    >
                                         {isEffectivelyConverting ? (
-                                          <Box sx={styles.statusText}>
+                                          <Box sx={styles.statusText}> {/* Ensure styles.statusText has responsive font */}
                                             <CircularProgress size={16} sx={{color:sC}}/>
-                                            <Typography variant="caption" sx={{color:sC,ml:1}}>{sT}</Typography>
+                                            <Typography variant="caption" sx={{color:sC, ml:0.5, display: {xs: 'none', sm: 'inline'}}}>{sT}</Typography> {/* Hide text on xs */}
                                           </Box>
                                         ) : (
-                                          <Typography variant="caption" sx={{color:sC}}>{sT}</Typography>
+                                          <Typography variant="caption" sx={{color:sC, ...styles.statusText?.fontSize && {fontSize: styles.statusText.fontSize} }}>{sT}</Typography>
                                         )}
                                     </TableCell>
-                                    <TableCell sx={{...styles.bodyCell,textAlign:'center',p:'0 8px'}}>
+
+                                    {/* ---- Actions Cell ---- */}
+                                    <TableCell
+                                        sx={{
+                                            ...styles.bodyCell,
+                                            width: {xs: 50, sm: 70},
+                                            textAlign:'center',
+                                            p: {xs: '0 2px !important', sm: '0 4px !important'} // Override bodyCell padding if needed, using !important cautiously
+                                        }}
+                                    >
                                         <IconButton
                                             aria-label={`actions-for-${file.name}`}
                                             onClick={(e)=>{ e.stopPropagation(); handleMenuClick(e,file);}}
-                                            sx={styles.actionButton}
+                                            sx={styles.actionButton} // styles.actionButton should have responsive padding
                                             size="small"
                                             disabled={isEffectivelyConverting || !hasAnyAction || isGlobalDeleteActive}
                                             title={!hasAnyAction?"No actions available":(isEffectivelyConverting?"Processing...":"More Actions")}
@@ -2348,18 +2492,17 @@ const handleBulkDelete = async () => {
                                             PaperProps={{sx:{backgroundColor:colors.primary[800],color:colors.grey[100],mt:0.5}}}
                                         >
                                             {cReassign && (
-                                                 <MenuItem onClick={() => handleOpenReassignModal(selectedFile)} disabled={isEffectivelyConverting || isGlobalDeleteActive}>
+                                                 <MenuItem onClick={() => { handleMenuClose(); handleOpenReassignModal(selectedFile); }} disabled={isEffectivelyConverting || isGlobalDeleteActive}>
                                                      <ListItemIcon sx={{...styles.menuItemIcon, color: colors.grey[300]}}><AssignmentIcon fontSize="small"/></ListItemIcon>
                                                      <ListItemText>Edit Details / Reassign</ListItemText>
                                                  </MenuItem>
                                              )}
-                                            {cD && (<MenuItem onClick={()=>handleDownload(selectedFile)} disabled={isEffectivelyConverting || isGlobalDeleteActive}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><DownloadIcon fontSize="small"/></ListItemIcon><ListItemText>Download</ListItemText></MenuItem>)}
-                                            {cV && isReady && (<MenuItem onClick={()=>handleViewPotree(selectedFile)} disabled={isEffectivelyConverting || isGlobalDeleteActive}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><VisibilityIcon fontSize="small"/></ListItemIcon><ListItemText>View Point Cloud</ListItemText></MenuItem>)}
-                                            {cC && !isReady && !isEffectivelyConverting && backendFileStatus !== 'failed' && (<MenuItem onClick={()=>handleConvertPotree(selectedFile)} disabled={isGlobalDeleteActive}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><TransformIcon fontSize="small"/></ListItemIcon><ListItemText>Convert to Potree</ListItemText></MenuItem>)}
-                                            {/* Individual delete can still be here as a quick action, or removed to simplify to bulk only */}
-                                            {canDeleteThisFile && (<MenuItem onClick={()=>handleRemove(selectedFile)} disabled={isEffectivelyConverting || isGlobalDeleteActive} sx={{ color: colors.redAccent[400], '.MuiListItemIcon-root': { color: colors.redAccent[400] } }} ><ListItemIcon sx={styles.menuItemIcon}><DeleteIcon fontSize="small"/></ListItemIcon><ListItemText>Remove File</ListItemText></MenuItem>)}
-                                            
-                                            {!hasAnyAction && !canDeleteThisFile && (<MenuItem disabled sx={styles.menuItemDisabledText}><ListItemText>No actions permitted</ListItemText></MenuItem>)}
+                                            {cD && (<MenuItem onClick={()=>{ handleMenuClose(); handleDownload(selectedFile);}} disabled={isEffectivelyConverting || isGlobalDeleteActive}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><DownloadIcon fontSize="small"/></ListItemIcon><ListItemText>Download</ListItemText></MenuItem>)}
+                                            {cV && isReady && (<MenuItem onClick={()=>{ handleMenuClose(); handleViewPotree(selectedFile);}} disabled={isEffectivelyConverting || isGlobalDeleteActive}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><VisibilityIcon fontSize="small"/></ListItemIcon><ListItemText>View Point Cloud</ListItemText></MenuItem>)}
+                                            {cC && !isReady && !isEffectivelyConverting && backendFileStatus !== 'failed' && (<MenuItem onClick={()=>{ handleMenuClose(); handleConvertPotree(selectedFile);}} disabled={isGlobalDeleteActive}><ListItemIcon sx={{...styles.menuItemIcon, color:colors.grey[300]}}><TransformIcon fontSize="small"/></ListItemIcon><ListItemText>Convert to Potree</ListItemText></MenuItem>)}
+                                            {canDeleteThisFile && (<MenuItem onClick={()=>{ handleMenuClose(); handleRemove(selectedFile);}} disabled={isEffectivelyConverting || isGlobalDeleteActive} sx={{ color: colors.redAccent[400], '.MuiListItemIcon-root': { color: colors.redAccent[400] } }} ><ListItemIcon sx={styles.menuItemIcon}><DeleteIcon fontSize="small"/></ListItemIcon><ListItemText>Remove File</ListItemText></MenuItem>)}
+
+                                            {!hasAnyAction && (<MenuItem disabled sx={styles.menuItemDisabledText}><ListItemText>No actions permitted</ListItemText></MenuItem>)}
                                         </Menu>
                                     </TableCell>
                                 </TableRow>

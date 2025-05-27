@@ -12,6 +12,8 @@ import MidpointsMiniMap from './MidpointsMiniMap'; // Ensure this path is correc
 import { tokens } from "../../theme"; // Assuming tokens is here for colors
 
 // --- Leaflet Icon Fix ---
+// (This fix should ideally be in a more global place, like index.js or App.js,
+// but keeping it here if it's specific to this component's leaflet instance setup)
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: require('leaflet/dist/images/marker-icon-2x.png'),
@@ -21,8 +23,9 @@ L.Icon.Default.mergeOptions({
 // --- End Icon Fix ---
 
 // Constants
-const API_BASE_URL = "http://localhost:5000/api";
+const API_BASE_URL = "http://localhost:5000/api"; // Replace with your actual API base URL
 const MAX_MAP_AND_TILE_ZOOM = 21;
+const OSM_NATIVE_MAX_ZOOM = 19;
 
 const MapComponent = ({ isCollapsed }) => {
   const theme = useTheme();
@@ -62,8 +65,8 @@ const MapComponent = ({ isCollapsed }) => {
     try {
       const response = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
       if (!response.ok) {
-        const errorText = await response.text().catch(() => 'Failed to read error response');
-        throw new Error(`HTTP error! Status: ${response.status}, Endpoint: ${url.replace(API_BASE_URL,'')}, Details: ${errorText.substring(0,100)}`);
+        const errorText = await response.text().catch(() => `Failed to read error response from ${url}`);
+        throw new Error(`HTTP error! Status: ${response.status}, Endpoint: ${url.replace(API_BASE_URL,'')}, Details: ${errorText.substring(0,150)}`);
       }
       const data = await response.json();
       setDataFunc(Array.isArray(data) ? data : []);
@@ -80,10 +83,10 @@ const MapComponent = ({ isCollapsed }) => {
   useEffect(() => {
     const storedToken = localStorage.getItem('authToken');
     if (!storedToken) {
-      const authError = "Authentication required.";
+      const authError = "Authentication required. Please log in.";
       setErrorProjects(authError); setErrorDivisions(authError);
       setIsLoadingProjects(false); setIsLoadingDivisions(false);
-      setMapFiles([]); setIsLoadingFiles(false); // Also stop files loading
+      setMapFiles([]); setIsLoadingFiles(false);
       return;
     }
     fetchDropdownData(`${API_BASE_URL}/projects`, storedToken, setProjects, setIsLoadingProjects, setErrorProjects);
@@ -94,38 +97,23 @@ const MapComponent = ({ isCollapsed }) => {
   const fetchPlotsList = useCallback(async (divisionId, projectId) => {
     const token = localStorage.getItem('authToken');
     if (!token) {
-      setPlotsList([]);
-      setErrorPlots("Authentication required for fetching plots.");
-      setLoadingPlots(false);
-      return;
+      setPlotsList([]); setErrorPlots("Authentication required for fetching plots."); setLoadingPlots(false); return;
     }
-
     if (!divisionId || divisionId === 'all' || !projectId || projectId === 'all' || projectId === 'unassigned') {
-      setPlotsList([]);
-      setFilterPlotName('all');
-      setLoadingPlots(false);
-      return;
+      setPlotsList([]); setFilterPlotName('all'); setLoadingPlots(false); return;
     }
-
-    setLoadingPlots(true);
-    setErrorPlots(null);
-    setPlotsList([]);
-
+    setLoadingPlots(true); setErrorPlots(null); setPlotsList([]);
     try {
-      const params = new URLSearchParams();
-      params.append('divisionId', divisionId);
-      params.append('projectId', projectId);
-
+      const params = new URLSearchParams({ divisionId, projectId });
       const response = await fetch(`${API_BASE_URL}/files/plots?${params.toString()}`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
-
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Failed to read error response');
         throw new Error(`HTTP error fetching plots! Status: ${response.status}, Details: ${errorText.substring(0,100)}`);
       }
       const data = await response.json();
-      setPlotsList(data.plots || []);
+      setPlotsList(Array.isArray(data.plots) ? data.plots : []);
     } catch (error) {
       console.error("Failed to fetch plot names:", error);
       setErrorPlots(error.message || "An error occurred while fetching plot names.");
@@ -139,11 +127,9 @@ const MapComponent = ({ isCollapsed }) => {
   const fetchMapFiles = useCallback(async () => {
     const storedToken = localStorage.getItem('authToken');
     if (!storedToken) {
-      setErrorFiles("Authentication required. Please log in.");
-      setIsLoadingFiles(false); setMapFiles([]); return;
+      setErrorFiles("Authentication required. Please log in."); setIsLoadingFiles(false); setMapFiles([]); return;
     }
     setIsLoadingFiles(true); setErrorFiles(null); setMapFiles([]);
-
     try {
       const params = new URLSearchParams();
       if (selectedProjectId && selectedProjectId !== 'all') {
@@ -155,10 +141,8 @@ const MapComponent = ({ isCollapsed }) => {
       if (filterPlotName && filterPlotName !== 'all' && canFetchPlots) {
           params.append('plotName', filterPlotName);
       }
-
       const query = params.toString();
       const url = `${API_BASE_URL}/files${query ? `?${query}` : ''}`;
-
       const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${storedToken}`, 'Content-Type': 'application/json' }
       });
@@ -168,14 +152,12 @@ const MapComponent = ({ isCollapsed }) => {
       }
       const filesData = await response.json();
       const filesArray = Array.isArray(filesData) ? filesData : [];
-
       const processedFiles = filesArray.map(f => ({
             ...f,
             projectName: f.projectName || (f.project_id ? `Project ID ${f.project_id}` : 'Unassigned'),
             divisionName: f.divisionName || (f.division_id ? `Division ID ${f.division_id}` : 'N/A'),
        }));
       setMapFiles(processedFiles);
-
     } catch (err) {
       console.error("Failed to fetch map files:", err);
       setErrorFiles(err.message || "An error occurred while fetching map files.");
@@ -191,15 +173,12 @@ const MapComponent = ({ isCollapsed }) => {
       fetchPlotsList(selectedDivisionId, selectedProjectId);
     } else {
       setPlotsList([]);
-      if (filterPlotName !== 'all') {
-        setFilterPlotName('all');
-      }
+      if (filterPlotName !== 'all') setFilterPlotName('all');
     }
   }, [selectedDivisionId, selectedProjectId, canFetchPlots, fetchPlotsList, isLoadingDivisions, isLoadingProjects, filterPlotName]);
 
   // --- Effect to Fetch Map Files when any relevant filter changes ---
   useEffect(() => {
-    // Only fetch if initial dropdown data is loaded or not in an error state for auth
     if ((!isLoadingDivisions && !isLoadingProjects) || (!errorDivisions && !errorProjects)) {
         fetchMapFiles();
     }
@@ -208,10 +187,8 @@ const MapComponent = ({ isCollapsed }) => {
   // --- Calculate Filtered Projects for Dropdown ---
   const filteredProjects = useMemo(() => {
     const safeProjects = Array.isArray(projects) ? projects : [];
-    if (isLoadingProjects || !safeProjects) return [];
-    if (selectedDivisionId === 'all' || safeProjects.length === 0) {
-      return safeProjects;
-    }
+    if (isLoadingProjects || !safeProjects.length) return [];
+    if (selectedDivisionId === 'all') return safeProjects;
     const divisionIdToCompare = parseInt(selectedDivisionId, 10);
     return safeProjects.filter(project => project.division_id === divisionIdToCompare);
   }, [selectedDivisionId, projects, isLoadingProjects]);
@@ -219,13 +196,10 @@ const MapComponent = ({ isCollapsed }) => {
   // --- Handle Dropdown Changes ---
   const handleDivisionChange = (event) => {
     const newDivisionId = event.target.value;
-    setSelectedDivisionId(newDivisionId);
-    setSelectedProjectId('all');
-    setFilterPlotName('all');
+    setSelectedDivisionId(newDivisionId); setSelectedProjectId('all'); setFilterPlotName('all');
   };
   const handleProjectChange = (event) => {
-    setSelectedProjectId(event.target.value);
-    setFilterPlotName('all');
+    setSelectedProjectId(event.target.value); setFilterPlotName('all');
   };
   const handlePlotFilterChange = (event) => {
     setFilterPlotName(event.target.value);
@@ -239,7 +213,14 @@ const MapComponent = ({ isCollapsed }) => {
   );
 
   if (filesWithMainCoords.length > 0) {
-    mapCenterToUse = [filesWithMainCoords[0].latitude, filesWithMainCoords[0].longitude];
+    // Basic average for a slightly better default center if multiple files
+    if (filesWithMainCoords.length > 1) {
+        const avgLat = filesWithMainCoords.reduce((sum, f) => sum + f.latitude, 0) / filesWithMainCoords.length;
+        const avgLng = filesWithMainCoords.reduce((sum, f) => sum + f.longitude, 0) / filesWithMainCoords.length;
+        mapCenterToUse = [avgLat, avgLng];
+    } else {
+        mapCenterToUse = [filesWithMainCoords[0].latitude, filesWithMainCoords[0].longitude];
+    }
   }
 
   const combinedError = errorFiles || errorProjects || errorDivisions || errorPlots;
@@ -249,7 +230,7 @@ const MapComponent = ({ isCollapsed }) => {
     useEffect(() => {
       const onZoomEnd = () => { setCurrentZoom(map.getZoom()); };
       map.on('zoomend', onZoomEnd);
-      setCurrentZoom(map.getZoom()); // Set initial zoom
+      setCurrentZoom(map.getZoom());
       return () => { map.off('zoomend', onZoomEnd); };
     }, [map]);
     return null;
@@ -263,64 +244,114 @@ const MapComponent = ({ isCollapsed }) => {
   // --- STYLES OBJECT ---
   const styles = {
     filterRow: {
-      marginBottom: theme.spacing(2),
-      padding: theme.spacing(2),
+      mb: 2,
+      p: { xs: 1.5, sm: 2 },
       backgroundColor: colors.grey[900],
       borderRadius: theme.shape.borderRadius,
       flexShrink: 0,
     },
     filterFormControl: {
-      minWidth: 180,
+      minWidth: { xs: 120, sm: 150, md: 180 },
+      width: '100%',
       '& .MuiInputLabel-root': {
         color: colors.grey[300],
+        fontSize: { xs: '0.8rem', sm: '0.9rem', md: '1rem' },
         '&.Mui-focused': { color: colors.blueAccent[300] }
       },
       '& .MuiOutlinedInput-root': {
         color: colors.grey[100],
+        fontSize: { xs: '0.8rem', sm: '0.9rem', md: '1rem' },
         '& .MuiOutlinedInput-notchedOutline': { borderColor: colors.grey[600] },
         '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: colors.primary[300] },
         '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: colors.blueAccent[400] },
         '& .MuiSelect-icon': { color: colors.grey[300] },
       }
     },
+    mapContainerWrapper: {
+      flexGrow: 1,
+      width: '100%',
+      position: 'relative',
+      border: `1px solid ${colors.grey[700]}`,
+      borderRadius: theme.shape.borderRadius,
+      overflow: 'hidden',
+      minHeight: { xs: 300, sm: 350, md: 400 } // Responsive minimum height for the map area
+    },
+    popupContentBox: {
+        lineHeight: 1.5,
+        display: 'flex',
+        flexDirection: 'column',
+        maxHeight: { xs: '65vh', sm: '60vh', md: '500px' }, // Max height for popup content
+        overflowY: 'auto',
+        width: '100%',
+        p: {xs: 1, sm: 1.5} // Padding inside the popup content box
+    },
+    popupMiniMapContainer: {
+        height: { xs: '180px', sm: '220px', md: '250px' }, // Responsive height for mini-map
+        width: '100%',
+        mb: 1.5, // Margin bottom for mini-map
+        border: `1px solid ${colors.grey[700]}`,
+        borderRadius: theme.shape.borderRadius
+    },
+    popupDetailsSection: {
+        mt: 'auto', // Pushes details to bottom if content above is short
+        borderTop: `1px solid ${colors.grey[700]}`,
+        pt: 1.5, // Padding top for details section
+        flexShrink: 0,
+        color: colors.grey[200],
+        fontSize: {xs: '0.75rem', sm: '0.875rem'}
+    }
   };
 
-  // --- COMMON MENU PROPS ---
+  // --- COMMON MENU PROPS for Select Dropdowns ---
   const commonMenuProps = {
     PaperProps: {
       sx: {
-          color: colors.grey[100], // Default text color for menu items
+          backgroundColor: colors.primary[700] || theme.palette.background.paper, // Theme aware background
+          color: colors.grey[100],
+          '& .MuiMenuItem-root': {
+            fontSize: { xs: '0.8rem', sm: '0.9rem' }, // Responsive font size for menu items
+          },
           '& .MuiMenuItem-root:hover': {
-              backgroundColor: '#28ade2', // Your desired hover background
-              color: 'white',             // Your desired hover text color
+              backgroundColor: colors.blueAccent[600] || theme.palette.action.hover,
+              color: colors.grey[100],
           },
           '& .MuiMenuItem-root.Mui-selected': {
-              backgroundColor: colors.blueAccent[700] + '!important', // Keep selected style
-              color: colors.grey[100] + '!important',                // Keep selected text color (add !important)
+              backgroundColor: `${colors.blueAccent[700]} !important`,
+              color: `${colors.grey[100]} !important`,
           },
-          // Ensure selected item maintains its style on hover
           '& .MuiMenuItem-root.Mui-selected:hover': {
-              backgroundColor: colors.blueAccent[700] + '!important',
-              color: colors.grey[100] + '!important',
+              backgroundColor: `${colors.blueAccent[700]} !important`,
+              color: `${colors.grey[100]} !important`,
           }
       }
   }
   };
 
-  const anyFiltersLoading = isLoadingDivisions || isLoadingProjects || loadingPlots; // Don't include isLoadingFiles for disabling filters themselves
+  const anyFiltersLoading = isLoadingDivisions || isLoadingProjects || loadingPlots;
 
   return (
     <Box sx={{
-        display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)',
-        marginLeft: isCollapsed ? "80px" : "270px", transition: "margin-left 0.3s ease",
-        overflow: 'hidden', padding: theme.spacing(2), boxSizing: 'border-box',
+        display: 'flex', flexDirection: 'column',
+        height: `calc(100vh - ${theme.mixins.toolbar?.minHeight || 64}px - ${theme.spacing(4)})`,
+        marginLeft: {
+            xs: 0, // Assuming sidebar is overlaid or hidden on xs
+            sm: isCollapsed ? "80px" : "270px"
+        },
+        transition: "margin-left 0.3s ease",
+        overflow: 'hidden',
+        p: { xs: 1, sm: 2 },
+        boxSizing: 'border-box',
         backgroundColor: colors.grey[800]
     }}>
       <Box sx={styles.filterRow}>
-        <Typography variant="h6" gutterBottom sx={{ color: colors.grey[100], mb: 2 }}>
+        <Typography variant="h6" gutterBottom sx={{
+            color: colors.grey[100],
+            mb: 2,
+            fontSize: {xs: '1rem', sm: '1.15rem', md: '1.25rem'}
+        }}>
             Filter Map Data
         </Typography>
-         <Grid container spacing={2} alignItems="center">
+         <Grid container spacing={{xs: 1.5, sm: 2}} alignItems="flex-start"> {/* Changed to flex-start for better label alignment */}
              <Grid item xs={12} sm={6} md={4}>
                 <FormControl fullWidth size="small" variant="outlined" sx={styles.filterFormControl}>
                     <InputLabel id="division-filter-label">Filter by Division</InputLabel>
@@ -334,7 +365,7 @@ const MapComponent = ({ isCollapsed }) => {
                      >
                         <MenuItem value="all"><em>All Divisions</em></MenuItem>
                         {isLoadingDivisions ? <MenuItem disabled><CircularProgress size={20} sx={{ mr: 1 }} /> Loading...</MenuItem>
-                            : (divisions || []).length === 0 ? <MenuItem disabled><em>No divisions</em></MenuItem>
+                            : (divisions || []).length === 0 ? <MenuItem disabled sx={{fontStyle: 'italic'}}>No divisions found</MenuItem>
                             : (divisions || []).map((division) => (
                                 <MenuItem key={`div-${division.id}`} value={division.id.toString()}>{division.name}</MenuItem>
                             ))
@@ -356,6 +387,7 @@ const MapComponent = ({ isCollapsed }) => {
                         <MenuItem value="all">
                             <em>All Projects {selectedDivisionName ? `in ${selectedDivisionName}` : ''}</em>
                         </MenuItem>
+                         <MenuItem value="unassigned" sx={{fontStyle: 'italic'}}>Unassigned Files</MenuItem>
                         {isLoadingProjects ? <MenuItem disabled><CircularProgress size={20} sx={{ mr: 1 }} /> Loading...</MenuItem>
                             : (filteredProjects.length === 0 && selectedDivisionId !== 'all') ? <MenuItem disabled sx={{ fontStyle: 'italic' }}>No projects in division</MenuItem>
                             : (projects.length === 0 && selectedDivisionId === 'all' && !isLoadingProjects) ? <MenuItem disabled sx={{ fontStyle: 'italic' }}>No projects available</MenuItem>
@@ -377,7 +409,7 @@ const MapComponent = ({ isCollapsed }) => {
                     </Select>
                 </FormControl>
              </Grid>
-             <Grid item xs={12} sm={6} md={4}>
+             <Grid item xs={12} sm={12} md={4}> {/* Plot filter takes full sm width if only 2 filters before it, or 1/3 on md */}
                 <FormControl fullWidth size="small" variant="outlined" sx={styles.filterFormControl}>
                     <InputLabel id="plot-filter-label">Filter by Plot</InputLabel>
                     <Select
@@ -395,7 +427,7 @@ const MapComponent = ({ isCollapsed }) => {
                             </MenuItem>
                         ) : !canFetchPlots ? (
                             <MenuItem disabled sx={{ fontStyle: 'italic' }}>
-                                {selectedDivisionId === 'all' ? "Select Division & Project" : "Select Project to see plots"}
+                                {selectedDivisionId === 'all' ? "Select Division & Project" : selectedProjectId === 'all' || selectedProjectId === 'unassigned' ? "Select Project" : "Fetching..."}
                             </MenuItem>
                         ) : (plotsList || []).length === 0 && !loadingPlots ? (
                             <MenuItem disabled sx={{ fontStyle: 'italic' }}>
@@ -412,35 +444,35 @@ const MapComponent = ({ isCollapsed }) => {
                 </FormControl>
              </Grid>
          </Grid>
-         {isLoadingFiles && <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 1, color: colors.grey[300] }}>Loading map data...</Typography>}
-         {combinedError && !isLoadingFiles && <MuiAlert severity="error" sx={{ mt: 1, backgroundColor: alpha(colors.redAccent[700] || '#C62828', 0.3), color: colors.redAccent[100] || '#FFCDD2' }}>Error: {combinedError}</MuiAlert>}
-         {/* Removed errorPlots specific message as combinedError will cover it */}
+         {isLoadingFiles && <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 1.5, color: colors.grey[300] }}>Loading map data...</Typography>}
+         {combinedError && !isLoadingFiles && <MuiAlert severity="error" sx={{ mt: 1.5, backgroundColor: alpha(colors.redAccent[700] || '#C62828', 0.3), color: colors.redAccent[100] || '#FFCDD2' }}>Error: {combinedError}</MuiAlert>}
       </Box>
 
-      <Box className="map-container" sx={{ flexGrow: 1, width: '100%', position: 'relative', border: `1px solid ${colors.grey[700]}`, borderRadius: theme.shape.borderRadius, overflow: 'hidden' }}>
+      <Box sx={styles.mapContainerWrapper}>
          {isLoadingFiles && (
              <Box sx={{
                  position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
                  backgroundColor: alpha(colors.grey[800] || '#303030', 0.7), display: 'flex',
-                 justifyContent: 'center', alignItems: 'center', zIndex: 1100
+                 justifyContent: 'center', alignItems: 'center', zIndex: 1100 // Ensure overlay is above map tiles
              }}>
                  <CircularProgress sx={{color: colors.blueAccent[400]}}/>
              </Box>
          )}
         {!isLoadingFiles && !errorFiles && (
             <MapContainer
+                key={`${mapCenterToUse.join(',')}-${currentZoom}-${mapFiles.length}`} // More robust key for re-renders
                 center={mapCenterToUse}
                 zoom={currentZoom}
                 maxZoom={MAX_MAP_AND_TILE_ZOOM}
-                style={{ height: '100%', width: '100%' }}
+                style={{ height: '100%', width: '100%', borderRadius: 'inherit' }}
                 zoomControl={true}
                 scrollWheelZoom={true}
             >
                 <TileLayer
-                    attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    attribution='© <a href="https://www.openstreetmap.org/copyright">OSM</a> contributors'
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     maxZoom={MAX_MAP_AND_TILE_ZOOM}
-                    maxNativeZoom={19}
+                    maxNativeZoom={OSM_NATIVE_MAX_ZOOM}
                 />
                 <MapEvents />
                 {filesWithMainCoords.map(file => {
@@ -452,13 +484,13 @@ const MapComponent = ({ isCollapsed }) => {
                               position={[file.latitude, file.longitude]}
                               key={`file-main-${file.id}`}
                           >
-                              <Popup minWidth={450} maxWidth={500} autoPanPaddingTopLeft={[50,50]} autoPanPaddingBottomRight={[50,50]}>
-                                  <Box sx={{ lineHeight: 1.5, display: 'flex', flexDirection: 'column', height: 'auto' }}>
-                                      <Typography variant="h6" component="div" gutterBottom sx={{textAlign: 'center', flexShrink: 0, color: colors.grey[100] }}>
+                              <Popup minWidth={300} maxWidth={450} autoPanPadding={[40,40]}>
+                                  <Box sx={styles.popupContentBox}>
+                                      <Typography variant="subtitle1" component="div" gutterBottom sx={{textAlign: 'center', flexShrink: 0, color: colors.grey[100], fontWeight:'bold', fontSize: {xs: '0.9rem', sm: '1rem'} }}>
                                           {file.name || 'Unnamed File'}
                                       </Typography>
                                       {file.tree_midpoints && Object.keys(file.tree_midpoints).length > 0 ? (
-                                          <Box sx={{ height: '300px', width: '100%', mb: 1, border: `1px solid ${colors.grey[700]}`, borderRadius: theme.shape.borderRadius }}>
+                                          <Box sx={styles.popupMiniMapContainer}>
                                             <MidpointsMiniMap
                                                 midpoints={file.tree_midpoints}
                                                 centerCoords={[file.latitude, file.longitude]}
@@ -466,22 +498,22 @@ const MapComponent = ({ isCollapsed }) => {
                                             />
                                           </Box>
                                       ) : (
-                                          <Typography variant="body2" sx={{ mt: 1, mb: 2, fontStyle: 'italic', textAlign: 'center', flexShrink: 0, color: colors.grey[300] }}>
-                                              No midpoints to display on a map for this file.
+                                          <Typography variant="body2" sx={{ mt: 1, mb: 2, fontStyle: 'italic', textAlign: 'center', flexShrink: 0, color: colors.grey[300], fontSize: {xs: '0.75rem', sm: '0.875rem'} }}>
+                                              No midpoints map available for this file.
                                           </Typography>
                                       )}
-                                      <Box sx={{mt: 'auto', borderTop: `1px solid ${colors.grey[700]}`, pt: 1, flexShrink: 0, color: colors.grey[200]}}>
-                                          <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>File Details:</Typography>
-                                          <Typography variant="body2">Plot: {file.plot_name || 'N/A'}</Typography>
-                                          <Typography variant="body2">Main Coords: {file.latitude.toFixed(5)}, {file.longitude.toFixed(5)}</Typography>
-                                          <Typography variant="body2">Division: {file.divisionName}</Typography>
-                                          <Typography variant="body2">Project: {file.projectName}</Typography>
+                                      <Box sx={styles.popupDetailsSection}>
+                                          <Typography variant="subtitle2" sx={{ fontWeight: 'bold', fontSize: 'inherit', mb: 0.5 }}>File Details:</Typography>
+                                          <Typography variant="body2" sx={{fontSize: 'inherit'}}>Plot: {file.plot_name || 'N/A'}</Typography>
+                                          <Typography variant="body2" sx={{fontSize: 'inherit'}}>Main Coords: {file.latitude.toFixed(5)}, {file.longitude.toFixed(5)}</Typography>
+                                          <Typography variant="body2" sx={{fontSize: 'inherit'}}>Division: {file.divisionName}</Typography>
+                                          <Typography variant="body2" sx={{fontSize: 'inherit'}}>Project: {file.projectName}</Typography>
                                           {potreeViewPath ? (
-                                             <Link to={potreeViewPath} style={{ textDecoration: 'none', color: colors.blueAccent[300], fontWeight: 'bold', display: 'block', marginTop: '8px' }}>
+                                             <Link to={potreeViewPath} onClick={() => setTimeout(() => window.location.reload(true), 0)} style={{ textDecoration: 'none', color: colors.blueAccent[300], fontWeight: 'bold', display: 'block', marginTop: '8px', fontSize: 'inherit' }}>
                                                View Point Cloud
                                              </Link>
                                           ) : (
-                                             <Typography variant="caption" style={{color: colors.grey[500], fontStyle: 'italic', display: 'block', marginTop: '8px'}}>
+                                             <Typography variant="caption" style={{color: colors.grey[500], fontStyle: 'italic', display: 'block', marginTop: '8px', fontSize: '0.7rem'}}>
                                                 Potree data not ready or file not converted.
                                              </Typography>
                                           )}
@@ -496,14 +528,14 @@ const MapComponent = ({ isCollapsed }) => {
          {!hasAnyMarkersToShow && !isLoadingFiles && !errorFiles && (
              <Box sx={{
                 position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-                padding: '20px', backgroundColor: alpha(colors.grey[900] || '#212121', 0.95),
+                p: {xs: 2, sm: 3}, backgroundColor: alpha(colors.grey[900] || '#212121', 0.95),
                 color: colors.grey[100], borderRadius: theme.shape.borderRadius,
                 boxShadow: `0 2px 10px ${alpha(colors.black || '#000000', 0.3)}`,
-                textAlign: 'center', zIndex: 1000
+                textAlign: 'center', zIndex: 1000 // Ensure it's above map tiles
              }}>
-                 <Typography variant="h6" gutterBottom>No Data to Display</Typography>
-                 <Typography variant="body2">
-                     No data points found matching the current filters.
+                 <Typography variant="h6" gutterBottom sx={{fontSize: {xs: '1rem', sm: '1.25rem'}}}>No Data to Display</Typography>
+                 <Typography variant="body2" sx={{fontSize: {xs: '0.8rem', sm: '0.9rem'}}}>
+                     No data points found matching the current filters. Try adjusting the filters or upload new data.
                  </Typography>
              </Box>
          )}
