@@ -62,42 +62,42 @@ Follow these steps to set up and run the project locally:
 
     a.  **Create a `potree` directory in `public`:**
         If it doesn't already exist, create a `potree` folder inside your project's `public` directory:
-        ```bash
-        # Navigate to your project's root if you aren't already there
-        mkdir public/potree
-        ```
+    ```bash
+    # Navigate to your project's root if you aren't already there
+    mkdir public/potree
+    ```
 
     b.  **Obtain Potree `build` and `libs` folders:**
         1.  In a separate directory (outside your project), clone the official Potree repository:
-        ```bash
-        git clone https://github.com/potree/potree.git
-        cd potree
-        ```
+    ```bash
+    git clone https://github.com/potree/potree.git
+    cd potree
+    ```
         2.  Install Potree's dependencies. This will also generate the necessary `build` folder.
-        ```bash
-        npm install
-        ```
+    ```bash
+     npm install
+    ```
         3.  Copy the generated `build` folder and the existing `libs` folder from your local Potree clone into this project's `public/potree/` directory.
 
     c.  **Verify Structure:**
         Your project's `public/potree/` directory should look similar to this:
-        ```text
-        <project-directory-name>/
-        ├── public/
-        │   ├── potree/
-        │   │   ├── build/
-        │   │   │   └── potree/
-        │   │   │       └── potree.js
-        │   │   │       └── ... (other build files like potree.css, workers)
-        │   │   ├── libs/
-        │   │   │   └── ... (various JS libraries like three.js, laslaz, proj4, etc.)
-        │   │   └── ... (other Potree assets like icons, resources if needed)
-        │   ├── index.html
-        │   └── ... (other public assets)
-        ├── src/
-        └── package.json
-        └── ...
-        ```
+    ```text
+    <project-directory-name>/
+    ├── public/
+    │   ├── potree/
+    │   │   ├── build/
+    │   │   │   └── potree/
+    │   │   │       └── potree.js
+    │   │   │       └── ... (other build files like potree.css, workers)
+    │   │   ├── libs/
+    │   │   │   └── ... (various JS libraries like three.js, laslaz, proj4, etc.)
+    │   │   └── ... (other Potree assets like icons, resources if needed)
+    │   ├── index.html
+    │   └── ... (other public assets)
+    ├── src/
+    └── package.json
+    └── ...
+    ```
         *Note: Ensure `potree.js` and its associated CSS/worker files are correctly placed and accessible for the frontend viewer.*
 
 4.  **Start Docker:**
