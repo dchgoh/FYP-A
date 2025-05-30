@@ -1,70 +1,120 @@
-# Getting Started with Create React App
+# ReactJS: AI-Driven 3D Tree Organ Segmentation and Data Inventory for Forest Management
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This project provides a web-based interface built with ReactJS for visualizing 3D point cloud data, performing AI-driven semantic segmentation of tree organs, managing forest inventory data, and streamlining point cloud processing workflows. It utilizes Potree for efficient rendering and interaction with large point clouds.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+*   **Interactive 3D Point Cloud Visualization:** Display and navigate large point cloud datasets using Potree.
+*   **Map Integration:** View forest data, point clouds, and tree locations overlaid on a geographical map.
+*   **Automated Point Cloud Processing Pipeline:**
+    *   **.LAS/.LAZ File Upload:** Directly upload raw point cloud files (e.g., `.las`, `.laz`).
+    *   **Automatic Potree Conversion:** Uploaded files are automatically converted to the Potree format for efficient web visualization.
+    *   **Automatic AI-Powered Semantic Segmentation of Tree Organs:**
+        *   Following conversion, the system automatically performs AI-driven segmentation to identify and delineate key tree components from the point cloud, such as:
+            *   Vegetation
+            *   Stem
+            *   Branches
+            *   Terrain
+        *   *(Note: Segmentation of individual, distinct trees is a future development goal.)*
+*   **Real-time Data Extraction & Display:**
+    *   Automatic extraction and display of key tree metrics based on segmented organs:
+        *   Tree Height
+        *   Diameter at Breast Height (DBH) / Stem Diameter
+        *   Crown Diameter/Area (derived from foliage/branch segmentation)
+        *   Tree Volume (estimated stem/total volume)
+*   **Carbon Stock Estimation:** Calculate and display estimated carbon sequestration for inventoried trees based on extracted metrics.
+*   **Hierarchical Data Organization:**
+    *   Manage data within a structured hierarchy: **Division -> Project -> Plot**.
+*   **Data and File Filtering System:** Robust filtering capabilities to easily find and manage specific datasets, files, or inventory records.
+*   **Team Management:** Functionality to manage users, assign roles, and control access to projects and data within a collaborative environment.
+*   **User-Friendly Interface:** Built with ReactJS for a modern, responsive, and intuitive web experience.
 
-### `npm start`
+## Prerequisites
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+Before you begin, ensure you have the following installed:
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+*   **Node.js and npm:** (e.g., v18.x or later for Node, npm usually comes with it)
+    *   [Download Node.js](https://nodejs.org/)
+*   **Git:** For cloning the repository.
+    *   [Download Git](https://git-scm.com/)
+*   **Docker Desktop:** Required for running dependent services, particularly the AI backend which handles file conversion and segmentation.
+    *   [Download Docker Desktop](https://www.docker.com/products/docker-desktop/)
+*   **Potree Library Files:** You will need the `build` and `libs` folders from Potree for the frontend viewer. See step 3 in "Getting Started" for how to obtain these.
 
-### `npm test`
+## Getting Started
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Follow these steps to set up and run the project locally:
 
-### `npm run build`
+1.  **Clone this Repository:**
+    ```bash
+    git clone <your-repository-url>
+    cd <project-directory-name>
+    ```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+2.  **Install Project Dependencies:**
+    Install all the necessary Node.js packages for this application.
+    ```bash
+    npm install
+    ```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+3.  **Set up Potree Library Files (for Frontend Viewer):**
+    The React application needs the Potree library files (`build` and `libs` folders) to render 3D point clouds in the browser.
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+    a.  **Create a `potree` directory in `public`:**
+        If it doesn't already exist, create a `potree` folder inside your project's `public` directory:
+        ```bash
+        # Navigate to your project's root if you aren't already there
+        mkdir public/potree
+        ```
 
-### `npm run eject`
+    b.  **Obtain Potree `build` and `libs` folders:**
+        1.  In a separate directory (outside your project), clone the official Potree repository:
+            ```bash
+            git clone https://github.com/potree/potree.git
+            cd potree
+            ```
+        2.  Install Potree's dependencies. This will also generate the necessary `build` folder.
+            ```bash
+            npm install
+            ```
+        3.  Copy the generated `build` folder and the existing `libs` folder from your local Potree clone into this project's `public/potree/` directory.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+    c.  **Verify Structure:**
+        Your project's `public/potree/` directory should look similar to this:
+        ```
+        <project-directory-name>/
+        ├── public/
+        │   ├── potree/
+        │   │   ├── build/
+        │   │   │   └── potree/
+        │   │   │       └── potree.js
+        │   │   │       └── ... (other build files like potree.css, workers)
+        │   │   └── libs/
+        │   │       └── ... (various JS libraries like three.js, laslaz, proj4, etc.)
+        │   ├── index.html
+        │   └── ... (other public assets)
+        └── src/
+        └── package.json
+        └── ...
+        ```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+4.  **Start Docker:**
+    Open Docker Desktop and ensure it is running. The AI backend, which handles `.las` file uploads, Potree conversion, and AI segmentation, is expected to run in Docker containers.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+5.  **Run the Application:**
+    Start the React development server.
+    ```bash
+    npm start
+    ```
+    This will typically open the application in your default web browser at `http://localhost:3000` (or the port configured in your project).
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+## Technologies Used
 
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+*   **Frontend:** ReactJS
+*   **3D Visualization:** Potree
+*   **Mapping Library:** Leaflet
+*   **Styling:** CSS Modules, Styled Components
+*   **AI/Machine Learning Backend:** PyTorch
+    *   Includes logic for `.las`/`.laz` processing, Potree conversion (e.g., using PotreeConverter), and semantic segmentation.
+*   **Package Management:** npm
+*   **Containerization:** Docker (for AI backend and other services)
