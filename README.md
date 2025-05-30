@@ -45,71 +45,71 @@ Before you begin, ensure you have the following installed:
 
 Follow these steps to set up and run the project locally:
 
-1.  **Clone this Repository:**
-    ```bash
-    git clone git@github.com:dchgoh/FYP-A.git
-    cd FYP-A
-    ```
+1. **Clone this Repository:**
+   ```bash
+   git clone git@github.com:dchgoh/FYP-A.git
+   cd FYP-A
+   ```
 
-2.  **Install Project Dependencies:**
-    Install all the necessary Node.js packages for this application.
-    ```bash
-    npm install
-    ```
+2. **Install Project Dependencies:**
+   Install all the necessary Node.js packages for this application.
+   ```bash
+   npm install
+   ```
 
-3.  **Set up Potree Library Files (for Frontend Viewer):**
-    The React application needs the Potree library files (`build` and `libs` folders) to render 3D point clouds in the browser.
+3. **Set up Potree Library Files (for Frontend Viewer):**
+   The React application needs the Potree library files (`build` and `libs` folders) to render 3D point clouds in the browser.
 
-    a.  **Create a `potree` directory in `public`:**
-        If it doesn't already exist, create a `potree` folder inside your project's `public` directory:
-        ```bash
-        # Navigate to your project's root if you aren't already there
-        mkdir public/potree
-        ```
+   a. **Create a `potree` directory in `public`:**
+      If it doesn't already exist, create a `potree` folder inside your project's `public` directory:
+      ```bash
+      # Navigate to your project's root if you aren't already there
+      mkdir public/potree
+      ```
 
-    b.  **Obtain Potree `build` and `libs` folders:**
-        1.  In a separate directory (outside your project), clone the official Potree repository:
-            ```bash
-            git clone https://github.com/potree/potree.git
-            cd potree
-            ```
+   b. **Obtain Potree `build` and `libs` folders:**
+      1. In a separate directory (outside your project), clone the official Potree repository:
+         ```bash
+         git clone https://github.com/potree/potree.git
+         cd potree
+         ```
 
-        2.  Install Potree's dependencies. This will also generate the necessary `build` folder.
-            ```bash
-            npm install
-            ```
+      2. Install Potree's dependencies. This will also generate the necessary `build` folder.
+         ```bash
+         npm install
+         ```
 
-        3.  Copy the generated `build` folder and the existing `libs` folder from your local Potree clone into this project's `public/potree/` directory.
+      3. Copy the generated `build` folder and the existing `libs` folder from your local Potree clone into this project's `public/potree/` directory.
 
-    c.  **Verify Structure:**
-        Your project's `public/potree/` directory should look similar to this:
-        ```
-        <project-directory-name>/
-        ├── public/
-        │   ├── potree/
-        │   │   ├── build/
-        │   │   │   └── potree/
-        │   │   │       ├── potree.js
-        │   │   │       └── ... (other build files like potree.css, workers)
-        │   │   └── libs/
-        │   │       └── ... (various JS libraries like three.js, laslaz, proj4, etc.)
-        │   │   
-        │   ├── index.html
-        │   └── ... (other public assets)
-        └── src/
-        └── package.json
-        └── ...
-        ```
+   c. **Verify Structure:**
+      Your project's `public/potree/` directory should look similar to this:
+      ```
+      <project-directory-name>/
+      ├── public/
+      │   ├── potree/
+      │   │   ├── build/
+      │   │   │   └── potree/
+      │   │   │       ├── potree.js
+      │   │   │       └── ... (other build files like potree.css, workers)
+      │   │   └── libs/
+      │   │       └── ... (various JS libraries like three.js, laslaz, proj4, etc.)
+      │   │   
+      │   ├── index.html
+      │   └── ... (other public assets)
+      └── src/
+      └── package.json
+      └── ...
+      ```
 
-4.  **Start Docker:**
-    Open Docker Desktop and ensure it is running. The AI backend, which handles `.las` file uploads, Potree conversion (likely using PotreeConverter internally), and AI segmentation, is expected to run in Docker containers.
+4. **Start Docker:**
+   Open Docker Desktop and ensure it is running. The AI backend, which handles `.las` file uploads, Potree conversion (likely using PotreeConverter internally), and AI segmentation, is expected to run in Docker containers.
 
-5.  **Run the Application:**
-    Start the React development server.
-    ```bash
-    npm start
-    ```
-    This will typically open the application in your default web browser at `http://localhost:3000`
+5. **Run the Application:**
+   Start the React development server.
+   ```bash
+   npm start
+   ```
+   This will typically open the application in your default web browser at `http://localhost:3000`
 
 ## Technologies Used
 
