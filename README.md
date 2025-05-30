@@ -47,8 +47,8 @@ Follow these steps to set up and run the project locally:
 
 1.  **Clone this Repository:**
     ```bash
-    git clone <your-repository-url>
-    cd <project-directory-name>
+    git clone git@github.com:dchgoh/FYP-A.git
+    cd FYP-A
     ```
 
 2.  **Install Project Dependencies:**
@@ -73,10 +73,12 @@ Follow these steps to set up and run the project locally:
     git clone https://github.com/potree/potree.git
     cd potree
     ```
+
         2.  Install Potree's dependencies. This will also generate the necessary `build` folder.
     ```bash
      npm install
     ```
+
         3.  Copy the generated `build` folder and the existing `libs` folder from your local Potree clone into this project's `public/potree/` directory.
 
     c.  **Verify Structure:**
@@ -89,27 +91,25 @@ Follow these steps to set up and run the project locally:
     │   │   │   └── potree/
     │   │   │       └── potree.js
     │   │   │       └── ... (other build files like potree.css, workers)
-    │   │   ├── libs/
-    │   │   │   └── ... (various JS libraries like three.js, laslaz, proj4, etc.)
-    │   │   └── ... (other Potree assets like icons, resources if needed)
+    │   │   └── libs/
+    │   │       └── ... (various JS libraries like three.js, laslaz, proj4, etc.)
+    │   │   
     │   ├── index.html
     │   └── ... (other public assets)
-    ├── src/
+    └── src/
     └── package.json
     └── ...
     ```
-        *Note: Ensure `potree.js` and its associated CSS/worker files are correctly placed and accessible for the frontend viewer.*
 
 4.  **Start Docker:**
     Open Docker Desktop and ensure it is running. The AI backend, which handles `.las` file uploads, Potree conversion (likely using PotreeConverter internally), and AI segmentation, is expected to run in Docker containers.
-    *(If there are specific `docker-compose.yml` files or `Dockerfile`s for backend services, mention them here. For example: "Navigate to the `backend/` directory and run `docker-compose up -d`".)*
 
 5.  **Run the Application:**
     Start the React development server.
     ```bash
     npm start
     ```
-    This will typically open the application in your default web browser at `http://localhost:3000` (or the port configured in your project).
+    This will typically open the application in your default web browser at `http://localhost:3000`
 
 ## Technologies Used
 
