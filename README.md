@@ -69,14 +69,14 @@ Follow these steps to set up and run the project locally:
 
     b.  **Obtain Potree `build` and `libs` folders:**
         1.  In a separate directory (outside your project), clone the official Potree repository:
-            ```bash
-            git clone https://github.com/potree/potree.git
-            cd potree
-            ```
+        ```bash
+        git clone https://github.com/potree/potree.git
+        cd potree
+        ```
         2.  Install Potree's dependencies. This will also generate the necessary `build` folder.
-            ```bash
-            npm install
-            ```
+        ```bash
+        npm install
+        ```
         3.  Copy the generated `build` folder and the existing `libs` folder from your local Potree clone into this project's `public/potree/` directory.
 
     c.  **Verify Structure:**
