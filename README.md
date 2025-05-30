@@ -1,4 +1,4 @@
-# ReactJS: AI-Driven 3D Tree Organ Segmentation and Data Inventory for Forest Management
+# AI-Driven 3D Tree Organ Segmentation and Data Inventory for Forest Management
 
 This project provides a web-based interface built with ReactJS for visualizing 3D point cloud data, performing AI-driven semantic segmentation of tree organs, managing forest inventory data, and streamlining point cloud processing workflows. It utilizes Potree for efficient rendering and interaction with large point clouds.
 
