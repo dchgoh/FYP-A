@@ -73,6 +73,5 @@ Follow these steps to set up and run the project locally:
 *   **Mapping Library:** Leaflet
 *   **Styling:** CSS Modules, Styled Components
 *   **AI/Machine Learning Backend:** PyTorch
-    *   Includes logic for `.las`/`.laz` processing, Potree conversion (e.g., using PotreeConverter), and semantic segmentation.
 *   **Package Management:** npm
-*   **Containerization:** Docker (for AI backend and other services)
+*   **Containerization:** Docker
