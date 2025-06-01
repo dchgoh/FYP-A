@@ -57,7 +57,7 @@ Follow these steps to set up and run the project locally:
    ```
 
 4. **Start Docker:**
-   Open Docker Desktop and ensure it is running. The AI backend, which handles `.las` file uploads, Potree conversion (likely using PotreeConverter internally), and AI segmentation, is expected to run in Docker containers.
+   Open Docker Desktop and ensure it is running.
 
 5. **Run the Application:**
    Start the React development server.
