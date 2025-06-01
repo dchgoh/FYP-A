@@ -484,7 +484,7 @@ const MapComponent = ({ isCollapsed }) => {
                               position={[file.latitude, file.longitude]}
                               key={`file-main-${file.id}`}
                           >
-                              <Popup minWidth={300} maxWidth={450} autoPanPadding={[40,40]}>
+                              <Popup minWidth={400} maxWidth={450} autoPanPadding={[40,40]}>
                                   <Box sx={styles.popupContentBox}>
                                       <Typography variant="subtitle1" component="div" gutterBottom sx={{textAlign: 'center', flexShrink: 0, color: colors.grey[100], fontWeight:'bold', fontSize: {xs: '0.9rem', sm: '1rem'} }}>
                                           {file.name || 'Unnamed File'}
