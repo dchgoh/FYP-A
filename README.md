@@ -11,9 +11,10 @@ This project provides a web-based interface built with ReactJS for visualizing 3
     *   **Automatic Potree Conversion:** Uploaded files are automatically converted to the Potree format for efficient web visualization.
     *   **Automatic AI-Powered Semantic Segmentation of Tree Organs:**
         *   Following conversion, the system automatically performs AI-driven segmentation to identify and delineate key tree components from the point cloud, such as:
-            *   Vegetation
+            *   Low-Vegetation
             *   Stem
-            *   Branches
+            *   Live-Branches
+            *   Woody-Branches
             *   Terrain
         *   *(Note: Segmentation of individual, distinct trees is a future development goal.)*
 *   **Real-time Data Extraction & Display:**
