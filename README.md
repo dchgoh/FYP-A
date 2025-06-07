@@ -67,6 +67,11 @@ Follow these steps to set up and run the project locally:
    ```
    This will typically open the application in your default web browser at `http://localhost:3000`
 
+6. **Run test.las File:**
+*   Go to the Upload section within the app interface.
+*   Select and upload the test.las file.
+*   The system will automatically begin processing the file.
+
 ## Technologies Used
 
 *   **Frontend:** ReactJS
