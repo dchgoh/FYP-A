@@ -85,7 +85,7 @@ Follow these steps to set up and run the project locally:
 ## Acknowledgements
 This project acknowledges the foundational work and resources that made it possible:
 
-*   **Dataset:** We utilized the **`for-instance` dataset** for training, testing and demonstrating point cloud processing. We thank **Gherardo Puliti** and co-authors for making this valuable resource available:
+*   **Dataset:** We utilized the **`for-instance` dataset** for training, testing and demonstrating point cloud processing. We thank **Stefano Puliti** and co-authors for making this valuable resource available:
     ```
     Puliti, S, Pearse, G, Surový, P, Wallace, L, Hollaus, M, Wielgosz, M & Astrup, R 2023, FOR-instance: a UAV laser scanning benchmark dataset for semantic and instance segmentation of individual trees, Zenodo, viewed 30 April 2025, <https://zenodo.org/record/8287792>.
     ```
