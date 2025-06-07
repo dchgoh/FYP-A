@@ -69,15 +69,31 @@ Follow these steps to set up and run the project locally:
 
 6. **Run test.las File:**
 *   Go to the Upload section within the app interface.
-*   Select and upload the test.las file.
+*   Select and upload input (e.g. test.las) file.
 *   The system will automatically begin processing the file.
 
 ## Technologies Used
-
 *   **Frontend:** ReactJS
 *   **3D Visualization:** Potree
 *   **Mapping Library:** Leaflet
 *   **Styling:** CSS Modules, Styled Components
-*   **AI/Machine Learning Backend:** PyTorch
+*   **AI/Machine Learning:** PyTorch (framework for training and deployment), PointNet++ (deployed semantic segmentation model architecture), PointNet (model architecture used in training/evaluation)
 *   **Package Management:** npm
 *   **Containerization:** Docker
+
+
+## Acknowledgements
+This project acknowledges the foundational work and resources that made it possible:
+
+*   **Dataset:** We utilized the **`for-instance` dataset** for testing and demonstrating point cloud processing. We thank **Gherardo Puliti** and co-authors for making this valuable resource available:
+    ```
+    Puliti, S, Pearse, G, Surový, P, Wallace, L, Hollaus, M, Wielgosz, M & Astrup, R 2023, FOR-instance: a UAV laser scanning benchmark dataset for semantic and instance segmentation of individual trees, Zenodo, viewed 30 April 2025, <https://zenodo.org/record/8287792>.
+    ```
+
+*   **Deep Learning Architectures:** Our AI segmentation is based on the pioneering work on deep learning for point clouds by **Charles R. Qi** and his colleagues. We acknowledge and reference the following key publications:
+    ```
+    Qi, CR, Su, H, Mo, K & Guibas, LJ 2017, PointNet: Deep Learning on Point Sets for 3D Classification and Segmentation, arXiv, viewed 30 April 2025, <http://arxiv.org/abs/1612.00593>.
+    ```
+    ```
+    Qi, CR, Yi, L, Su, H & Guibas, LJ 2017, PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space, arXiv, viewed 30 April 2025, <http://arxiv.org/abs/1706.02413>.
+    ```
