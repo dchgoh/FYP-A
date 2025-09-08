@@ -62,6 +62,7 @@ const FileManagement = ({ isCollapsed }) => {
     const [newFile, setNewFile] = useState(null);
     const [uploadProgress, setUploadProgress] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
+    const [uploadAbortController, setUploadAbortController] = useState(null);
     // const [convertingFileId, setConvertingFileId] = useState(null); // Replaced by filesBeingProcessed for optimistic UI
     const [filterProjectId, setFilterProjectId] = useState('all');
     const [filterDivisionId, setFilterDivisionId] = useState('all');
@@ -398,7 +399,16 @@ const FileManagement = ({ isCollapsed }) => {
           setFiles([]); 
           setSelectedFileIds(new Set()); // Clear selection
       }
-  }, [isLoadingPermissions, userRole, fetchFiles]); 
+  }, [isLoadingPermissions, userRole, fetchFiles]);
+
+  // Cleanup effect for abort controller
+  useEffect(() => {
+    return () => {
+      if (uploadAbortController) {
+        uploadAbortController.abort();
+      }
+    };
+  }, [uploadAbortController]); 
 
   // --- ACTION HANDLERS ---
   const handleMenuClick = (event, file) => { setAnchorEl(event.currentTarget); setSelectedFile(file); };
@@ -511,6 +521,7 @@ const FileManagement = ({ isCollapsed }) => {
     setNewFile(null);
     setUploadProgress(null);
     setIsUploading(false);
+    setUploadAbortController(null);
     setPlotName('');
     setSelectedProjectId('');
   };
@@ -520,6 +531,7 @@ const FileManagement = ({ isCollapsed }) => {
     setOpenUploadModal(false);
     setNewFile(null);
     setUploadProgress(null);
+    setUploadAbortController(null);
     if (fileInputRef.current) fileInputRef.current.value = ''; 
   };
 
@@ -556,12 +568,17 @@ const FileManagement = ({ isCollapsed }) => {
     }
     fd.append('project_id', selectedProjectId || ''); 
 
+    // Create AbortController for cancellation
+    const abortController = new AbortController();
+    setUploadAbortController(abortController);
+
     setIsUploading(true);
     setUploadProgress(0);
     
     try {
         const uploadRes = await axios.post(`${API_BASE_URL}/files/upload`, fd, {
             headers: { 'Content-Type': 'multipart/form-data', 'Authorization': `Bearer ${token}` },
+            signal: abortController.signal,
             onUploadProgress: (pe) => {
                 setUploadProgress(pe.total ? Math.round((pe.loaded * 100) / pe.total) : 0);
             }
@@ -577,6 +594,14 @@ const FileManagement = ({ isCollapsed }) => {
         }
     } catch (e) {
         console.error("Critical upload error:", e);
+        
+        // Check if the error is due to cancellation
+        if (e.name === 'CanceledError' || e.code === 'ERR_CANCELED') {
+            showSnackbar("Upload cancelled.", "info");
+            setUploadProgress(null);
+            return;
+        }
+        
         let errorMessage = "Server error during upload.";
         if (e.response) {
             errorMessage = e.response.data?.message || `Server responded with ${e.response.status}`;
@@ -589,6 +614,14 @@ const FileManagement = ({ isCollapsed }) => {
         setUploadProgress(null); 
     } finally {
         setIsUploading(false);
+        setUploadAbortController(null);
+    }
+  };
+
+  const handleCancelUpload = () => {
+    if (uploadAbortController) {
+      uploadAbortController.abort();
+      setUploadAbortController(null);
     }
   };
 
@@ -1824,30 +1857,53 @@ const handleBulkDelete = async () => {
                 </FormControl>
             </DialogContent>
             <DialogActions sx={styles.dialogActions}>
-                <Button // CANCEL BUTTON - MODIFIED SX
-                    onClick={handleCloseUploadModal}
-                    disabled={isUploading}
-                    variant="outlined"
-                    sx={{
-                        color: colors.grey[100],        // Default text color
-                        borderColor: colors.grey[500],  // Default border color
-                        transition: theme.transitions.create( // Optional: for a smoother transition
-                            ['color', 'border-color', 'background-color'],
-                            { duration: theme.transitions.duration.short }
-                        ),
-                        '&:hover': {
-                            color: colors.black,
-                            borderColor: colors.redAccent[400],   // Red border on hover
-                            backgroundColor: colors.redAccent[500]
-                        },
-                        '&.Mui-disabled': {
-                            color: colors.grey[600],
-                            borderColor: colors.grey[700],
-                        }
-                    }}
-                >
-                    Cancel
-                </Button>
+                {isUploading ? (
+                    // Show cancel upload button during upload
+                    <Button
+                        onClick={handleCancelUpload}
+                        variant="outlined"
+                        sx={{
+                            color: colors.redAccent[400],
+                            borderColor: colors.redAccent[400],
+                            transition: theme.transitions.create(
+                                ['color', 'border-color', 'background-color'],
+                                { duration: theme.transitions.duration.short }
+                            ),
+                            '&:hover': {
+                                color: colors.grey[100],
+                                borderColor: colors.redAccent[500],
+                                backgroundColor: colors.redAccent[500]
+                            }
+                        }}
+                    >
+                        Cancel Upload
+                    </Button>
+                ) : (
+                    // Show regular cancel button when not uploading
+                    <Button
+                        onClick={handleCloseUploadModal}
+                        variant="outlined"
+                        sx={{
+                            color: colors.grey[100],        // Default text color
+                            borderColor: colors.grey[500],  // Default border color
+                            transition: theme.transitions.create( // Optional: for a smoother transition
+                                ['color', 'border-color', 'background-color'],
+                                { duration: theme.transitions.duration.short }
+                            ),
+                            '&:hover': {
+                                color: colors.black,
+                                borderColor: colors.redAccent[400],   // Red border on hover
+                                backgroundColor: colors.redAccent[500]
+                            },
+                            '&.Mui-disabled': {
+                                color: colors.grey[600],
+                                borderColor: colors.grey[700],
+                            }
+                        }}
+                    >
+                        Cancel
+                    </Button>
+                )}
                 <Button // UPLOAD BUTTON - MODIFIED SX
                     onClick={handleFileUpload}
                     disabled={isUploading || !newFile || !selectedProjectId || !plotName.trim()}
