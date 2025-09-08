@@ -5,8 +5,9 @@ import {
   DialogTitle, DialogContent, DialogActions, Snackbar, Alert, CircularProgress,
   LinearProgress, ListItemIcon, ListItemText, Select, FormControl, InputLabel,
   TextField, Grid, Accordion, AccordionSummary, AccordionDetails, List, ListItem,
-  Divider, Chip, Tooltip, Checkbox // Added Checkbox
+  Divider, Chip, Tooltip, Checkbox, Switch, FormControlLabel
 } from "@mui/material";
+
 // Icons
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import TransformIcon from '@mui/icons-material/Transform';
@@ -106,6 +107,7 @@ const FileManagement = ({ isCollapsed }) => {
     const [isReassigning, setIsReassigning] = useState(false);
     const [filesBeingProcessed, setFilesBeingProcessed] = useState(new Set());
     const [isPolling, setIsPolling] = useState(false);
+    const [skipSegmentation, setSkipSegmentation] = useState(false);
 
     // --- NEW STATE FOR BULK ACTIONS ---
     const [selectedFileIds, setSelectedFileIds] = useState(new Set());
@@ -556,6 +558,8 @@ const FileManagement = ({ isCollapsed }) => {
     }
     fd.append('project_id', selectedProjectId || ''); 
 
+    fd.append('skipSegmentation', skipSegmentation); 
+    
     setIsUploading(true);
     setUploadProgress(0);
     
@@ -1791,6 +1795,17 @@ const handleBulkDelete = async () => {
                   variant="outlined"
                   margin="dense"
                   sx={styles.dialogTextField}
+                />
+                <FormControlLabel
+                    control={
+                        <Switch
+                            checked={skipSegmentation}
+                            onChange={(e) => setSkipSegmentation(e.target.checked)}
+                            disabled={isUploading}
+                        />
+                    }
+                    label="Skip Tree Segmentation (Faster for Viewing Only)"
+                    sx={{ mt: 1, color: colors.grey[300] }}
                 />
                 <FormControl fullWidth margin="dense" sx={styles.dialogSelectControl} disabled={isUploading}>
                   <InputLabel id="project-select-label-upload">Assign to Project (Required)</InputLabel>
