@@ -92,7 +92,15 @@ const createUsersTable = async () => {
         );
         await pool.query(
           "INSERT INTO users (username, email, password, age, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (email) DO NOTHING",
+          ["Hong Wei", "shwhongwei@gmail.com", hashedPassword, 21, "Administrator"]
+        );
+        await pool.query(
+          "INSERT INTO users (username, email, password, age, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (email) DO NOTHING",
           ["Jordan", "jhzhaw@gmail.com", hashedPassword, 21, "Administrator"]
+        );
+        await pool.query(
+          "INSERT INTO users (username, email, password, age, role) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (email) DO NOTHING",
+          ["Brenda", "bdsimry@gmail.com", hashedPassword, 21, "Administrator"]
         );
         console.log("Default admin users created");
       } else {

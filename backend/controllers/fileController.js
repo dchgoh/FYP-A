@@ -112,7 +112,8 @@ exports.uploadFile = async (req, res) => {
     }
 
     const { originalname, filename, path: stored_path_absolute, mimetype, size } = req.file;
-    const { plot_name, project_id } = req.body; 
+    const { plot_name, project_id, skipSegmentation } = req.body; 
+    const shouldSkipSegmentation = skipSegmentation === 'true';
     const stored_path_relative = path.join('uploads', filename);
 
     const projectRootDir = path.resolve(__dirname, '..'); 
@@ -189,59 +190,67 @@ exports.uploadFile = async (req, res) => {
         (async () => {
             let currentFileId = fileIdToUpdate;
             try {
-                // Define expected status transitions for the new order
-                const statusAfterLasReadyForSegmentation = 'processed_ready_for_potree'; // New status
-                const statusAfterSegmentationReadyForPotree = 'segmented_ready_for_las'; // Was 'segmented_ready_for_las'
-
-                // --- 1. LAS Processing ---
                 console.log(`[Controller BG] (FileID ${currentFileId}): Initiating LAS processing for ${originalname}.`);
-                // lasProcessingService will now also populate tree_volumes_m3 and assumed_d2_cm_for_volume
-                // ASSUMPTION: lasProcessingService sets status to 'las_processed_ready_for_segmentation' on success.
                 await lasProcessingService.processLasData(currentFileId, stored_path_absolute);
-                console.log(`[Controller BG] (FileID ${currentFileId}): LAS processing service call completed for ${originalname}.`);
+                console.log(`[Controller BG] (FileID ${currentFileId}): LAS processing service call completed.`);
 
-                // Check status after LAS processing
+                // Define the expected status after successful LAS processing
+                const statusAfterLasProcessing = 'processed_ready_for_potree';
+
+                // Verify that LAS processing was successful before proceeding
                 let statusCheckAfterLas = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [currentFileId]);
 
-                if (statusCheckAfterLas.rows.length > 0 && statusCheckAfterLas.rows[0].status === statusAfterLasReadyForSegmentation) {
-                    // --- 2. Segmentation ---
-                    console.log(`[Controller BG] (FileID ${currentFileId}): Initiating segmentation for ${originalname}.`);
-                    // ASSUMPTION: segmentationService will set status to 'segmented_ready_for_potree' on success
-                    // or an error status (e.g., 'error_segmentation') and/or throw on failure.
-                    await segmentationService.runSegmentation(currentFileId, stored_path_absolute, projectRootDir);
-                    console.log(`[Controller BG] (FileID ${currentFileId}): Segmentation completed for ${originalname}.`);
+                if (statusCheckAfterLas.rows.length > 0 && statusCheckAfterLas.rows[0].status === statusAfterLasProcessing) {
+                    
+                    // --- The crucial check is here ---
+                    // Now that we have the base data, we check if the user wanted to skip the heavy AI part.
+                    if (shouldSkipSegmentation) {
+                        // --- PATH A: SKIP SEGMENTATION ---
+                        console.log(`[Controller BG] (FileID ${currentFileId}): LAS processing successful. Skipping segmentation as requested.`);
+                        console.log(`[Controller BG] (FileID ${currentFileId}): Initiating Potree conversion directly.`);
 
-                    // Check status after segmentation
-                    let statusCheckAfterSegmentation = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [currentFileId]);
-
-                    if (statusCheckAfterSegmentation.rows.length > 0 && statusCheckAfterSegmentation.rows[0].status === statusAfterSegmentationReadyForPotree) {
-                        // --- 3. Potree Conversion ---
-                        console.log(`[Controller BG] (FileID ${currentFileId}): Initiating Potree conversion for ${originalname}.`);
-                        // ASSUMPTION: potreeConversionService will set its own final success status (e.g., 'completed' or 'potree_converted')
                         await potreeConversionService.initiatePotree(currentFileId, stored_path_absolute, projectRootDir);
-                        console.log(`[Controller BG] (FileID ${currentFileId}): Potree conversion service call completed/initiated for ${originalname}.`);
+                        
+                        console.log(`[Controller BG] (FileID ${currentFileId}): Potree conversion initiated.`);
+
                     } else {
-                        const currentStatus = statusCheckAfterSegmentation.rows.length > 0 ? statusCheckAfterSegmentation.rows[0].status : 'unknown';
-                        console.warn(`[Controller BG] (FileID ${currentFileId}): Skipping Potree for ${originalname}. Status after Segmentation: ${currentStatus}. Expected '${statusAfterSegmentationReadyForPotree}'.`);
+                        // --- PATH B: FULL PIPELINE WITH SEGMENTATION ---
+                        console.log(`[Controller BG] (FileID ${currentFileId}): LAS processing successful. Proceeding with segmentation.`);
+                        
+                        const statusAfterSegmentationReadyForPotree = 'segmented_ready_for_las';
+
+                        // --- 2. Segmentation ---
+                        await segmentationService.runSegmentation(currentFileId, stored_path_absolute, projectRootDir);
+                        console.log(`[Controller BG] (FileID ${currentFileId}): Segmentation completed.`);
+
+                        // Check status after segmentation to ensure it's ready for Potree
+                        let statusCheckAfterSegmentation = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [currentFileId]);
+
+                        if (statusCheckAfterSegmentation.rows.length > 0 && statusCheckAfterSegmentation.rows[0].status === statusAfterSegmentationReadyForPotree) {
+                            // --- 3. Potree Conversion ---
+                            console.log(`[Controller BG] (FileID ${currentFileId}): Initiating Potree conversion.`);
+                            await potreeConversionService.initiatePotree(currentFileId, stored_path_absolute, projectRootDir);
+                            console.log(`[Controller BG] (FileID ${currentFileId}): Potree conversion initiated.`);
+                        } else {
+                            const currentStatus = statusCheckAfterSegmentation.rows.length > 0 ? statusCheckAfterSegmentation.rows[0].status : 'unknown';
+                            console.warn(`[Controller BG] (FileID ${currentFileId}): Skipping Potree for ${originalname}. Status after Segmentation: ${currentStatus}. Expected '${statusAfterSegmentationReadyForPotree}'.`);
+                        }
                     }
                 } else {
+                    // This 'else' catches cases where the initial LAS processing failed.
                     const currentStatus = statusCheckAfterLas.rows.length > 0 ? statusCheckAfterLas.rows[0].status : 'unknown';
-                    console.warn(`[Controller BG] (FileID ${currentFileId}): Skipping Segmentation and Potree for ${originalname}. Status after LAS Processing: ${currentStatus}. Expected '${statusAfterLasReadyForSegmentation}'.`);
+                    console.warn(`[Controller BG] (FileID ${currentFileId}): Skipping all subsequent steps for ${originalname}. Status after LAS Processing: ${currentStatus}. Expected '${statusAfterLasProcessing}'.`);
                 }
 
             } catch (pipelineError) {
+                // This single catch block will correctly handle errors from any stage in either path (short or full).
                 console.error(`[Controller BG] Error (FileID ${currentFileId}): Background processing pipeline for ${originalname} failed: ${pipelineError.message}`);
                 try {
                     const { rows } = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [currentFileId]);
-                    // Only update to a generic 'failed' if not already in a specific error state set by a service
                     if (rows.length > 0 && !['failed', 'error_segmentation', 'error_las_processing', 'error_potree'].includes(rows[0].status)) {
                         const errMsgForDb = (pipelineError.message || "Unknown background pipeline error").substring(0, 250);
 
-                        // Try to determine which stage failed if the error message gives a clue, or set a generic 'failed'
                         let failureStatus = 'failed';
-                        // This part is heuristic; ideally, services throw custom errors or pipelineError has more info
-                        // Order of checks in heuristic might matter if error messages are generic.
-                        // Let's assume error messages are specific enough.
                         if (pipelineError.message.toLowerCase().includes('las processing') || pipelineError.message.toLowerCase().includes('lasdata')) {
                             failureStatus = 'error_las_processing';
                         } else if (pipelineError.message.toLowerCase().includes('segmentation')) {
@@ -264,7 +273,7 @@ exports.uploadFile = async (req, res) => {
                     console.error(`[Controller BG] DB Error (FileID ${currentFileId}): Failed to update status after pipeline error for ${originalname}:`, dbErr);
                 }
             }
-        })();  
+        })(); 
 
     } catch (initialError) {
         console.error("[Controller] Initial file upload/DB error:", initialError);
