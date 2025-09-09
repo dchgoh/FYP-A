@@ -190,6 +190,7 @@ const createFilesTable = async () => {
           longitude DOUBLE PRECISION,
           status VARCHAR(50) DEFAULT 'uploaded',
           processing_error TEXT,
+          processing_progress JSONB,
           tree_midpoints JSONB,
           tree_heights_adjusted JSONB,
           tree_dbhs_cm JSONB,

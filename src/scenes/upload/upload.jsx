@@ -7,6 +7,7 @@ import {
   TextField, Grid, Accordion, AccordionSummary, AccordionDetails, List, ListItem,
   Divider, Chip, Tooltip, Checkbox, Switch, FormControlLabel
 } from "@mui/material";
+import ProcessingModal from "../../components/ProcessingModal";
 
 // Icons
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -109,6 +110,7 @@ const FileManagement = ({ isCollapsed }) => {
     const [filesBeingProcessed, setFilesBeingProcessed] = useState(new Set());
     const [isPolling, setIsPolling] = useState(false);
     const [skipSegmentation, setSkipSegmentation] = useState(false);
+    const [processingModalOpen, setProcessingModalOpen] = useState(false);
 
     // --- NEW STATE FOR BULK ACTIONS ---
     const [selectedFileIds, setSelectedFileIds] = useState(new Set());
@@ -125,6 +127,28 @@ const FileManagement = ({ isCollapsed }) => {
   const handleSnackbarClose = (event, reason) => {
     if (reason === "clickaway") return;
     setSnackbarOpen(false);
+  };
+
+  // Get files that are currently being processed or have processing status
+  const getProcessingFiles = useCallback(() => {
+    const processingStatuses = [
+      'uploaded', 'processing_las_data', 'segmenting', 'converting_potree', 
+      'ready', 'failed', 'error_las_processing', 'error_segmentation', 'error_potree'
+    ];
+    return files.filter(file => processingStatuses.includes(file.status));
+  }, [files]);
+
+  // Handle processing modal open/close
+  const handleOpenProcessingModal = () => {
+    setProcessingModalOpen(true);
+  };
+
+  const handleCloseProcessingModal = () => {
+    setProcessingModalOpen(false);
+  };
+
+  const handleToggleProcessingModal = () => {
+    fetchFiles(); // Refresh data when toggling
   };
 
   // --- PERMISSION CHECK FUNCTION ---
@@ -1541,6 +1565,29 @@ const handleBulkDelete = async () => {
             )}
           </Grid>
 
+          {/* Processing Status Button */}
+          <Grid item xs={12} sm={6} md="auto">
+            <Button
+              variant="outlined"
+              startIcon={<TransformIcon />}
+              size={theme.breakpoints.down('sm') ? "small" : "medium"}
+              sx={{
+                borderColor: colors.primary[700],
+                color: colors.primary[700],
+                "&:hover": { 
+                  borderColor: colors.primary[400],
+                  backgroundColor: colors.primary[50]
+                },
+                textTransform: 'none',
+                py: { xs: 0.8, sm: 1 },
+              }}
+              onClick={handleOpenProcessingModal}
+              disabled={isLoading}
+            >
+              Processing Status ({getProcessingFiles().length})
+            </Button>
+          </Grid>
+
           {/* Spacer: Pushes subsequent items to the right. Only active if not xs. */}
           <Grid item xs={false} sm />
 
@@ -2583,6 +2630,14 @@ const handleBulkDelete = async () => {
                 </Table>
             )}
         </TableContainer>
+
+        {/* Processing Status Modal */}
+        <ProcessingModal
+          open={processingModalOpen}
+          onClose={handleCloseProcessingModal}
+          processingFiles={getProcessingFiles()}
+          onToggleModal={handleToggleProcessingModal}
+        />
 
         <Snackbar
             open={snackbarOpen}

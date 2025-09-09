@@ -44,8 +44,77 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
         console.log(`[SegmentationService] (FileID ${fileId}): Spawning: "${pythonVenvExecutable}" CWD "${projectRootDir}" args: ${segmentArgs.join(' ')}`);
         const segmentationProcess = spawn(pythonVenvExecutable, segmentArgs, { cwd: projectRootDir, stdio: 'pipe' });
         let segStdout = '', segStderr = '';
-        segmentationProcess.stdout.on('data', (data) => { segStdout += data.toString(); process.stdout.write(`[SegPy STDOUT FID ${fileId}] ${data.toString()}`); });
-        segmentationProcess.stderr.on('data', (data) => { segStderr += data.toString(); process.stderr.write(`[SegPy STDERR FID ${fileId}] ${data.toString()}`); });
+        let progressData = null;
+        
+        segmentationProcess.stdout.on('data', (data) => { 
+            segStdout += data.toString(); 
+            process.stdout.write(`[SegPy STDOUT FID ${fileId}] ${data.toString()}`);
+        });
+        
+        segmentationProcess.stderr.on('data', (data) => { 
+            const output = data.toString();
+            segStderr += output;
+            process.stderr.write(`[SegPy STDERR FID ${fileId}] ${output}`);
+            
+            // Parse progress information from tqdm output
+            // Try multiple regex patterns to handle different tqdm formats
+            let progressMatch = output.match(/Inferring Chunks:\s*(\d+)%\|[^|]*\|\s*(\d+)\/(\d+)\s*\[([^\]]+)\]/);
+            
+            // Fallback pattern for the exact format we're seeing: "Inferring Chunks:  49%|####9     | 95/192 [01:22<01:23,  1.16it/s]"
+            if (!progressMatch) {
+                progressMatch = output.match(/Inferring Chunks:\s*(\d+)%\|\S+\|\s*(\d+)\/(\d+)\s*\[([^\]]+)\]/);
+            }
+            
+            // Another fallback for the specific format with extra spaces
+            if (!progressMatch) {
+                progressMatch = output.match(/Inferring Chunks:\s+(\d+)%\|\S+\|\s+(\d+)\/(\d+)\s+\[([^\]]+)\]/);
+            }
+            
+            if (progressMatch) {
+                const percentage = parseInt(progressMatch[1]);
+                const current = parseInt(progressMatch[2]);
+                const total = parseInt(progressMatch[3]);
+                const timeInfo = progressMatch[4];
+                
+                console.log(`[SegmentationService] Progress detected: ${percentage}% (${current}/${total}) - ${timeInfo}`);
+                
+                // Parse time information (e.g., "01:22<01:23,  1.16it/s")
+                const timeMatch = timeInfo.match(/(\d+:\d+)<(\d+:\d+),\s*([\d.]+)it\/s/);
+                if (timeMatch) {
+                    const elapsed = timeMatch[1];
+                    const eta = timeMatch[2];
+                    const rate = timeMatch[3];
+                    
+                    progressData = {
+                        percentage,
+                        current,
+                        total,
+                        elapsed,
+                        eta,
+                        rate: `${rate} chunks/s`
+                    };
+                    
+                    console.log(`[SegmentationService] Updating progress for FileID ${fileId}:`, progressData);
+                    
+                    // Update database with progress information
+                    pool.query(
+                        "UPDATE uploaded_files SET processing_progress = $1 WHERE id = $2",
+                        [JSON.stringify(progressData), fileId]
+                    ).then(() => {
+                        console.log(`[SegmentationService] Progress updated successfully for FileID ${fileId}`);
+                    }).catch(dbErr => {
+                        console.error(`[SegmentationService] Error updating progress (FileID ${fileId}):`, dbErr);
+                    });
+                } else {
+                    console.log(`[SegmentationService] Time info parsing failed for: ${timeInfo}`);
+                }
+            } else {
+                // Log when we don't match to help debug
+                if (output.includes('Inferring Chunks') || output.includes('%')) {
+                    console.log(`[SegmentationService] Progress line detected but didn't match regex: ${output.trim()}`);
+                }
+            }
+        });
 
         segmentationProcess.on('error', async (error) => {
             console.error(`[SegmentationService] Error (FileID ${fileId}): Failed to start. Err: ${error.message}`);
