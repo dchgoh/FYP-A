@@ -41,6 +41,7 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
     '/team': 'Manage Team',
     '/upload': 'Files Upload',
     '/map': 'Map Overview',
+    '/pointcloud': 'Point Cloud Viewer',
     '/treecount': 'Tree Count',
     '/area': 'Area Data'
   };
@@ -178,6 +179,13 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
               title="Map Overview"
               to="/map"
               icon={<span className="material-symbols-outlined">map</span>}
+              selected={selected}
+              setSelected={setSelected}
+            />
+            <Item
+              title="Point Cloud Viewer"
+              to="/pointcloud"
+              icon={<span className="material-symbols-outlined">cloud</span>}
               selected={selected}
               setSelected={setSelected}
             />
