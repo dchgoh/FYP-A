@@ -1,15 +1,13 @@
 import { useState, useEffect } from "react"; // Import useEffect
 import { Routes, Route, Navigate, useNavigate} from "react-router-dom";
 import { jwtDecode } from "jwt-decode";
-import Topbar from "./scenes/global/topbar";
-import Sidebar from "./scenes/global/sidebar";
-import Dashboard from "./scenes/dashboard/dashboard";
-import Team from "./scenes/team/team";
-import Upload from "./scenes/upload/upload";
-import Login from "./scenes/login/login";
-import TreeCountDashboard from "./scenes/treecount/treecount";
-import AreaDataDashboard from "./scenes/area/area";
-import MapDashboard from "./scenes/map/map";
+import Topbar from "./scenes/global/Topbar";
+import Sidebar from "./scenes/global/Sidebar";
+import Dashboard from "./scenes/dashboard/Dashboard";
+import Team from "./scenes/team/Team";
+import Upload from "./scenes/filemanagement/FileManagement";
+import Login from "./scenes/login/Login";
+import MapDashboard from "./scenes/map/MapComponent";
 import PotreeViewer from './scenes/potree_viewer/potree_viewer';
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { ColorModeContext, useMode } from "./theme";
