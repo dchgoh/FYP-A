@@ -6,6 +6,9 @@ import * as THREE from 'three';
 import { createSceneManager } from './scene_manager';
 import { createBoundingBox, updateBoundingBoxVisibility, disposeBoundingBox } from './pointcloud_boundingbox';
 import { createStyles, getResponsiveMarginLeft } from './pointcloud_viewer.styles';
+import { createInitialClassifications, toggleClassification } from './classificationUtils';
+import { parseLASFile } from './lasParser';
+import { createPointCloudGeometry, createPointCloudMaterial, filterPointCloudByClassifications, updatePointCloudGeometry } from './pointCloudManager';
 
 const PointCloudViewer = ({ isCollapsed }) => {
   const theme = useTheme();
@@ -22,6 +25,8 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const [pointCloud, setPointCloud] = useState(null);
   const [showBoundingBox, setShowBoundingBox] = useState(true);
   const [boundingBox, setBoundingBox] = useState(null);
+  const [classifications, setClassifications] = useState(createInitialClassifications());
+  const [originalGeometry, setOriginalGeometry] = useState(null);
 
   // Initialize Three.js scene
   useEffect(() => {
@@ -36,101 +41,34 @@ const PointCloudViewer = ({ isCollapsed }) => {
     };
   }, []);
 
-  // Parse LAS/LAZ file
-  const parseLASFile = async (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const arrayBuffer = e.target.result;
-          const dataView = new DataView(arrayBuffer);
-          
-          // Basic LAS file parsing (simplified)
-          // LAS file format: https://www.asprs.org/wp-content/uploads/2010/12/LAS_1_4_r13.pdf
-          
-          // Check LAS signature
-          const signature = String.fromCharCode(
-            dataView.getUint8(0),
-            dataView.getUint8(1),
-            dataView.getUint8(2),
-            dataView.getUint8(3)
-          );
-          
-          if (signature !== 'LASF') {
-            throw new Error('Invalid LAS file format');
-          }
-
-          // Read header information
-          const versionMajor = dataView.getUint8(24);
-          const versionMinor = dataView.getUint8(25);
-          const pointDataRecordFormat = dataView.getUint8(104);
-          const pointDataRecordLength = dataView.getUint16(105, true);
-          const numberOfPointRecords = dataView.getUint32(107, true);
-          
-          // Read scale factors and offsets
-          const xScale = dataView.getFloat64(131, true);
-          const yScale = dataView.getFloat64(139, true);
-          const zScale = dataView.getFloat64(147, true);
-          const xOffset = dataView.getFloat64(155, true);
-          const yOffset = dataView.getFloat64(163, true);
-          const zOffset = dataView.getFloat64(171, true);
-          
-          // Calculate point data offset
-          const pointDataOffset = dataView.getUint32(96, true);
-          
-          // Classification scheme (matching Potree viewer)
-          const classificationScheme = {
-            0: { name: "Unclassified", color: [0.75, 0.75, 0.75] },
-            1: { name: "Low-vegetation", color: [0.6, 0.8, 0.2] },
-            2: { name: "Terrain", color: [0.545, 0.271, 0.075] },
-            3: { name: "Out-points", color: [1.0, 0.0, 1.0] },
-            4: { name: "Stem", color: [0.627, 0.322, 0.176] },
-            5: { name: "Live branches", color: [0.133, 0.545, 0.133] },
-            6: { name: "Woody branches", color: [0.36, 0.25, 0.2] },
-          };
-
-          // Parse point data
-          const points = [];
-          const colors = [];
-          const maxPoints = Math.min(numberOfPointRecords, 1000000);
-          
-          for (let i = 0; i < maxPoints; i++) { // Limit to 1M points for performance
-            // Log progress every 100k points
-            if (i % 100000 === 0 && i > 0) {
-              console.log(`Parsing progress: ${i}/${maxPoints} points (${Math.round(i/maxPoints*100)}%)`);
-            }
-            const offset = pointDataOffset + (i * pointDataRecordLength);
-            
-            // Read X, Y, Z coordinates
-            const xInt = dataView.getInt32(offset, true);
-            const yInt = dataView.getInt32(offset + 4, true);
-            const zInt = dataView.getInt32(offset + 8, true);
-            
-            // Convert to real coordinates
-            const x = xInt * xScale + xOffset;
-            const y = yInt * yScale + yOffset;
-            const z = zInt * zScale + zOffset;
-            
-            points.push(x, y, z);
-            
-            // Read classification (byte 15 in LAS format)
-            const classification = dataView.getUint8(offset + 15);
-            
-            // Get color based on classification
-            const classificationData = classificationScheme[classification] || classificationScheme[0];
-            colors.push(classificationData.color[0], classificationData.color[1], classificationData.color[2]);
-          }
-          
-          console.log(`Parsed ${points.length / 3} points out of ${numberOfPointRecords} total points in file`);
-          resolve({ points, colors, numberOfPointRecords });
-        } catch (error) {
-          reject(error);
+  // Handle window resize and sidebar collapse
+  useEffect(() => {
+    const handleResize = () => {
+      if (sceneManagerRef.current && canvasRef.current) {
+        const canvas = canvasRef.current;
+        const container = canvas.parentElement;
+        if (container) {
+          const rect = container.getBoundingClientRect();
+          // Update canvas size
+          canvas.width = rect.width;
+          canvas.height = rect.height;
+          // Update renderer size
+          sceneManagerRef.current.renderer.setSize(rect.width, rect.height);
+          // Update camera aspect ratio
+          sceneManagerRef.current.camera.aspect = rect.width / rect.height;
+          sceneManagerRef.current.camera.updateProjectionMatrix();
         }
-      };
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsArrayBuffer(file);
-    });
-  };
+      }
+    };
+
+    // Use a small delay to ensure the layout has updated
+    const timer = setTimeout(handleResize, 100);
+    
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [isCollapsed]);
+
 
   // Handle file selection
   const handleFileSelect = async (event) => {
@@ -156,33 +94,16 @@ const PointCloudViewer = ({ isCollapsed }) => {
         setBoundingBox(null);
       }
 
-      // Create new point cloud
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
-      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-      
-      // Normalize the geometry to center it
-      geometry.computeBoundingBox();
-      const center = geometry.boundingBox.getCenter(new THREE.Vector3());
-      geometry.translate(-center.x, -center.y, -center.z);
-      
-      // Compute bounding sphere for better culling
-      geometry.computeBoundingSphere();
-
-      const material = new THREE.PointsMaterial({
-        size: 2,
-        vertexColors: true,
-        sizeAttenuation: false,
-        transparent: false,
-        depthWrite: true,
-        depthTest: true,
-        blending: THREE.NormalBlending,
-        map: null
-      });
-
+      // Create new point cloud using utilities
+      const geometry = createPointCloudGeometry(points, colors);
+      const material = createPointCloudMaterial();
       const newPointCloud = new THREE.Points(geometry, material);
+      
       sceneManagerRef.current.scene.add(newPointCloud);
       setPointCloud(newPointCloud);
+      
+      // Store original geometry for classification filtering
+      setOriginalGeometry(geometry.clone());
 
       // Create bounding box using the module
       const box = createBoundingBox(geometry, showBoundingBox);
@@ -215,6 +136,21 @@ const PointCloudViewer = ({ isCollapsed }) => {
     setShowBoundingBox(newVisibility);
   };
 
+  // Toggle classification visibility
+  const handleToggleClassification = (classificationId) => {
+    const newClassifications = toggleClassification(classifications, classificationId);
+    
+    // Update point cloud geometry if point cloud exists
+    if (pointCloud && originalGeometry) {
+      const filteredGeometry = filterPointCloudByClassifications(originalGeometry, newClassifications);
+      updatePointCloudGeometry(pointCloud, filteredGeometry);
+    }
+    
+    // Update state
+    setClassifications(newClassifications);
+  };
+
+
   return (
     <Box 
       sx={{
@@ -223,20 +159,21 @@ const PointCloudViewer = ({ isCollapsed }) => {
       }}
     >
       <Box sx={styles.content}>
-        <Box sx={styles.header}>
-          <Typography variant="h2" sx={styles.title}>
-            Point Cloud Viewer
-          </Typography>
-        </Box>
-
-        <Box sx={styles.uploadSection}>
-          <Paper sx={styles.uploadPaper}>
-            <Box sx={styles.uploadContent}>
-              <Typography variant="h4" sx={styles.uploadTitle}>
-                Upload LAS/LAZ File
-              </Typography>
-              
-              <Box sx={styles.buttonContainer}>
+        <Box sx={styles.viewerWrapper}>
+          {/* Left Controls Sidebar */}
+          <Box sx={styles.controlsSidebar}>
+            <Paper sx={styles.controlsPaper}>
+                    <Typography variant="h6" sx={styles.controlsTitle}>
+                      Point Cloud Controls
+                    </Typography>
+                    
+                    {selectedFile && (
+                      <Typography variant="body1" sx={styles.selectedFileTextTop}>
+                        📁 {selectedFile.name}
+                      </Typography>
+                    )}
+                    
+                    <Box sx={styles.controlsContent}>
                 <input
                   accept=".las,.laz"
                   style={styles.fileInput}
@@ -251,6 +188,7 @@ const PointCloudViewer = ({ isCollapsed }) => {
                     startIcon={<CloudUpload />}
                     disabled={isLoading}
                     sx={styles.uploadButton}
+                    fullWidth
                   >
                     Choose LAS/LAZ File
                   </Button>
@@ -258,47 +196,69 @@ const PointCloudViewer = ({ isCollapsed }) => {
                 
                 {pointCloud && (
                   <Button
-                    variant="contained"
+                    variant="outlined"
                     onClick={toggleBoundingBox}
                     sx={styles.visibilityButton}
+                    fullWidth
                   >
                     {showBoundingBox ? 'Hide' : 'Show'} Bounding Box
                   </Button>
                 )}
+
+                {pointCloud && (
+                  <Box sx={styles.classificationSection}>
+                    <Typography variant="h6" sx={styles.classificationTitle}>
+                      Classifications
+                    </Typography>
+                    {Object.entries(classifications).map(([id, classification]) => (
+                      <Box key={id} sx={styles.classificationItem}>
+                        <Box
+                          sx={{
+                            ...styles.classificationColor,
+                            backgroundColor: `rgb(${classification.color[0] * 255}, ${classification.color[1] * 255}, ${classification.color[2] * 255})`
+                          }}
+                        />
+                        <Typography variant="body2" sx={styles.classificationName}>
+                          {classification.name}
+                        </Typography>
+                        <Button
+                          size="small"
+                          variant={classification.visible ? "contained" : "outlined"}
+                          onClick={() => handleToggleClassification(id)}
+                          sx={styles.classificationToggle}
+                        >
+                          {classification.visible ? 'Hide' : 'Show'}
+                        </Button>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+
+                {error && (
+                  <Alert severity="error" sx={styles.errorAlert}>
+                    {error}
+                  </Alert>
+                )}
+
+                {isLoading && (
+                  <Box sx={styles.loadingContainer}>
+                    <CircularProgress size={16} />
+                    <Typography variant="body2" sx={styles.loadingText}>
+                      Loading...
+                    </Typography>
+                  </Box>
+                )}
               </Box>
-
-              {selectedFile && (
-                <Typography variant="body1" sx={styles.selectedFileText}>
-                  Selected file: {selectedFile.name}
-                </Typography>
-              )}
-
-              {error && (
-                <Alert severity="error" sx={styles.errorAlert}>
-                  {error}
-                </Alert>
-              )}
-
-              {isLoading && (
-                <Box sx={styles.loadingContainer}>
-                  <CircularProgress size={20} />
-                  <Typography variant="body2" sx={styles.loadingText}>
-                    Loading point cloud...
-                  </Typography>
-                </Box>
-              )}
-            </Box>
-          </Paper>
-
-          <Box sx={styles.canvasSection}>
-            <Paper sx={styles.canvasPaper}>
-              <canvas
-                ref={canvasRef}
-                style={styles.canvas}
-              />
             </Paper>
           </Box>
 
+          {/* Main Viewer Area */}
+          <Box sx={styles.renderArea}>
+            <canvas
+              ref={canvasRef}
+              style={styles.canvas}
+            />
+          </Box>
         </Box>
       </Box>
     </Box>

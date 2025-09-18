@@ -27,7 +27,7 @@ export const routes = [
     },
     {
         title: 'Point Cloud Viewer',
-        to: '/potree',
-        omitFromSidebar: true, // A flag to tell the sidebar not to render this link
+        to: '/pointcloud',
+        icon: <span className="material-symbols-outlined">view_in_ar</span>,
     },
 ];
