@@ -17,7 +17,7 @@ const FileUploadModal = ({
     
     const styles = {
         dialogPaper: { backgroundColor: colors.grey[800], color: colors.grey[100] },
-        dialogTitle: { textAlign: "center", color: colors.grey[100], paddingBottom: 0, fontWeight: 'bold' },
+        dialogTitle: { textAlign: "center", color: colors.grey[100], padding: 2, fontWeight: 'bold', backgroundColor: colors.primary[700], marginBottom: 1 },
         dialogContent: { display: "flex", flexDirection: "column", alignItems: "center", minWidth: { xs: '280px', sm: '350px' }, p: theme.spacing(2, 3) },
         dialogActions: { p: theme.spacing(2, 3), backgroundColor: colors.primary[700], borderTop: `1px solid ${colors.grey[700]}` },
         dialogTextField: { '& label.Mui-focused': { color: colors.blueAccent[300] }, '& .MuiOutlinedInput-root': { color: colors.grey[100] }, '& .MuiInputLabel-root': { color: colors.grey[300] } },
@@ -30,7 +30,7 @@ const FileUploadModal = ({
         <Dialog open={openUploadModal} onClose={handleCloseUploadModal} disableEscapeKeyDown={isUploading} PaperProps={{ sx: styles.dialogPaper }}>
             <DialogTitle sx={styles.dialogTitle}>Upload New File</DialogTitle>
             <DialogContent sx={styles.dialogContent}>
-                <Button variant="contained" onClick={triggerFileInput} disabled={isUploading} sx={{ mb: 1, color: colors.grey[100], backgroundColor: 'rgb(40, 173, 226)', '&:hover': { backgroundColor: 'rgb(58, 168, 211)' }, '&.Mui-disabled': { backgroundColor: colors.grey[700], color: colors.grey[500] } }}>
+                <Button variant="contained" onClick={triggerFileInput} disabled={isUploading} sx={{ mb: 1, color: colors.grey[100],margin: 1, backgroundColor: 'rgb(40, 173, 226)', '&:hover': { backgroundColor: 'rgb(58, 168, 211)' }, '&.Mui-disabled': { backgroundColor: colors.grey[700], color: colors.grey[500] } }}>
                     Select File (.las/.laz)
                 </Button>
                 <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileChange} disabled={isUploading} accept=".las,.laz"/>

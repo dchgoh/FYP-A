@@ -70,6 +70,7 @@ const Login = ({ onLoginSuccess }) => {
       flexDirection: 'column',
       alignItems: 'center',
       p: 2, // Padding for small screens
+      width: '100%',
     },
     logo: {
       maxWidth: '150px',
@@ -149,7 +150,7 @@ const Login = ({ onLoginSuccess }) => {
                   required
                   InputProps={{
                     startAdornment: (
-                      <InputAdornment position="start"><FaEnvelope color="#718096" /></InputAdornment>
+                      <InputAdornment position="start"><FaEnvelope color="#718096" size={16} /></InputAdornment>
                     ),
                   }}
                 />
@@ -164,14 +165,15 @@ const Login = ({ onLoginSuccess }) => {
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
-                        <IconButton
+                        <Button
                           aria-label="toggle password visibility"
                           onClick={() => setShowPassword(!showPassword)}
                           edge="start"
                           tabIndex={-1}
+                          sx={{ padding: 0, minWidth: 0 }}
                         >
-                          <FaEye color={showPassword ? "#3182ce" : "#718096"} />
-                        </IconButton>
+                          <FaEye color={showPassword ? "#3182ce" : "#718096"} size={16} />
+                        </Button>
                       </InputAdornment>
                     ),
                   }}

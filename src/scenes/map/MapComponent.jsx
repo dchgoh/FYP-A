@@ -76,7 +76,7 @@ const MapComponent = ({ isCollapsed }) => {
         popupDetailsSection: { mt: 'auto', borderTop: `1px solid ${colors.grey[700]}`, pt: 1.5, flexShrink: 0, color: colors.grey[200], fontSize: {xs: '0.75rem', sm: '0.875rem'} }
     };
 
-    const commonMenuProps = { PaperProps: { sx: { backgroundColor: colors.primary[700], color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.blueAccent[600] }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: `${colors.blueAccent[700]} !important` } } } };
+    const commonMenuProps = { PaperProps: { sx: {  color: colors.grey[100], '& .MuiMenuItem-root:hover': { backgroundColor: colors.blueAccent[600] }, '& .MuiMenuItem-root.Mui-selected': { backgroundColor: `${colors.blueAccent[700]} !important` } } } };
 
     return (
         <Box sx={{ display: 'flex', flexDirection: 'column', height: `calc(100vh - ${theme.mixins.toolbar?.minHeight || 64}px - ${theme.spacing(4)})`, marginLeft: { xs: 0, sm: isCollapsed ? "80px" : "270px" }, transition: "margin-left 0.3s ease", p: { xs: 1, sm: 2 }, backgroundColor: colors.grey[800] }}>
