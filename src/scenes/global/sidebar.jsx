@@ -60,7 +60,7 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
                 position: "fixed",
                 top: 0,
                 left: 0,
-                height: "100vh", // <-- CRITICAL FIX: Changed from 300vh
+                height: "100%",
                 zIndex: 1000,
                 "& .pro-sidebar-inner": { background: `${colors.grey[900]} !important` },
                 "& .pro-icon-wrapper": { backgroundColor: "transparent !important" },
