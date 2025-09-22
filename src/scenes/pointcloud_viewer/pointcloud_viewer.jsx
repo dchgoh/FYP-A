@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Box, Button, Typography, Paper, Alert, CircularProgress, useTheme } from '@mui/material';
+import { Box, Button, Typography, Paper, Alert, CircularProgress, useTheme, FormControlLabel, Checkbox, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import { tokens } from '../../theme';
 import { CloudUpload } from '@mui/icons-material';
 import * as THREE from 'three';
@@ -7,8 +7,9 @@ import { createSceneManager } from './scene_manager';
 import { createBoundingBox, updateBoundingBoxVisibility, disposeBoundingBox } from './pointcloud_boundingbox';
 import { createStyles, getResponsiveMarginLeft } from './pointcloud_viewer.styles';
 import { createInitialClassifications, toggleClassification } from './classificationUtils';
+import { createInitialTreeIDs, toggleTreeID } from './treeIDUtils';
 import { parseLASFile } from './lasParser';
-import { createPointCloudGeometry, createPointCloudMaterial, filterPointCloudByClassifications, updatePointCloudGeometry } from './pointCloudManager';
+import { createPointCloudGeometry, createPointCloudMaterial, filterPointCloudByClassifications, filterPointCloudByTreeIDs, updatePointCloudGeometry } from './pointCloudManager';
 
 const PointCloudViewer = ({ isCollapsed }) => {
   const theme = useTheme();
@@ -26,7 +27,10 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const [showBoundingBox, setShowBoundingBox] = useState(true);
   const [boundingBox, setBoundingBox] = useState(null);
   const [classifications, setClassifications] = useState(createInitialClassifications());
+  const [treeIDs, setTreeIDs] = useState({});
+  const [treeIDData, setTreeIDData] = useState([]);
   const [originalGeometry, setOriginalGeometry] = useState(null);
+  const [filterMode, setFilterMode] = useState('classification'); // 'classification' or 'treeID'
 
   // Initialize Three.js scene
   useEffect(() => {
@@ -85,7 +89,7 @@ const PointCloudViewer = ({ isCollapsed }) => {
     setIsLoading(true);
 
     try {
-      const { points, colors, numberOfPointRecords } = await parseLASFile(file);
+      const { points, colors, treeIDs, numberOfPointRecords } = await parseLASFile(file);
       
       // Remove existing point cloud (bounding box will be removed with it as a child)
       if (pointCloud) {
@@ -102,8 +106,13 @@ const PointCloudViewer = ({ isCollapsed }) => {
       sceneManagerRef.current.scene.add(newPointCloud);
       setPointCloud(newPointCloud);
       
-      // Store original geometry for classification filtering
+      // Store original geometry for filtering
       setOriginalGeometry(geometry.clone());
+      
+      // Initialize treeID data
+      const treeIDMap = createInitialTreeIDs(treeIDs);
+      setTreeIDs(treeIDMap);
+      setTreeIDData(treeIDs);
 
       // Create bounding box using the module
       const box = createBoundingBox(geometry, showBoundingBox);
@@ -150,6 +159,84 @@ const PointCloudViewer = ({ isCollapsed }) => {
     setClassifications(newClassifications);
   };
 
+  // Toggle treeID visibility
+  const handleToggleTreeID = (treeID) => {
+    const newTreeIDs = toggleTreeID(treeIDs, treeID);
+    
+    // Update point cloud geometry if point cloud exists
+    if (pointCloud && originalGeometry && treeIDData) {
+      const filteredGeometry = filterPointCloudByTreeIDs(originalGeometry, treeIDData, newTreeIDs);
+      updatePointCloudGeometry(pointCloud, filteredGeometry);
+    }
+    
+    // Update state
+    setTreeIDs(newTreeIDs);
+  };
+
+  // Toggle all classifications
+  const handleToggleAllClassifications = () => {
+    const allVisible = Object.values(classifications).every(c => c.visible);
+    const newClassifications = { ...classifications };
+    
+    Object.keys(newClassifications).forEach(id => {
+      newClassifications[id] = {
+        ...newClassifications[id],
+        visible: !allVisible
+      };
+    });
+    
+    // Update point cloud geometry if point cloud exists
+    if (pointCloud && originalGeometry) {
+      const filteredGeometry = filterPointCloudByClassifications(originalGeometry, newClassifications);
+      updatePointCloudGeometry(pointCloud, filteredGeometry);
+    }
+    
+    // Update state
+    setClassifications(newClassifications);
+  };
+
+  // Toggle all treeIDs
+  const handleToggleAllTreeIDs = () => {
+    const allVisible = Object.values(treeIDs).every(t => t.visible);
+    const newTreeIDs = { ...treeIDs };
+    
+    Object.keys(newTreeIDs).forEach(id => {
+      newTreeIDs[id] = {
+        ...newTreeIDs[id],
+        visible: !allVisible
+      };
+    });
+    
+    // Update point cloud geometry if point cloud exists
+    if (pointCloud && originalGeometry && treeIDData) {
+      const filteredGeometry = filterPointCloudByTreeIDs(originalGeometry, treeIDData, newTreeIDs);
+      updatePointCloudGeometry(pointCloud, filteredGeometry);
+    }
+    
+    // Update state
+    setTreeIDs(newTreeIDs);
+  };
+
+  // Update point cloud colors based on filter mode
+  const updatePointCloudColors = () => {
+    if (!pointCloud || !originalGeometry) return;
+
+    if (filterMode === 'classification') {
+      // Use classification colors
+      const filteredGeometry = filterPointCloudByClassifications(originalGeometry, classifications);
+      updatePointCloudGeometry(pointCloud, filteredGeometry);
+    } else if (filterMode === 'treeID' && treeIDData) {
+      // Use treeID colors
+      const filteredGeometry = filterPointCloudByTreeIDs(originalGeometry, treeIDData, treeIDs);
+      updatePointCloudGeometry(pointCloud, filteredGeometry);
+    }
+  };
+
+  // Update colors when filter mode changes
+  useEffect(() => {
+    updatePointCloudColors();
+  }, [filterMode]);
+
 
   return (
     <Box 
@@ -166,12 +253,6 @@ const PointCloudViewer = ({ isCollapsed }) => {
                     <Typography variant="h6" sx={styles.controlsTitle}>
                       Point Cloud Controls
                     </Typography>
-                    
-                    {selectedFile && (
-                      <Typography variant="body1" sx={styles.selectedFileTextTop}>
-                        📁 {selectedFile.name}
-                      </Typography>
-                    )}
                     
                     <Box sx={styles.controlsContent}>
                 <input
@@ -194,22 +275,51 @@ const PointCloudViewer = ({ isCollapsed }) => {
                   </Button>
                 </label>
                 
-                {pointCloud && (
-                  <Button
-                    variant="outlined"
-                    onClick={toggleBoundingBox}
-                    sx={styles.visibilityButton}
-                    fullWidth
-                  >
-                    {showBoundingBox ? 'Hide' : 'Show'} Bounding Box
-                  </Button>
+                {selectedFile && (
+                  <Typography variant="body1" sx={styles.selectedFileText}>
+                    File Name: {selectedFile.name}
+                  </Typography>
+                )}
+
+                {isLoading && (
+                  <Box sx={styles.loadingContainer}>
+                    <CircularProgress size={18} sx={styles.loadingSpinner} />
+                    <Typography variant="body2" sx={styles.loadingText}>
+                      Loading point cloud...
+                    </Typography>
+                  </Box>
                 )}
 
                 {pointCloud && (
+                  <FormControl fullWidth size="small" sx={styles.filterModeSelect}>
+                    <InputLabel>Select Filter Mode</InputLabel>
+                    <Select
+                      value={filterMode}
+                      label="Select Filter Mode"
+                      onChange={(e) => setFilterMode(e.target.value)}
+                    >
+                      <MenuItem value="classification">Classification</MenuItem>
+                      <MenuItem value="treeID">Tree ID</MenuItem>
+                    </Select>
+                  </FormControl>
+                )}
+
+                {pointCloud && filterMode === 'classification' && (
                   <Box sx={styles.classificationSection}>
                     <Typography variant="h6" sx={styles.classificationTitle}>
                       Classifications
                     </Typography>
+                    <Box sx={styles.selectAllItem}>
+                      <Typography variant="body2" sx={styles.selectAllText}>
+                        Select All
+                      </Typography>
+                      <Checkbox
+                        checked={Object.values(classifications).every(c => c.visible)}
+                        indeterminate={Object.values(classifications).some(c => c.visible) && !Object.values(classifications).every(c => c.visible)}
+                        onChange={handleToggleAllClassifications}
+                        sx={styles.checkbox}
+                      />
+                    </Box>
                     {Object.entries(classifications).map(([id, classification]) => (
                       <Box key={id} sx={styles.classificationItem}>
                         <Box
@@ -221,32 +331,71 @@ const PointCloudViewer = ({ isCollapsed }) => {
                         <Typography variant="body2" sx={styles.classificationName}>
                           {classification.name}
                         </Typography>
-                        <Button
-                          size="small"
-                          variant={classification.visible ? "contained" : "outlined"}
-                          onClick={() => handleToggleClassification(id)}
-                          sx={styles.classificationToggle}
-                        >
-                          {classification.visible ? 'Hide' : 'Show'}
-                        </Button>
+                        <Checkbox
+                          checked={classification.visible}
+                          onChange={() => handleToggleClassification(id)}
+                          sx={styles.checkbox}
+                        />
                       </Box>
                     ))}
                   </Box>
+                )}
+
+                {pointCloud && filterMode === 'treeID' && (
+                  <Box sx={styles.classificationSection}>
+                    <Typography variant="h6" sx={styles.classificationTitle}>
+                      Tree IDs ({Object.keys(treeIDs).length - 1} trees)
+                    </Typography>
+                    <Box sx={styles.selectAllItem}>
+                      <Typography variant="body2" sx={styles.selectAllText}>
+                        Select All
+                      </Typography>
+                      <Checkbox
+                        checked={Object.values(treeIDs).every(t => t.visible)}
+                        indeterminate={Object.values(treeIDs).some(t => t.visible) && !Object.values(treeIDs).every(t => t.visible)}
+                        onChange={handleToggleAllTreeIDs}
+                        sx={styles.checkbox}
+                      />
+                    </Box>
+                    {Object.entries(treeIDs).map(([id, treeID]) => (
+                      <Box key={id} sx={styles.classificationItem}>
+                        <Box
+                          sx={{
+                            ...styles.classificationColor,
+                            backgroundColor: `rgb(${treeID.color[0] * 255}, ${treeID.color[1] * 255}, ${treeID.color[2] * 255})`
+                          }}
+                        />
+                        <Typography variant="body2" sx={styles.classificationName}>
+                          {treeID.name}
+                        </Typography>
+                        <Checkbox
+                          checked={treeID.visible}
+                          onChange={() => handleToggleTreeID(id)}
+                          sx={styles.checkbox}
+                        />
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+
+                {pointCloud && (
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={showBoundingBox}
+                        onChange={toggleBoundingBox}
+                        sx={styles.checkbox}
+                      />
+                    }
+                    label="Show Bounding Box"
+                    sx={styles.checkboxLabel}
+                  />
                 )}
 
                 {error && (
                   <Alert severity="error" sx={styles.errorAlert}>
                     {error}
                   </Alert>
-                )}
-
-                {isLoading && (
-                  <Box sx={styles.loadingContainer}>
-                    <CircularProgress size={16} />
-                    <Typography variant="body2" sx={styles.loadingText}>
-                      Loading...
-                    </Typography>
-                  </Box>
                 )}
               </Box>
             </Paper>

@@ -6,7 +6,7 @@ import { createCamera, setCameraTopView, handleCameraResize } from './camera_man
 export function createSceneManager(canvas) {
   // Scene setup
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1a1a1a);
+  scene.background = null; // Transparent background
 
   // Camera setup
   const camera = createCamera(canvas);
@@ -15,12 +15,13 @@ export function createSceneManager(canvas) {
   const renderer = new THREE.WebGLRenderer({ 
     canvas: canvas,
     antialias: true,
-    alpha: false,
+    alpha: true, // Enable transparency
     powerPreference: "high-performance"
   });
   renderer.setSize(canvas.clientWidth, canvas.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = false;
+  renderer.sortObjects = false; // Disable object sorting to prevent flickering
 
   // Lighting
   const ambientLight = new THREE.AmbientLight(0x404040, 0.6);

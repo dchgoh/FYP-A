@@ -53,6 +53,10 @@ export const createStyles = (theme, colors) => ({
     flex: 1,
     position: "relative",
     border: `1px solid ${colors.grey[700]}`,
+    backgroundImage: 'url(/assets/background.png)',
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    backgroundRepeat: 'no-repeat',
   },
   
   canvas: {
@@ -68,16 +72,6 @@ export const createStyles = (theme, colors) => ({
     textAlign: 'center'
   },
   
-  selectedFileTextTop: {
-    color: colors.blueAccent[400],
-    fontSize: '0.9rem',
-    fontWeight: 'bold',
-    wordBreak: 'break-all',
-    textAlign: 'center',
-    p: 1,
-    mb: 2,
-  },
-  
   controlsContent: {
     display: "flex",
     flexDirection: "column",
@@ -89,32 +83,80 @@ export const createStyles = (theme, colors) => ({
   },
   
   uploadButton: {
-    backgroundColor: colors.blueAccent[500],
+    backgroundColor: colors.primary[700],
     color: '#FFFFFF',
     '&:hover': {
-      backgroundColor: colors.blueAccent[600],
+      backgroundColor: colors.primary[500],
     },
   },
-  
-  visibilityButton: {
-    borderColor: colors.greenAccent[500],
-    color: colors.greenAccent[500],
-    '&:hover': {
-      borderColor: colors.greenAccent[600],
-      backgroundColor: colors.greenAccent[500],
-      color: colors.grey[100],
+
+  checkbox: {
+    color: colors.primary[300],
+    '&.Mui-checked': {
+      color: colors.primary[400],
     },
+    '&:hover': {
+      backgroundColor: colors.primary[500] + '20',
+    },
+  },
+
+  checkboxLabel: {
+    color: colors.grey[200],
+    fontWeight: 'bold',
+    '& .MuiFormControlLabel-label': {
+      fontSize: '0.9rem',
+    },
+  },
+
+  filterModeSelect: {
+    mt: 1,
+    '& .MuiOutlinedInput-root': {
+      color: colors.grey[200],
+      '& fieldset': {
+        borderColor: colors.grey[600],
+      },
+      '&:hover fieldset': {
+        borderColor: colors.primary[500],
+      },
+      '&.Mui-focused fieldset': {
+        borderColor: colors.primary[500],
+      },
+    },
+    '& .MuiInputLabel-root': {
+      color: colors.grey[400],
+      '&.Mui-focused': {
+        color: colors.primary[500],
+      },
+    },
+    '& .MuiSelect-icon': {
+      color: colors.grey[400],
+    },
+  },
+
+  moreItemsText: {
+    color: colors.grey[400],
+    fontSize: '0.75rem',
+    textAlign: 'center',
+    fontStyle: 'italic',
+    mt: 1,
+  },
+
+  selectAllItem: {
+    display: 'flex',
+    alignItems: 'center',
+  },
+
+  selectAllText: {
+    color: colors.grey[200],
+    flex: 1,
+    fontSize: '0.875rem',
+    fontWeight: 'bold',
   },
   
   selectedFileText: {
-    color: colors.grey[200],
-    fontSize: '0.875rem',
-    wordBreak: 'break-all',
-    textAlign: 'left',
-    p: 1,
-    backgroundColor: colors.grey[700],
-    borderRadius: '4px',
-    border: `1px solid ${colors.grey[600]}`,
+    color: colors.grey[100],
+    fontSize: '0.9rem',
+    textAlign: 'center',
   },
   
   errorAlert: {
@@ -134,9 +176,9 @@ export const createStyles = (theme, colors) => ({
   },
   
   classificationSection: {
-    mt: 2,
+    mt: 1,
     p: 2,
-    backgroundColor: colors.grey[700],
+    backgroundColor: colors.grey[800],
     borderRadius: '8px',
     border: `1px solid ${colors.grey[600]}`,
   },
@@ -153,11 +195,8 @@ export const createStyles = (theme, colors) => ({
     display: 'flex',
     alignItems: 'center',
     gap: 1,
-    mb: 1,
-    p: 1,
     backgroundColor: colors.grey[800],
-    borderRadius: '4px',
-    border: `1px solid ${colors.grey[600]}`,
+
   },
   
   classificationColor: {
@@ -174,21 +213,6 @@ export const createStyles = (theme, colors) => ({
     fontSize: '0.875rem'
   },
   
-  classificationToggle: {
-    minWidth: '60px',
-    fontSize: '0.75rem',
-    height: '28px',
-    backgroundColor: colors.blueAccent[500],
-    color: colors.grey[900],
-    '&:hover': {
-      backgroundColor: colors.blueAccent[600],
-    },
-    '&.MuiButton-outlined': {
-      borderColor: colors.grey[500],
-      color: colors.grey[200],
-      backgroundColor: 'transparent',
-    }
-  }
 });
 
 export const getResponsiveMarginLeft = (isCollapsed) => ({
