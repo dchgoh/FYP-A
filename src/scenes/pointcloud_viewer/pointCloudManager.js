@@ -158,7 +158,7 @@ export const filterPointCloudByClassifications = (originalGeometry, classificati
     // If no points are visible, create empty geometry with at least one point to avoid errors
     const emptyPositions = new Float32Array([0, 0, 0]);
     const emptyColors = new Float32Array([0, 0, 0]);
-    const emptySizes = new Float32Array([8.0]);
+    const emptySizes = new Float32Array([1]);
     finalGeometry.setAttribute('position', new THREE.Float32BufferAttribute(emptyPositions, 3));
     finalGeometry.setAttribute('color', new THREE.Float32BufferAttribute(emptyColors, 3));
     finalGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(emptyColors, 3));
