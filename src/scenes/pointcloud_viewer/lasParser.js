@@ -1,9 +1,9 @@
 // LAS file parsing utilities
 
-export const parseLASFile = async (file) => {
+export const parseLASFile = async (file, onProgress = null) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const arrayBuffer = e.target.result;
         const dataView = new DataView(arrayBuffer);
@@ -55,14 +55,42 @@ export const parseLASFile = async (file) => {
         const points = [];
         const colors = [];
         const treeIDs = [];
-        const maxPoints = Math.min(numberOfPointRecords, 1000000);
+        
+        // If header says 0 points but we have data, try to estimate from available data
+        let estimatedNumberOfPoints = numberOfPointRecords;
+        if (numberOfPointRecords === 0 && pointDataOffset < arrayBuffer.byteLength) {
+          const availableData = arrayBuffer.byteLength - pointDataOffset;
+          estimatedNumberOfPoints = Math.floor(availableData / pointDataRecordLength);
+          console.log(`Header says 0 points, but estimating ${estimatedNumberOfPoints} points from available data`);
+        }
+        
+        const maxPoints = Math.min(estimatedNumberOfPoints, 1000000);
         
         // Calculate sampling interval for uniform distribution
-        const samplingInterval = Math.max(1, Math.floor(numberOfPointRecords / maxPoints));
-        const actualPointsToLoad = Math.min(numberOfPointRecords, maxPoints * samplingInterval);
+        const samplingInterval = Math.max(1, Math.floor(estimatedNumberOfPoints / maxPoints));
+        const actualPointsToLoad = Math.min(estimatedNumberOfPoints, maxPoints * samplingInterval);
         
-        console.log(`Total points: ${numberOfPointRecords}, Sampling every ${samplingInterval} points, Loading: ${actualPointsToLoad} points`);
+        console.log(`Total points: ${estimatedNumberOfPoints}, Sampling every ${samplingInterval} points, Loading: ${actualPointsToLoad} points`);
         console.log(`Point format: ${pointDataRecordFormat}, Record length: ${pointDataRecordLength} bytes`);
+        
+        if (estimatedNumberOfPoints === 0) {
+          console.error('ERROR: LAS file has 0 points! This might be a corrupted or empty file.');
+          console.log('File size:', arrayBuffer.byteLength, 'bytes');
+          console.log('Point data offset:', pointDataOffset);
+          console.log('Expected data size:', estimatedNumberOfPoints * pointDataRecordLength);
+          console.log('Available data after offset:', arrayBuffer.byteLength - pointDataOffset);
+          
+          // Debug the LAS header more thoroughly
+          console.log('=== LAS HEADER DEBUG ===');
+          console.log('Signature:', signature);
+          console.log('Version:', versionMajor + '.' + versionMinor);
+          console.log('Point Data Record Format:', pointDataRecordFormat);
+          console.log('Point Data Record Length:', pointDataRecordLength);
+          console.log('Number of Point Records (from header):', numberOfPointRecords);
+          console.log('X Scale:', xScale, 'Y Scale:', yScale, 'Z Scale:', zScale);
+          console.log('X Offset:', xOffset, 'Y Offset:', yOffset, 'Z Offset:', zOffset);
+          console.log('=== END LAS HEADER DEBUG ===');
+        }
         
         // Function to find treeID in extra bytes
         const findTreeIDInExtraBytes = (offset, pointFormat, recordLength) => {
@@ -136,45 +164,64 @@ export const parseLASFile = async (file) => {
           return 0; // No valid treeID found
         };
         
-        for (let i = 0; i < actualPointsToLoad; i += samplingInterval) {
-          if (i % (samplingInterval * 100000) === 0 && i > 0) {
-            console.log(`Parsing progress: ${Math.floor(i/samplingInterval)}/${maxPoints} points (${Math.round(i/actualPointsToLoad*100)}%)`);
+        // Process points in chunks to prevent UI blocking
+        const processPointsChunked = async () => {
+          const chunkSize = 5000; // Process 5k points at a time for better responsiveness
+          let processedPoints = 0;
+          
+          for (let i = 0; i < actualPointsToLoad; i += samplingInterval) {
+            if (i % (samplingInterval * 100000) === 0 && i > 0) {
+              const progress = Math.round(i/actualPointsToLoad*100);
+              console.log(`Parsing progress: ${Math.floor(i/samplingInterval)}/${maxPoints} points (${progress}%)`);
+              if (onProgress) {
+                onProgress(progress);
+              }
+            }
+            
+            const offset = pointDataOffset + (i * pointDataRecordLength);
+            
+            // Check if we have enough data
+            if (offset + pointDataRecordLength > arrayBuffer.byteLength) {
+              console.warn(`Stopping at point ${i}: not enough data in file`);
+              break;
+            }
+            
+            // Read X, Y, Z coordinates
+            const xInt = dataView.getInt32(offset, true);
+            const yInt = dataView.getInt32(offset + 4, true);
+            const zInt = dataView.getInt32(offset + 8, true);
+            
+            // Convert to real coordinates
+            const x = xInt * xScale + xOffset;
+            const y = yInt * yScale + yOffset;
+            const z = zInt * zScale + zOffset;
+            
+            points.push(x, y, z);
+            
+            // Read classification (byte 15 in LAS format)
+            const classification = dataView.getUint8(offset + 15);
+            
+            // Read treeID from extra bytes using flexible detection
+            const treeID = findTreeIDInExtraBytes(offset, pointDataRecordFormat, pointDataRecordLength);
+            
+            treeIDs.push(treeID);
+            
+            // Get color based on classification
+            const classificationData = getClassificationColor(classification);
+            colors.push(classificationData.color[0], classificationData.color[1], classificationData.color[2]);
+            
+            processedPoints++;
+            
+            // Yield control to browser every chunkSize points
+            if (processedPoints % chunkSize === 0) {
+              await new Promise(resolve => setTimeout(resolve, 0));
+            }
           }
-          
-          const offset = pointDataOffset + (i * pointDataRecordLength);
-          
-          // Check if we have enough data
-          if (offset + pointDataRecordLength > arrayBuffer.byteLength) {
-            console.warn(`Stopping at point ${i}: not enough data in file`);
-            break;
-          }
-          
-          // Read X, Y, Z coordinates
-          const xInt = dataView.getInt32(offset, true);
-          const yInt = dataView.getInt32(offset + 4, true);
-          const zInt = dataView.getInt32(offset + 8, true);
-          
-          // Convert to real coordinates
-          const x = xInt * xScale + xOffset;
-          const y = yInt * yScale + yOffset;
-          const z = zInt * zScale + zOffset;
-          
-          points.push(x, y, z);
-          
-          // Read classification (byte 15 in LAS format)
-          const classification = dataView.getUint8(offset + 15);
-          
-          // Read treeID from extra bytes using flexible detection
-          const treeID = findTreeIDInExtraBytes(offset, pointDataRecordFormat, pointDataRecordLength);
-          
-          treeIDs.push(treeID);
-          
-          // Get color based on classification
-          const classificationData = getClassificationColor(classification);
-          colors.push(classificationData.color[0], classificationData.color[1], classificationData.color[2]);
-        }
+        };
         
-        console.log(`Parsed ${points.length / 3} uniformly sampled points out of ${numberOfPointRecords} total points in file`);
+        await processPointsChunked();
+        
+        console.log(`Parsed ${points.length / 3} uniformly sampled points out of ${estimatedNumberOfPoints} total points in file`);
         console.log(`Sampling ratio: 1:${samplingInterval} (every ${samplingInterval} points)`);
         console.log(`Found treeIDs:`, [...new Set(treeIDs)].sort((a, b) => a - b));
         resolve({ points, colors, treeIDs, numberOfPointRecords });

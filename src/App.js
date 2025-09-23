@@ -8,7 +8,6 @@ import Team from "./scenes/team/team";
 import Upload from "./scenes/filemanagement/FileManagement";
 import Login from "./scenes/login/login";
 import MapDashboard from "./scenes/map/MapComponent";
-import PotreeViewer from './scenes/potree_viewer/potree_viewer';
 import PointCloudViewer from './scenes/pointcloud_viewer/pointcloud_viewer';
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { ColorModeContext, useMode } from "./theme";
@@ -153,10 +152,6 @@ function App() {
               <Route
                 path="/map"
                 element={isAuthenticated ? <MapDashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
-              />
-              <Route
-                path="/potree"
-                element={isAuthenticated ? <PotreeViewer isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
               />
               <Route
                 path="/pointcloud"

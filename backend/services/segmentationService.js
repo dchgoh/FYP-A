@@ -126,11 +126,38 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
         segmentationProcess.on('close', async (code) => {
             console.log(`\n[SegmentationService] (FileID ${fileId}): Script exited with code ${code}.`);
             if (code === 0) {
-                if (!fs.existsSync(inputFileAbsolutePath) || fs.statSync(inputFileAbsolutePath).size === 0) {
+                // Check for the output file created by segmentation script
+                // Match the Python script's sanitization: Path(args.input_file).stem.replace(" ", "_")
+                const inputFileName = path.basename(inputFileAbsolutePath, path.extname(inputFileAbsolutePath));
+                const sanitizedInputStem = inputFileName.replace(/ /g, '_'); // Replace spaces with underscores like Python script
+                const outputFileName = sanitizedInputStem + '.las';
+                const outputFileAbsolutePath = path.join(path.dirname(inputFileAbsolutePath), outputFileName);
+                
+                console.log(`[SegmentationService] (FileID ${fileId}): Checking for output file: ${outputFileAbsolutePath}`);
+                
+                // List all files in the output directory for debugging
+                const outputDir = path.dirname(inputFileAbsolutePath);
+                try {
+                    const filesInDir = fs.readdirSync(outputDir);
+                    console.log(`[SegmentationService] (FileID ${fileId}): Files in output directory:`, filesInDir);
+                } catch (listError) {
+                    console.error(`[SegmentationService] (FileID ${fileId}): Error listing directory:`, listError);
+                }
+                
+                if (!fs.existsSync(outputFileAbsolutePath) || fs.statSync(outputFileAbsolutePath).size === 0) {
                     if (originalFileBackupPath && fs.existsSync(originalFileBackupPath)) { /* restore backup */ try { fs.renameSync(originalFileBackupPath, inputFileAbsolutePath); } catch (e) {console.error('Backup restore failed', e)}}
                     try { await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = 'Seg invalid output' WHERE id = $1", [fileId]); } catch (dbErr) {/* log */}
                     reject(new Error("[SegmentationService] Output file invalid."));
                 } else {
+                    // Replace the original file with the segmented output
+                    try {
+                        fs.renameSync(outputFileAbsolutePath, inputFileAbsolutePath);
+                        console.log(`[SegmentationService] (FileID ${fileId}): Replaced original file with segmented output.`);
+                    } catch (renameError) {
+                        console.error(`[SegmentationService] (FileID ${fileId}): Error replacing file:`, renameError);
+                        // Continue anyway, the output file exists
+                    }
+                    
                     if (originalFileBackupPath && fs.existsSync(originalFileBackupPath)) { /* delete backup */ try {fs.unlinkSync(originalFileBackupPath); } catch(e){console.error('Backup delete failed',e)}}
                     // Successfully segmented, don't change status yet, let controller do it or next service
                     // Or set to 'segmented_ready_for_las_processing'

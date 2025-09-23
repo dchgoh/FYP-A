@@ -13,7 +13,6 @@ const ROLES = {
 const ACTIVE_PIPELINE_PROCESSING_STATUSES = [
     'segmenting',
     'processing_las_data',
-    'converting_potree',
     'processing'
 ];
 const CREATE_NEW_DIVISION_VALUE = "__CREATE_NEW_DIVISION__";
@@ -93,8 +92,8 @@ export const useFileManagement = () => {
       // Get files that are currently being processed or have processing status
       const getProcessingFiles = useCallback(() => {
         const processingStatuses = [
-          'uploaded', 'processing_las_data', 'segmenting', 'converting_potree', 
-          'ready', 'failed', 'error_las_processing', 'error_segmentation', 'error_potree'
+          'uploaded', 'processing_las_data', 'segmenting', 
+          'ready', 'failed', 'error_las_processing', 'error_segmentation'
         ];
         return files.filter(file => processingStatuses.includes(file.status));
       }, [files]);
@@ -135,8 +134,6 @@ export const useFileManagement = () => {
                 case 'view': // View any ready file
                 case 'download': // Download any file
                     return true;
-                case 'convert': // DM can convert any file not yet converted or failed
-                     return file && (!file.potreeUrl || file.status === 'failed');
                 case 'assignProject': // DM can assign unassigned files or re-assign files from projects they manage
                      return file && (file.project_id === null || assignedProjectIdsForDM.includes(file.project_id));
                 case 'delete': // DM can delete unassigned files or files from projects they manage
@@ -153,12 +150,10 @@ export const useFileManagement = () => {
         }
     
         if (userRole === ROLES.REGULAR) {
-            // Regular users can only view ready files or trigger conversion for non-ready files
+            // Regular users can only view ready files
             switch (action) {
                 case 'view':
-                    return file && !!file.potreeUrl;
-                case 'convert':
-                    return file && (!file.potreeUrl || file.status === 'failed');
+                    return file && file.status === 'ready';
                 default:
                     return false;
             }
@@ -232,7 +227,6 @@ export const useFileManagement = () => {
                   ...f, 
                   size: f.size_bytes ? (f.size_bytes / 1024 / 1024).toFixed(2) + ' MB' : 'N/A',
                   uploadDate: f.upload_date ? new Date(f.upload_date).toLocaleDateString() : 'N/A',
-                  potreeUrl: f.potreeUrl || null,
                   projectName: f.projectName || "Unassigned",
                   divisionName: f.divisionName || "N/A"
               }));
@@ -243,7 +237,7 @@ export const useFileManagement = () => {
                   const fetchedFileIds = new Set(formatted.map(f => f.id));
                   currentProcessing.forEach(id => {
                       const fileInData = formatted.find(f => f.id === id);
-                      if (!fetchedFileIds.has(id) || (fileInData && fileInData.potreeUrl)) {
+                      if (!fetchedFileIds.has(id) || (fileInData && fileInData.status === 'ready')) {
                            if (stillProcessing.has(id)) {
                               console.log(`Optimistic state cleanup: Removing File ${id} from processing set.`);
                               stillProcessing.delete(id);
@@ -307,7 +301,7 @@ export const useFileManagement = () => {
         useEffect(() => {
             const activeProcessingStatesForPolling = ACTIVE_PIPELINE_PROCESSING_STATUSES.concat(['uploaded']); // Add 'uploaded' for polling
             const shouldPoll = files.some(file =>
-                activeProcessingStatesForPolling.includes(file.status) && !file.potreeUrl
+                activeProcessingStatesForPolling.includes(file.status) && file.status !== 'ready'
             );
     
             if (shouldPoll && !isPolling) {
@@ -456,50 +450,14 @@ export const useFileManagement = () => {
         }
       };
     
-      const handleConvertPotree = async (fileToConvert) => {
-        if (!canPerformAction('convert', fileToConvert)) { showSnackbar("Permission denied.", "error"); handleMenuClose(); return; }
-        const fileId = fileToConvert?.id;
+      // Convert functionality removed - files are now directly ready for point cloud viewer
     
-        if (fileToConvert?.potreeUrl || filesBeingProcessed.has(fileId) || ACTIVE_PIPELINE_PROCESSING_STATUSES.includes(fileToConvert?.status)) {
-            showSnackbar(filesBeingProcessed.has(fileId) || ACTIVE_PIPELINE_PROCESSING_STATUSES.includes(fileToConvert?.status) ? "Conversion already in progress or queued." : "Already converted.", "info");
-            handleMenuClose();
-            return;
-        }
-        if (!fileId) { handleMenuClose(); return; }
-    
-        handleMenuClose();
-        const token = localStorage.getItem('authToken');
-        if (!token) { showSnackbar("Auth required.", "error"); return; }
-    
-        setFilesBeingProcessed(prev => new Set(prev).add(fileId));
-        showSnackbar(`Starting conversion: "${fileToConvert.name}"...`, "info"); 
-    
-        try {
-            const res = await axios.get(`${API_BASE_URL}/files/potreeconverter/${fileId}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-    
-            if (res.data.success) {
-                showSnackbar(`Conversion for "${fileToConvert.name}" initiated. Refreshing status...`, "info"); 
-                fetchFiles(); // This will also update filesBeingProcessed if conversion is done quickly
-            } else {
-                showSnackbar(res.data.message || `Conversion failed: ${fileToConvert.name}.`, "error");
-                 setFilesBeingProcessed(prev => { const next = new Set(prev); next.delete(fileId); return next; });
-            }
-        } catch (e) {
-            console.error("Conversion error:", e);
-            showSnackbar(e.response?.data?.message || `Server error during conversion.`, "error");
-             setFilesBeingProcessed(prev => { const next = new Set(prev); next.delete(fileId); return next; });
-        }
-    };
-    
-      const handleViewPotree = (fileToView) => {
+      const handleViewPointCloud = (fileToView) => {
         if (!canPerformAction('view', fileToView)) { showSnackbar("Permission denied.", "error"); handleMenuClose(); return; }
-        const url = fileToView?.potreeUrl;
-        if (!url || url === 'pending_refresh') { showSnackbar("Potree data not ready.", "warning"); return; }
+        if (fileToView?.status !== 'ready') { showSnackbar("File not ready for viewing.", "warning"); return; }
         handleMenuClose();
-        console.log(`Navigating to Potree: ${url}`);
-        navigate(`/potree?url=${encodeURIComponent(url)}`);
+        console.log(`Navigating to Point Cloud Viewer for file: ${fileToView.name}`);
+        navigate(`/pointcloud?fileId=${fileToView.id}`);
       };
     
       const handleOpenUploadModal = () => {
@@ -1239,8 +1197,8 @@ export const useFileManagement = () => {
         setSelectedManagerToAddInModal,
 
         // Handlers
-        handleMenuClick, handleMenuClose, handleDownload, handleRemove, handleConvertPotree,
-        handleViewPotree, handleFileUpload, handleAssignProject, handleReassignFile,
+        handleMenuClick, handleMenuClose, handleDownload, handleRemove,
+        handleViewPointCloud, handleFileUpload, handleAssignProject, handleReassignFile,
         handleBulkDelete, handleSelectAllClick, handleRowCheckboxClick, 
         handleSnackbarClose, showSnackbar,
         handleProjectFilterChange, handleDivisionFilterChange, handleOpenUploadModal, handleCloseUploadModal,

@@ -183,7 +183,6 @@ const createFilesTable = async () => {
           mime_type VARCHAR(100),
           size_bytes BIGINT,
           upload_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-          potree_metadata_path TEXT,
           project_id INTEGER,
           plot_name VARCHAR(255),
           latitude DOUBLE PRECISION,
