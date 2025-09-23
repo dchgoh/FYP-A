@@ -5,7 +5,6 @@ import { CloudUpload, Map, Close } from '@mui/icons-material';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import * as THREE from 'three';
-import Draggable from 'react-draggable';
 import { createSceneManager } from './scene_manager';
 import { createBoundingBox, updateBoundingBoxVisibility, disposeBoundingBox } from './pointcloud_boundingbox';
 import { createStyles, getResponsiveMarginLeft } from './pointcloud_viewer.styles';
@@ -45,8 +44,6 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const [miniMapFiles, setMiniMapFiles] = useState([]);
   const [isLoadingMiniMapFiles, setIsLoadingMiniMapFiles] = useState(false);
   const [errorMiniMapFiles, setErrorMiniMapFiles] = useState(null);
-  const [buttonPosition, setButtonPosition] = useState({ x: 0, y: 0 });
-  const draggableButtonRef = useRef(null);
   const viewerWrapperRef = useRef(null);
   const [miniMapContainerStyle, setMiniMapContainerStyle] = useState(() => ({
     position: 'absolute',
@@ -69,61 +66,17 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const BUTTON_FIXED_SIZE = 40;
   const MINIMAP_BUTTON_GAP = 10;
 
-  // Load button position from localStorage
-  useEffect(() => {
-    const savedPosition = localStorage.getItem('miniMapButtonPosition');
-    if (savedPosition) {
-      try {
-        const parsedPosition = JSON.parse(savedPosition);
-        if (typeof parsedPosition.x === 'number' && typeof parsedPosition.y === 'number') {
-          setButtonPosition(parsedPosition);
-        } else {
-          localStorage.removeItem('miniMapButtonPosition');
-        }
-      } catch (e) {
-        console.error("Error parsing saved button position:", e);
-        localStorage.removeItem('miniMapButtonPosition');
-      }
-    }
-  }, []);
-
-  const handleDragStart = () => {
-    if (draggableButtonRef.current) {
-      draggableButtonRef.current.style.cursor = 'grabbing';
-    }
-  };
-
-  const handleDragStop = (e, data) => {
-    const newPosition = { x: data.x, y: data.y };
-    setButtonPosition(newPosition);
-    localStorage.setItem('miniMapButtonPosition', JSON.stringify(newPosition));
-    if (draggableButtonRef.current) {
-      draggableButtonRef.current.style.cursor = 'grab';
-    }
-    requestAnimationFrame(() => {
-      updateMiniMapPosition();
-    });
-  };
 
   const updateMiniMapPosition = useCallback(() => {
-    if (!showMiniMap || !draggableButtonRef.current || !viewerWrapperRef.current) {
+    if (!showMiniMap || !viewerWrapperRef.current) {
       if (showMiniMap) {
         setMiniMapContainerStyle(prev => ({ ...prev, visibility: 'hidden' }));
       }
       return;
     }
 
-    const buttonNode = draggableButtonRef.current;
     const parentNode = viewerWrapperRef.current;
-
-    const buttonTransform = window.getComputedStyle(buttonNode).transform;
-    const matrix = new DOMMatrix(buttonTransform);
-    
-    const buttonRect = buttonNode.getBoundingClientRect();
     const parentRect = parentNode.getBoundingClientRect();
-
-    const buttonTopInParent = buttonRect.top - parentRect.top;
-    const buttonLeftInParent = buttonRect.left - parentRect.left;
 
     const parentWidth = parentRect.width;
     const parentHeight = parentRect.height;
@@ -135,19 +88,11 @@ const PointCloudViewer = ({ isCollapsed }) => {
         ? MINIMAP_ESTIMATED_HEIGHT_XS
         : MINIMAP_ESTIMATED_HEIGHT_SM;
     
-    let idealTop, idealLeft;
-
-    if (buttonTopInParent + BUTTON_FIXED_SIZE / 2 > parentHeight / 2) {
-      idealTop = buttonTopInParent - currentMapEffectiveHeight - MINIMAP_BUTTON_GAP;
-    } else {
-      idealTop = buttonTopInParent + BUTTON_FIXED_SIZE + MINIMAP_BUTTON_GAP;
-    }
-
-    if (buttonLeftInParent + BUTTON_FIXED_SIZE / 2 > parentWidth / 2) {
-      idealLeft = buttonLeftInParent - currentMapEffectiveWidth - MINIMAP_BUTTON_GAP;
-    } else {
-      idealLeft = buttonLeftInParent + BUTTON_FIXED_SIZE + MINIMAP_BUTTON_GAP;
-    }
+    // Position the minimap below the button (which is outside sidebar)
+    const buttonTop = 15; // top position of button
+    const buttonHeight = BUTTON_FIXED_SIZE;
+    const idealTop = buttonTop + buttonHeight + MINIMAP_BUTTON_GAP;
+    const idealLeft = 315; // Same left position as button (outside sidebar)
 
     const finalTop = Math.max(MINIMAP_BUTTON_GAP, Math.min(idealTop, parentHeight - currentMapEffectiveHeight - MINIMAP_BUTTON_GAP));
     const finalLeft = Math.max(MINIMAP_BUTTON_GAP, Math.min(idealLeft, parentWidth - currentMapEffectiveWidth - MINIMAP_BUTTON_GAP));
@@ -230,7 +175,7 @@ const PointCloudViewer = ({ isCollapsed }) => {
     return () => {
       window.removeEventListener('resize', handleResizeOrCollapse);
     };
-  }, [buttonPosition, showMiniMap, isCollapsed, updateMiniMapPosition]);
+  }, [showMiniMap, isCollapsed, updateMiniMapPosition]);
 
   // Initial positioning after mount
   useEffect(() => {
@@ -810,38 +755,29 @@ const PointCloudViewer = ({ isCollapsed }) => {
             />
           </Box>
 
-          {/* Draggable MiniMap Toggle Button */}
-          <Draggable
-            nodeRef={draggableButtonRef}
-            position={buttonPosition}
-            onStart={handleDragStart}
-            onStop={handleDragStop}
-            bounds="parent"
+          {/* MiniMap Toggle Button */}
+          <IconButton
+            onClick={toggleMiniMap}
+            sx={{
+              position: 'absolute',
+              top: '15px',
+              left: '315px',
+              zIndex: 1002,
+              backgroundColor: 'rgba(0, 0, 0, 0.1)',
+              color: 'white',
+              borderRadius: '50%',
+              width: BUTTON_FIXED_SIZE,
+              height: BUTTON_FIXED_SIZE,
+              cursor: 'pointer',
+              '&:hover': {
+                backgroundColor: 'rgba(0, 0, 0, 0.3)',
+              },
+              boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
+            }}
+            title={showMiniMap ? "Hide Mini-map" : "Show Mini-map"}
           >
-            <IconButton
-              ref={draggableButtonRef}
-              onClick={toggleMiniMap}
-              sx={{
-                position: 'absolute',
-                bottom: '15px', 
-                right: '15px',
-                zIndex: 1002,
-                backgroundColor: 'rgba(0, 0, 0, 0.1)',
-                color: 'white',
-                borderRadius: '50%',
-                width: BUTTON_FIXED_SIZE,
-                height: BUTTON_FIXED_SIZE,
-                cursor: 'grab',
-                '&:hover': {
-                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                },
-                boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
-              }}
-              title={showMiniMap ? "Hide Mini-map (Drag to move)" : "Show Mini-map (Drag to move)"}
-            >
-              {showMiniMap ? <Close fontSize="small"/> : <Map fontSize="small"/>}
-            </IconButton>
-          </Draggable>
+            {showMiniMap ? <Close fontSize="small"/> : <Map fontSize="small"/>}
+          </IconButton>
 
           {/* Mini-map Container */}
           {showMiniMap && (
