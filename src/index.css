@@ -8,12 +8,17 @@ body,
   height: 100%;
   width: 100%;
   font-family: "Inter", sans-serif;
-  overflow: hidden;
 }
 
 .app {
   display: flex;
   position: relative;
+}
+
+/* Allow the main content area to scroll */
+.content {
+  height: 100vh;
+  overflow-y: auto;
 }
 
 ::-webkit-scrollbar {
