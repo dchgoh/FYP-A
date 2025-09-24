@@ -1,687 +1,130 @@
-import React, { useEffect, useState, useMemo, useCallback } from "react"; // Import useCallback
+import React from "react";
 import {
-    Box,
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
-    Paper,
-    useTheme,
-    IconButton,
-    Button,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    TextField,
-    DialogActions,
-    MenuItem,
-    Snackbar,
-    Alert,
-    DialogContentText,
-    Menu,
-    TableSortLabel,
+    Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, useTheme, IconButton,
+    Button, Dialog, DialogTitle, DialogContent, TextField, DialogActions, MenuItem, Snackbar, Alert,
+    DialogContentText, Menu, TableSortLabel, CircularProgress
 } from "@mui/material";
 import { visuallyHidden } from "@mui/utils";
 import { tokens } from "../../theme";
-import { MoreVert } from "@mui/icons-material";
-
-// Helper functions for sorting (no changes needed here)
-function descendingComparator(a, b, orderBy) {
-    // Ensure values are comparable, treat null/undefined as lowest
-    const valA = a[orderBy] ?? -Infinity;
-    const valB = b[orderBy] ?? -Infinity;
-    if (valB < valA) {
-        return -1;
-    }
-    if (valB > valA) {
-        return 1;
-    }
-    return 0;
-}
-
-function getComparator(order, orderBy) {
-    return order === "desc"
-        ? (a, b) => descendingComparator(a, b, orderBy)
-        : (a, b) => -descendingComparator(a, b, orderBy);
-}
-
-function stableSort(array, comparator) {
-    const stabilizedThis = array.map((el, index) => [el, index]);
-    stabilizedThis.sort((a, b) => {
-        const order = comparator(a[0], b[0]);
-        if (order !== 0) {
-            return order;
-        }
-        return a[1] - b[1];
-    });
-    return stabilizedThis.map((el) => el[0]);
-}
+import { MoreVert, Add as AddIcon } from "@mui/icons-material";
+import { useTeamManagement } from '../../hooks/useTeamManagement'; // IMPORT THE HOOK
 
 const headCells = [
-    { id: "index", numeric: false, disablePadding: false, label: "No.", sortable: false },
-    { id: "username", numeric: false, disablePadding: false, label: "Username", sortable: true },
-    { id: "email", numeric: false, disablePadding: false, label: "Email", sortable: true },
-    { id: "age", numeric: true, disablePadding: false, label: "Age", sortable: true },
-    { id: "role", numeric: false, disablePadding: false, label: "Role", sortable: true },
-    { id: "is_locked", numeric: false, disablePadding: false, label: "Status", sortable: true },
-    { id: "actions", numeric: false, disablePadding: false, label: "Action", sortable: false },
+    { id: "index", numeric: false, label: "No.", sortable: false },
+    { id: "username", numeric: false, label: "Username", sortable: true },
+    { id: "email", numeric: false, label: "Email", sortable: true },
+    { id: "role", numeric: false, label: "Role", sortable: true },
+    { id: "is_locked", numeric: false, label: "Status", sortable: true },
+    { id: "actions", numeric: false, label: "Action", sortable: false },
 ];
 
 const Team = ({ isCollapsed }) => {
     const theme = useTheme();
     const colors = tokens(theme.palette.mode);
-    const [teamMembers, setTeamMembers] = useState([]);
-    const [userRole, setUserRole] = useState("");
-    const [open, setOpen] = useState(false);
-    const [openConfirmDeleteModal, setOpenConfirmDeleteModal] = useState(false);
-    const [userToDelete, setUserToDelete] = useState(null);
-    const [isEditMode, setIsEditMode] = useState(false);
-    const [currentUserData, setCurrentUserData] = useState({
-        id: null,
-        username: "",
-        email: "",
-        password: "",
-        age: "",
-        role: "Data Manager",
-    });
-    const [snackbarOpen, setSnackbarOpen] = useState(false);
-    const [snackbarMessage, setSnackbarMessage] = useState("");
-    const [snackbarSeverity, setSnackbarSeverity] = useState("success");
 
-    const [anchorEl, setAnchorEl] = useState(null);
-    const [selectedUserForActions, setSelectedUserForActions] = useState(null);
-
-    const [order, setOrder] = useState("asc");
-    const [orderBy, setOrderBy] = useState(null); // Default to null, no initial sort
-
-    const isMenuOpen = Boolean(anchorEl);
-
-    // --- Start of Changes ---
-
-    // Memoize showSnackbar as it's a dependency of fetchUsers
-    const showSnackbar = useCallback((message, severity = "success") => {
-        setSnackbarMessage(message);
-        setSnackbarSeverity(severity);
-        setSnackbarOpen(true);
-    }, []); // No external dependencies changing over time
-
-    // Memoize fetchUsers using useCallback
-    const fetchUsers = useCallback(async () => {
-        const token = localStorage.getItem('authToken');
-        if (!token) {
-            showSnackbar("Not authenticated. Please log in.", "error");
-            setTeamMembers([]); // Clear data if not authenticated
-            return;
-        }
-
-        try {
-            const response = await fetch("http://localhost:5000/api/users", {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            if (!response.ok) {
-                if (response.status === 401 || response.status === 403) {
-                    showSnackbar("Session expired or invalid. Please log in again.", "error");
-                    // Potentially redirect to login here
-                } else {
-                    const errorData = await response.json().catch(() => ({ message: `HTTP error! status: ${response.status}` }));
-                    throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-                }
-                setTeamMembers([]); // Clear data on error
-            } else {
-                const data = await response.json();
-                setTeamMembers(data);
-            }
-        } catch (error) {
-            console.error("Error fetching users:", error);
-            showSnackbar(`Failed to fetch users: ${error.message}`, "error");
-            setTeamMembers([]); // Clear data on fetch error
-        }
-    }, [showSnackbar]); // Add showSnackbar as a dependency
-
-
-    useEffect(() => {
-        fetchUsers(); // Fetch users on mount
-        const storedRole = localStorage.getItem("userRole");
-        if (storedRole) {
-            setUserRole(storedRole);
-        }
-    }, [fetchUsers]); // Add fetchUsers to dependency array
-
-    const handleSnackbarClose = (event, reason) => {
-        if (reason === "clickaway") {
-            return;
-        }
-        setSnackbarOpen(false);
-    };
-
-    const handleOpenAddModal = () => {
-        setIsEditMode(false);
-        setCurrentUserData({
-            id: null, username: "", email: "", password: "", age: "", role: "Data Manager",
-        });
-        setOpen(true);
-    };
-
-    const handleOpenEditModal = (user) => {
-        setIsEditMode(true);
-        setCurrentUserData({
-            id: user.id, username: user.username, email: user.email, password: "", age: user.age, role: user.role,
-        });
-        setOpen(true);
-    };
-
-    const handleCloseModal = () => {
-        setOpen(false);
-    };
-
-    const handleChange = (e) => {
-        setCurrentUserData({ ...currentUserData, [e.target.name]: e.target.value });
-    };
-
-    const handleSubmit = async () => {
-        const token = localStorage.getItem('authToken');
-        if (!token) {
-            showSnackbar("Authentication token not found. Cannot save.", "error");
-            return;
-        }
-
-        const url = isEditMode
-            ? `http://localhost:5000/api/users/${currentUserData.id}`
-            : "http://localhost:5000/api/users";
-        const method = isEditMode ? "PUT" : "POST";
-
-        const dataToSend = { ...currentUserData };
-        if (isEditMode && !dataToSend.password) {
-            delete dataToSend.password;
-        }
-        if (!isEditMode) {
-            delete dataToSend.id;
-        }
-
-        try {
-            const response = await fetch(url, {
-                method: method,
-                headers: {
-                    "Content-Type": "application/json",
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify(dataToSend),
-            });
-
-            let result = {};
-            const contentType = response.headers.get("content-type");
-            if (contentType && contentType.indexOf("application/json") !== -1) {
-                result = await response.json();
-            } else {
-                result.message = response.statusText;
-            }
-
-            if (response.ok) {
-                showSnackbar(
-                    result.message || `User ${isEditMode ? "updated" : "added"} successfully`,
-                    "success"
-                );
-                handleCloseModal();
-                fetchUsers();
-            } else {
-                showSnackbar(
-                    result.message || `Failed to ${isEditMode ? "update" : "add"} user (Status: ${response.status})`,
-                    "error"
-                );
-                console.error("API Error:", response.status, result.message);
-            }
-        } catch (error) {
-            console.error("Error submitting user data:", error);
-            showSnackbar(`An error occurred: ${error.message}`, "error");
-        }
-    };
-
-    const handleOpenConfirmDeleteModal = (user) => {
-        setUserToDelete(user);
-        setOpenConfirmDeleteModal(true);
-    };
-
-    const handleCloseConfirmDeleteModal = () => {
-        setOpenConfirmDeleteModal(false);
-        setUserToDelete(null);
-    };
-
-    const handleDeleteUser = async () => {
-        if (!userToDelete) return;
-
-        const token = localStorage.getItem('authToken');
-        if (!token) {
-            showSnackbar("Authentication token not found. Cannot delete.", "error");
-            handleCloseConfirmDeleteModal();
-            return;
-        }
-
-        const userId = userToDelete.id;
-        const url = `http://localhost:5000/api/users/${userId}`;
-
-        try {
-            const response = await fetch(url, {
-                method: "DELETE",
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            if (response.ok || response.status === 204) {
-                showSnackbar(`User '${userToDelete.username}' deleted successfully`, "success");
-                handleCloseConfirmDeleteModal();
-                fetchUsers();
-            } else {
-                let errorMessage = `Failed to delete user '${userToDelete.username}'.`;
-                const contentType = response.headers.get("content-type");
-                if (contentType && contentType.indexOf("application/json") !== -1) {
-                    try {
-                        const result = await response.json();
-                        errorMessage = result.message || errorMessage;
-                    } catch (parseError) {
-                        console.log("Could not parse error response body for delete.");
-                    }
-                } else {
-                    errorMessage = `${errorMessage} (Status: ${response.status} ${response.statusText})`;
-                }
-
-                showSnackbar(errorMessage, "error");
-                console.error("API Error deleting user:", response.status, response.statusText);
-            }
-        } catch (error) {
-            console.error("Error deleting user:", error);
-            showSnackbar(`An error occurred: ${error.message}`, "error");
-        }
-    };
-
-    const handleUnlockUser = async (user) => {
-        const token = localStorage.getItem('authToken');
-        if (!token) {
-            showSnackbar("Authentication token not found. Cannot unlock user.", "error");
-            return;
-        }
-
-        const userId = user.id;
-        const url = `http://localhost:5000/api/users/${userId}/unlock`;
-
-        try {
-            const response = await fetch(url, {
-                method: "PUT",
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            if (response.ok) {
-                showSnackbar(`User '${user.username}' unlocked successfully`, "success");
-                fetchUsers();
-            } else {
-                let errorMessage = `Failed to unlock user '${user.username}'.`;
-                try {
-                    const result = await response.json();
-                    errorMessage = result.message || errorMessage;
-                } catch (parseError) {
-                    console.log("Could not parse error response for unlock.");
-                    errorMessage = `${errorMessage} (Status: ${response.status})`;
-                }
-                showSnackbar(errorMessage, "error");
-                console.error("API Error unlocking user:", response.status);
-            }
-        } catch (error) {
-            console.error("Error unlocking user:", error);
-            showSnackbar(`An error occurred while unlocking user: ${error.message}`, "error");
-        } finally {
-            handleMenuClose();
-        }
-    };
-
-    const handleMenuOpen = (event, user) => {
-        setAnchorEl(event.currentTarget);
-        setSelectedUserForActions(user);
-    };
-
-    const handleMenuClose = () => {
-        setAnchorEl(null);
-        setSelectedUserForActions(null);
-    };
-
-    const handleRequestSort = (event, property) => {
-        const isAsc = orderBy === property && order === "asc";
-        setOrder(isAsc ? "desc" : "asc");
-        setOrderBy(property);
-    };
-
-    const sortedTeamMembers = useMemo(() => {
-        if (!orderBy) {
-            return teamMembers;
-        }
-        const processedTeamMembers = teamMembers.map(member => ({
-            ...member,
-            age: Number(member.age) || 0
-        }));
-        return stableSort(processedTeamMembers, getComparator(order, orderBy));
-    }, [teamMembers, order, orderBy]);
+    const {
+        teamMembers, isLoading, userRole, openAddEditModal, openConfirmDeleteModal, userToDelete,
+        isEditMode, currentUserData, snackbar, anchorEl, selectedUserForActions, order, orderBy,
+        handleOpenAddModal, handleOpenEditModal, handleCloseModal, handleChange, handleSubmit,
+        handleOpenConfirmDeleteModal, handleCloseConfirmDeleteModal, handleDeleteUser,
+        handleUnlockUser, handleMenuOpen, handleMenuClose, handleRequestSort, handleSnackbarClose
+    } = useTeamManagement();
 
     const styles = {
-        container: {
-            display: "flex",
-            minHeight: "100vh",
-            bgcolor: colors.grey[800],
-            marginLeft: isCollapsed ? "80px" : "270px",
-            transition: "margin 0.3s ease",
-        },
-        content: { flex: 1, p: 4 },
-        tableContainer: {
-            backgroundColor: colors.grey[900],
-            borderRadius: 2,
-            "&::-webkit-scrollbar": {
-                width: "8px",
-            },
-            "&::-webkit-scrollbar-track": {
-                background: colors.grey[700],
-            },
-            "&::-webkit-scrollbar-thumb": {
-                backgroundColor: colors.grey[500],
-                borderRadius: "10px",
-                border: `2px solid ${colors.grey[700]}`,
-                "&:hover": {
-                    backgroundColor: colors.primary[400],
-                },
-            },
-        },
-        table: {
-            minWidth: 650,
-        },
-        tableHead: {
-            backgroundColor: colors.primary[700],
-        },
-        headCell: {
-            color: colors.grey[100],
-            fontWeight: "bold",
-        },
-        bodyCell: {
-            color: colors.grey[100],
-        },
-        accessCell: (access) => ({
-            color:
-                access === "Administrator"
-                    ? colors.greenAccent?.[400] ?? "#00ff00"
-                    : access === "Data Manager"
-                        ? colors.primary[700] ?? "#0000ff"
-                        : colors.grey?.[100] ?? "#888888",
-            fontWeight: "bold",
-            textTransform: "capitalize",
-        }),
-        accessIcon: (access) => ({
-            color:
-                access === "Administrator"
-                    ? colors.greenAccent?.[400] ?? "#00ff00"
-                    : access === "Data Manager"
-                        ? colors.primary[700] ?? "#0000ff"
-                        : colors.grey?.[100] ?? "#888888",
-            paddingRight: "5px",
-            verticalAlign: "middle",
-        }),
-        footer: {
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            padding: "10px",
-            color: colors.grey[100],
-        },
-        pagination: {
-            color: colors.grey[100],
-            "& .Mui-selected": {
-                backgroundColor: `${colors.primary[400]} !important`,
-                color: `${colors.grey[100]} !important`,
-            },
-        },
-        accessContainer: {
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "5px",
-            verticalAlign: "middle",
-        },
-        isLocked: (isLocked) => ({
-            color: isLocked ? colors.redAccent[500] : colors.greenAccent[500],
-            fontWeight: "bold",
-        }),
+        container: { display: "flex", minHeight: "100vh", bgcolor: colors.grey[800], marginLeft: { sm: isCollapsed ? "80px" : "270px" }, transition: "margin 0.3s ease", width: { sm: `calc(100% - ${isCollapsed ? "80px" : "270px"})` }, overflowX: 'hidden' },
+        content: { flex: 1, p: { xs: 1.5, md: 3 }, overflowY: 'auto' },
+        tableContainer: { backgroundColor: colors.grey[900], borderRadius: 2, mt: 2, overflowX: "auto" },
+        tableHead: { backgroundColor: colors.primary[700] },
+        headCell: { color: colors.grey[100], fontWeight: "bold" },
+        bodyCell: { color: colors.grey[100] },
+        dialogTitle: { backgroundColor: colors.primary[700], color: colors.grey[100] },
+        dialogContent: { backgroundColor: colors.grey[800] },
+        dialogActions: { backgroundColor: colors.primary[700] }
     };
 
     return (
         <Box sx={styles.container}>
             <Box sx={styles.content}>
-                {/* Add User Button */}
                 {userRole === "Administrator" && (
-                    <Button
-                        variant="contained"
-                        startIcon={<span className="material-symbols-outlined">add</span>}
-                        sx={{
-                            mb: 2,
-                            backgroundColor: colors.primary[700],
-                            color: "white",
-                            "&:hover": { backgroundColor: colors.primary[400] },
-                        }}
-                        onClick={handleOpenAddModal}
-                    >
+                    <Button variant="contained" startIcon={<AddIcon />} sx={{ mb: 2, backgroundColor: colors.primary[700], "&:hover": { backgroundColor: colors.primary[400] } }} onClick={handleOpenAddModal}>
                         Add User
                     </Button>
                 )}
 
-                {/* Pop-up Modal */}
-                <Dialog open={open} onClose={handleCloseModal}>
-                    <DialogTitle>{isEditMode ? "Edit User" : "Add New User"}</DialogTitle>
-                    <DialogContent>
-                        <TextField
-                            name="username"
-                            label="Username"
-                            fullWidth
-                            margin="dense"
-                            value={currentUserData.username}
-                            onChange={handleChange}
-                        />
-                        <TextField
-                            name="email"
-                            label="Email"
-                            fullWidth
-                            margin="dense"
-                            value={currentUserData.email}
-                            onChange={handleChange}
-                        />
-                        <TextField
-                            name="password"
-                            label={isEditMode ? "New Password (leave blank to keep current)" : "Password"}
-                            type="password"
-                            fullWidth
-                            margin="dense"
-                            value={currentUserData.password}
-                            onChange={handleChange}
-                        />
-                        <TextField
-                            name="age"
-                            label="Age"
-                            type="number"
-                            fullWidth
-                            margin="dense"
-                            value={currentUserData.age}
-                            onChange={handleChange}
-                            InputProps={{ inputProps: { min: 0 } }}
-                        />
-                        <TextField
-                            select
-                            name="role"
-                            label="Role"
-                            fullWidth
-                            margin="dense"
-                            value={currentUserData.role}
-                            onChange={handleChange}
-                        >
+                <Dialog open={openAddEditModal} onClose={handleCloseModal} fullWidth maxWidth="sm">
+                    <DialogTitle sx={styles.dialogTitle}>{isEditMode ? "Edit User" : "Add New User"}</DialogTitle>
+                    <DialogContent sx={styles.dialogContent}>
+                        <TextField name="username" label="Username*" fullWidth margin="dense" value={currentUserData.username} onChange={handleChange} />
+                        <TextField name="email" label="Email*" fullWidth margin="dense" value={currentUserData.email} onChange={handleChange} />
+                        <TextField name="password" label={isEditMode ? "New Password" : "Password*"} type="password" fullWidth margin="dense" value={currentUserData.password} onChange={handleChange} />
+                        <TextField select name="role" label="Role*" fullWidth margin="dense" value={currentUserData.role} onChange={handleChange}>
                             <MenuItem value="Administrator">Administrator</MenuItem>
                             <MenuItem value="Data Manager">Data Manager</MenuItem>
                             <MenuItem value="Regular">Regular</MenuItem>
                         </TextField>
                     </DialogContent>
-                    <DialogActions>
-                        <Button onClick={handleCloseModal} color="secondary">
-                            Cancel
-                        </Button>
-                        <Button onClick={handleSubmit} color="primary">
-                            {isEditMode ? "Save Changes" : "Add User"}
-                        </Button>
+                    <DialogActions sx={styles.dialogActions}>
+                        <Button onClick={handleCloseModal}>Cancel</Button>
+                        <Button onClick={handleSubmit} variant="contained">{isEditMode ? "Save Changes" : "Add User"}</Button>
                     </DialogActions>
                 </Dialog>
 
-                {/* Delete Confirmation Modal */}
-                <Dialog
-                    open={openConfirmDeleteModal}
-                    onClose={handleCloseConfirmDeleteModal}
-                    aria-labelledby="alert-dialog-title"
-                    aria-describedby="alert-dialog-description"
-                >
-                    <DialogTitle id="alert-dialog-title">Confirm Deletion</DialogTitle>
-                    <DialogContent>
-                        <DialogContentText id="alert-dialog-description">
-                            Are you sure you want to delete the user "{userToDelete?.username}" (ID:{" "}
-                            {userToDelete?.id})? This action cannot be undone.
-                        </DialogContentText>
+                <Dialog open={openConfirmDeleteModal} onClose={handleCloseConfirmDeleteModal}>
+                    <DialogTitle sx={styles.dialogTitle}>Confirm Deletion</DialogTitle>
+                    <DialogContent sx={styles.dialogContent}>
+                        <DialogContentText sx={{ color: colors.grey[200] }}>Are you sure you want to delete "{userToDelete?.username}"?</DialogContentText>
                     </DialogContent>
-                    <DialogActions>
-                        <Button onClick={handleCloseConfirmDeleteModal} color="secondary">
-                            Cancel
-                        </Button>
-                        <Button onClick={handleDeleteUser} color="error" autoFocus>
-                            Delete
-                        </Button>
+                    <DialogActions sx={styles.dialogActions}>
+                        <Button onClick={handleCloseConfirmDeleteModal}>Cancel</Button>
+                        <Button onClick={handleDeleteUser} color="error">Delete</Button>
                     </DialogActions>
                 </Dialog>
 
                 <TableContainer component={Paper} sx={styles.tableContainer}>
-                    <Table sx={styles.table} aria-label="team members table">
-                        <TableHead sx={styles.tableHead}>
-                            <TableRow>
-                                {headCells.map((headCell) => (
-                                  (headCell.id !== 'actions' || userRole === 'Administrator') ? (
-                                    <TableCell
-                                        key={headCell.id}
-                                        align={headCell.numeric ? "right" : "left"}
-                                        padding={headCell.disablePadding ? "none" : "normal"}
-                                        sortDirection={orderBy === headCell.id ? order : false}
-                                        sx={styles.headCell}
-                                    >
-                                        {headCell.sortable ? (
-                                            <TableSortLabel
-                                                active={orderBy === headCell.id}
-                                                direction={orderBy === headCell.id ? order : "asc"}
-                                                onClick={(event) => handleRequestSort(event, headCell.id)}
-                                                sx={{
-                                                    '& .MuiTableSortLabel-icon': {
-                                                        color: orderBy === headCell.id ? colors.grey[100] : colors.grey[500] + ' !important',
-                                                    },
-                                                    color: colors.grey[100] + ' !important',
-                                                }}
-                                            >
-                                                {headCell.label}
-                                                {orderBy === headCell.id ? (
-                                                    <Box component="span" sx={visuallyHidden}>
-                                                        {order === "desc" ? "sorted descending" : "sorted ascending"}
-                                                    </Box>
-                                                ) : null}
-                                            </TableSortLabel>
-                                        ) : (
-                                            headCell.label
-                                        )}
-                                    </TableCell>
-                                  ) : null
-                                ))}
-                            </TableRow>
-                        </TableHead>
-                        <TableBody>
-                            {sortedTeamMembers.length > 0 ? (
-                                sortedTeamMembers.map((user, index) => (
-                                    <TableRow key={user.id} hover>
+                    {isLoading && <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>}
+                    {!isLoading && (
+                        <Table sx={{ minWidth: 650 }}>
+                            <TableHead sx={styles.tableHead}>
+                                <TableRow>
+                                    {headCells.map((headCell) => (headCell.id !== 'actions' || userRole === 'Administrator') && (
+                                        <TableCell key={headCell.id} align="left" sortDirection={orderBy === headCell.id ? order : false} sx={styles.headCell}>
+                                            {headCell.sortable ? (
+                                                <TableSortLabel active={orderBy === headCell.id} direction={orderBy === headCell.id ? order : 'asc'} onClick={() => handleRequestSort(headCell.id)}>
+                                                    {headCell.label}
+                                                    {orderBy === headCell.id ? (<Box component="span" sx={visuallyHidden}>{order === 'desc' ? 'sorted descending' : 'sorted ascending'}</Box>) : null}
+                                                </TableSortLabel>
+                                            ) : headCell.label}
+                                        </TableCell>
+                                    ))}
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {teamMembers.map((user, index) => (
+                                    <TableRow key={user.id}>
                                         <TableCell sx={styles.bodyCell}>{index + 1}</TableCell>
                                         <TableCell sx={styles.bodyCell}>{user.username}</TableCell>
                                         <TableCell sx={styles.bodyCell}>{user.email}</TableCell>
-                                        <TableCell sx={styles.bodyCell} align="right">{user.age}</TableCell>
-                                        <TableCell sx={styles.accessCell(user.role)}>
-                                            <div style={styles.accessContainer}>
-                                                <span
-                                                    className="material-symbols-outlined"
-                                                    style={styles.accessIcon(user.role)}
-                                                >
-                                                    {user.role === "Administrator"
-                                                        ? "verified_user"
-                                                        : user.role === "Data Manager"
-                                                            ? "security"
-                                                            : "person"}
-                                                </span>
-                                                {user.role}
-                                            </div>
-                                        </TableCell>
-                                        <TableCell sx={styles.bodyCell}>
-                                          {user.is_locked ? "Locked" : "Active"}
-                                        </TableCell>
+                                        <TableCell sx={{...styles.bodyCell, color: user.role === 'Administrator' ? colors.greenAccent[400] : colors.primary[300] }}>{user.role}</TableCell>
+                                        <TableCell sx={{...styles.bodyCell, color: user.is_locked ? colors.redAccent[500] : colors.greenAccent[500] }}>{user.is_locked ? "Locked" : "Active"}</TableCell>
                                         {userRole === 'Administrator' && (
-                                        <TableCell>
-                                            <IconButton
-                                                aria-label="actions"
-                                                aria-controls={`actions-menu-${user.id}`}
-                                                aria-haspopup="true"
-                                                onClick={(event) => handleMenuOpen(event, user)}
-                                                sx={{ color: colors.grey[100] }}
-                                            >
-                                                <MoreVert />
-                                            </IconButton>
-                                            <Menu
-                                                id={`actions-menu-${user.id}`}
-                                                anchorEl={anchorEl}
-                                                open={isMenuOpen && selectedUserForActions?.id === user.id}
-                                                onClose={handleMenuClose}
-                                                MenuListProps={{
-                                                    'aria-labelledby': `actions-button-${user.id}`,
-                                                }}
-                                            >
-                                                <MenuItem onClick={() => { handleOpenEditModal(user); handleMenuClose(); }}>Edit</MenuItem>
-                                                <MenuItem onClick={() => { handleOpenConfirmDeleteModal(user); handleMenuClose(); }}>Delete</MenuItem>
-                                                {user.is_locked && ( // Conditionally render Unlock User
-                                                    <MenuItem onClick={() => { handleUnlockUser(user); handleMenuClose(); }}>Unlock User</MenuItem>
-                                                )}
-                                            </Menu>
-                                        </TableCell>
+                                            <TableCell>
+                                                <IconButton onClick={(e) => handleMenuOpen(e, user)}><MoreVert /></IconButton>
+                                                <Menu anchorEl={anchorEl} open={Boolean(anchorEl) && selectedUserForActions?.id === user.id} onClose={handleMenuClose}>
+                                                    <MenuItem onClick={() => { handleOpenEditModal(user); handleMenuClose(); }}>Edit</MenuItem>
+                                                    <MenuItem onClick={() => { handleOpenConfirmDeleteModal(user); handleMenuClose(); }}>Delete</MenuItem>
+                                                    {user.is_locked && (<MenuItem onClick={() => handleUnlockUser(user)}>Unlock User</MenuItem>)}
+                                                </Menu>
+                                            </TableCell>
                                         )}
                                     </TableRow>
-                                ))
-                            ) : (
-                                <TableRow>
-                                    <TableCell
-                                        colSpan={headCells.length}
-                                        align="center"
-                                        sx={styles.bodyCell}
-                                    >
-                                        No users found
-                                    </TableCell>
-                                </TableRow>
-                            )}
-                        </TableBody>
-                    </Table>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    )}
                 </TableContainer>
 
-                {/* Snackbar for Notifications */}
-                <Snackbar
-                    open={snackbarOpen}
-                    autoHideDuration={6000}
-                    onClose={handleSnackbarClose}
-                    anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-                >
-                    <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: "100%" }}>
-                        {snackbarMessage}
-                    </Alert>
+                <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleSnackbarClose}>
+                    <Alert onClose={handleSnackbarClose} severity={snackbar.severity} variant="filled">{snackbar.message}</Alert>
                 </Snackbar>
             </Box>
         </Box>

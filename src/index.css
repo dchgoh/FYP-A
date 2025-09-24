@@ -34,3 +34,12 @@ body,
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
+
+/* Hide horizontal scrollbar when pointcloud viewer is active */
+body:has(.pointcloud-viewer) {
+  overflow-x: hidden !important;
+}
+
+body:has(.pointcloud-viewer) .content {
+  overflow-x: hidden !important;
+}

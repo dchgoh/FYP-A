@@ -44,8 +44,77 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
         console.log(`[SegmentationService] (FileID ${fileId}): Spawning: "${pythonVenvExecutable}" CWD "${projectRootDir}" args: ${segmentArgs.join(' ')}`);
         const segmentationProcess = spawn(pythonVenvExecutable, segmentArgs, { cwd: projectRootDir, stdio: 'pipe' });
         let segStdout = '', segStderr = '';
-        segmentationProcess.stdout.on('data', (data) => { segStdout += data.toString(); process.stdout.write(`[SegPy STDOUT FID ${fileId}] ${data.toString()}`); });
-        segmentationProcess.stderr.on('data', (data) => { segStderr += data.toString(); process.stderr.write(`[SegPy STDERR FID ${fileId}] ${data.toString()}`); });
+        let progressData = null;
+        
+        segmentationProcess.stdout.on('data', (data) => { 
+            segStdout += data.toString(); 
+            process.stdout.write(`[SegPy STDOUT FID ${fileId}] ${data.toString()}`);
+        });
+        
+        segmentationProcess.stderr.on('data', (data) => { 
+            const output = data.toString();
+            segStderr += output;
+            process.stderr.write(`[SegPy STDERR FID ${fileId}] ${output}`);
+            
+            // Parse progress information from tqdm output
+            // Try multiple regex patterns to handle different tqdm formats
+            let progressMatch = output.match(/Inferring Chunks:\s*(\d+)%\|[^|]*\|\s*(\d+)\/(\d+)\s*\[([^\]]+)\]/);
+            
+            // Fallback pattern for the exact format we're seeing: "Inferring Chunks:  49%|####9     | 95/192 [01:22<01:23,  1.16it/s]"
+            if (!progressMatch) {
+                progressMatch = output.match(/Inferring Chunks:\s*(\d+)%\|\S+\|\s*(\d+)\/(\d+)\s*\[([^\]]+)\]/);
+            }
+            
+            // Another fallback for the specific format with extra spaces
+            if (!progressMatch) {
+                progressMatch = output.match(/Inferring Chunks:\s+(\d+)%\|\S+\|\s+(\d+)\/(\d+)\s+\[([^\]]+)\]/);
+            }
+            
+            if (progressMatch) {
+                const percentage = parseInt(progressMatch[1]);
+                const current = parseInt(progressMatch[2]);
+                const total = parseInt(progressMatch[3]);
+                const timeInfo = progressMatch[4];
+                
+                console.log(`[SegmentationService] Progress detected: ${percentage}% (${current}/${total}) - ${timeInfo}`);
+                
+                // Parse time information (e.g., "01:22<01:23,  1.16it/s")
+                const timeMatch = timeInfo.match(/(\d+:\d+)<(\d+:\d+),\s*([\d.]+)it\/s/);
+                if (timeMatch) {
+                    const elapsed = timeMatch[1];
+                    const eta = timeMatch[2];
+                    const rate = timeMatch[3];
+                    
+                    progressData = {
+                        percentage,
+                        current,
+                        total,
+                        elapsed,
+                        eta,
+                        rate: `${rate} chunks/s`
+                    };
+                    
+                    console.log(`[SegmentationService] Updating progress for FileID ${fileId}:`, progressData);
+                    
+                    // Update database with progress information
+                    pool.query(
+                        "UPDATE uploaded_files SET processing_progress = $1 WHERE id = $2",
+                        [JSON.stringify(progressData), fileId]
+                    ).then(() => {
+                        console.log(`[SegmentationService] Progress updated successfully for FileID ${fileId}`);
+                    }).catch(dbErr => {
+                        console.error(`[SegmentationService] Error updating progress (FileID ${fileId}):`, dbErr);
+                    });
+                } else {
+                    console.log(`[SegmentationService] Time info parsing failed for: ${timeInfo}`);
+                }
+            } else {
+                // Log when we don't match to help debug
+                if (output.includes('Inferring Chunks') || output.includes('%')) {
+                    console.log(`[SegmentationService] Progress line detected but didn't match regex: ${output.trim()}`);
+                }
+            }
+        });
 
         segmentationProcess.on('error', async (error) => {
             console.error(`[SegmentationService] Error (FileID ${fileId}): Failed to start. Err: ${error.message}`);
@@ -57,11 +126,38 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
         segmentationProcess.on('close', async (code) => {
             console.log(`\n[SegmentationService] (FileID ${fileId}): Script exited with code ${code}.`);
             if (code === 0) {
-                if (!fs.existsSync(inputFileAbsolutePath) || fs.statSync(inputFileAbsolutePath).size === 0) {
+                // Check for the output file created by segmentation script
+                // Match the Python script's sanitization: Path(args.input_file).stem.replace(" ", "_")
+                const inputFileName = path.basename(inputFileAbsolutePath, path.extname(inputFileAbsolutePath));
+                const sanitizedInputStem = inputFileName.replace(/ /g, '_'); // Replace spaces with underscores like Python script
+                const outputFileName = sanitizedInputStem + '.las';
+                const outputFileAbsolutePath = path.join(path.dirname(inputFileAbsolutePath), outputFileName);
+                
+                console.log(`[SegmentationService] (FileID ${fileId}): Checking for output file: ${outputFileAbsolutePath}`);
+                
+                // List all files in the output directory for debugging
+                const outputDir = path.dirname(inputFileAbsolutePath);
+                try {
+                    const filesInDir = fs.readdirSync(outputDir);
+                    console.log(`[SegmentationService] (FileID ${fileId}): Files in output directory:`, filesInDir);
+                } catch (listError) {
+                    console.error(`[SegmentationService] (FileID ${fileId}): Error listing directory:`, listError);
+                }
+                
+                if (!fs.existsSync(outputFileAbsolutePath) || fs.statSync(outputFileAbsolutePath).size === 0) {
                     if (originalFileBackupPath && fs.existsSync(originalFileBackupPath)) { /* restore backup */ try { fs.renameSync(originalFileBackupPath, inputFileAbsolutePath); } catch (e) {console.error('Backup restore failed', e)}}
                     try { await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = 'Seg invalid output' WHERE id = $1", [fileId]); } catch (dbErr) {/* log */}
                     reject(new Error("[SegmentationService] Output file invalid."));
                 } else {
+                    // Replace the original file with the segmented output
+                    try {
+                        fs.renameSync(outputFileAbsolutePath, inputFileAbsolutePath);
+                        console.log(`[SegmentationService] (FileID ${fileId}): Replaced original file with segmented output.`);
+                    } catch (renameError) {
+                        console.error(`[SegmentationService] (FileID ${fileId}): Error replacing file:`, renameError);
+                        // Continue anyway, the output file exists
+                    }
+                    
                     if (originalFileBackupPath && fs.existsSync(originalFileBackupPath)) { /* delete backup */ try {fs.unlinkSync(originalFileBackupPath); } catch(e){console.error('Backup delete failed',e)}}
                     // Successfully segmented, don't change status yet, let controller do it or next service
                     // Or set to 'segmented_ready_for_las_processing'

@@ -54,9 +54,7 @@ export const tokens = (mode) => ({
         },
         blueAccent: {
           100: "#dff1fd",
-          // ...
-          400: "#4ba5f8", // <-- Make sure this exists
-          // ...
+          400: "#4ba5f8",
           900: "#0a253a",
         },
       }
@@ -110,9 +108,7 @@ export const tokens = (mode) => ({
         },
         blueAccent: {
           100: "#dff1fd",
-          // ...
-          400: "#4ba5f8", // <-- Make sure this exists
-          // ...
+          400: "#4ba5f8",
           900: "#0a253a",
         },
       }),
@@ -197,12 +193,22 @@ export const ColorModeContext = createContext({
 });
 
 export const useMode = () => {
-  const [mode, setMode] = useState("light");
+  // Initialize mode from localStorage, default to "light" if not set
+  const [mode, setMode] = useState(() => {
+    const savedMode = localStorage.getItem("colorMode");
+    return savedMode || "light";
+  });
 
   const colorMode = useMemo(
     () => ({
-      toggleColorMode: () =>
-        setMode((prev) => (prev === "light" ? "dark" : "light")),
+      toggleColorMode: () => {
+        setMode((prev) => {
+          const newMode = prev === "light" ? "dark" : "light";
+          // Save to localStorage whenever mode changes
+          localStorage.setItem("colorMode", newMode);
+          return newMode;
+        });
+      },
     }),
     []
   );

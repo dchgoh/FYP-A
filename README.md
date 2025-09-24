@@ -1,70 +1,99 @@
-# Getting Started with Create React App
+# AI-Driven 3D Tree Organ Segmentation and Data Inventory for Forest Management
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This project provides a web-based interface built with ReactJS for visualizing 3D point cloud data, performing AI-driven semantic segmentation of tree organs, managing forest inventory data, and streamlining point cloud processing workflows. It utilizes Potree for efficient rendering and interaction with large point clouds.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+*   **Interactive 3D Point Cloud Visualization:** Display and navigate large point cloud datasets using Potree.
+*   **Map Integration:** View forest data, point clouds, and tree locations overlaid on a geographical map.
+*   **Automated Point Cloud Processing Pipeline:**
+    *   **.LAS/.LAZ File Upload:** Directly upload raw point cloud files (e.g., `.las`, `.laz`).
+    *   **Automatic Potree Conversion:** Uploaded files are automatically converted to the Potree format for efficient web visualization.
+    *   **Automatic AI-Powered Semantic Segmentation of Tree Organs:**
+        *   Following conversion, the system automatically performs AI-driven segmentation to identify and delineate key tree components from the point cloud, such as:
+            *   Low-Vegetation
+            *   Stem
+            *   Live-Branches
+            *   Woody-Branches
+            *   Terrain
+        *   *(Note: Segmentation of individual, distinct trees is a future development goal.)*
+*   **Real-time Data Extraction & Display:**
+    *   Automatic extraction and display of key tree metrics based on segmented organs:
+        *   Tree Height
+        *   Diameter at Breast Height (DBH) / Stem Diameter
+        *   Crown Diameter/Area (derived from foliage/branch segmentation)
+        *   Tree Volume (estimated stem/total volume)
+*   **Carbon Stock Estimation:** Calculate and display estimated carbon sequestration for inventoried trees based on extracted metrics.
+*   **Hierarchical Data Organization:**
+    *   Manage data within a structured hierarchy: **Division -> Project -> Plot**.
+*   **Data and File Filtering System:** Robust filtering capabilities to easily find and manage specific datasets, files, or inventory records.
+*   **Team Management:** Functionality to manage users, assign roles, and control access to projects and data within a collaborative environment.
+*   **User-Friendly Interface:** Built with ReactJS for a modern, responsive, and intuitive web experience.
 
-### `npm start`
+## Prerequisites
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+Before you begin, ensure you have the following installed:
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+*   **Node.js and npm:** (e.g., v18.x or later for Node, npm usually comes with it)
+    *   [Download Node.js](https://nodejs.org/)
+*   **Git:** For cloning the repository.
+    *   [Download Git](https://git-scm.com/)
+*   **Docker Desktop:** Required for running dependent services, particularly the AI backend which handles file conversion and segmentation.
+    *   [Download Docker Desktop](https://www.docker.com/products/docker-desktop/)
 
-### `npm test`
+## Getting Started
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Follow these steps to set up and run the project locally:
 
-### `npm run build`
+1. **Clone this Repository:**
+   ```bash
+   git clone git@github.com:dchgoh/FYP-A.git
+   cd FYP-A
+   ```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+2. **Install Project Dependencies:**
+   Install all the necessary Node.js packages for this application.
+   ```bash
+   npm install
+   ```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+4. **Start Docker:**
+   Open Docker Desktop and ensure it is running.
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+5. **Run the Application:**
+   Start the React development server.
+   ```bash
+   npm start
+   ```
+   This will typically open the application in your default web browser at `http://localhost:3000`
 
-### `npm run eject`
+6. **Run test.las File:**
+*   Go to the Upload section within the app interface.
+*   Select and upload input (e.g. test.las) file.
+*   The system will automatically begin processing the file.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+## Technologies Used
+*   **Frontend:** ReactJS
+*   **3D Visualization:** Potree
+*   **Mapping Library:** Leaflet
+*   **Styling:** CSS Modules, Styled Components
+*   **AI/Machine Learning:** PyTorch (framework for training and deployment), PointNet++ (deployed semantic segmentation model architecture), PointNet (model architecture used in training/evaluation)
+*   **Package Management:** npm
+*   **Containerization:** Docker
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+## Acknowledgements
+This project acknowledges the foundational work and resources that made it possible:
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+*   **Dataset:** We utilized the **`for-instance` dataset** for training, testing and demonstrating point cloud processing. We thank **Stefano Puliti** and co-authors for making this valuable resource available:
+    ```
+    Puliti, S, Pearse, G, Surový, P, Wallace, L, Hollaus, M, Wielgosz, M & Astrup, R 2023, FOR-instance: a UAV laser scanning benchmark dataset for semantic and instance segmentation of individual trees, Zenodo, viewed 30 April 2025, <https://zenodo.org/record/8287792>.
+    ```
 
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+*   **Deep Learning Architectures:** Our AI segmentation is based on the pioneering work on deep learning for point clouds by **Charles R. Qi** and his colleagues. We acknowledge and reference the following key publications:
+    ```
+    Qi, CR, Su, H, Mo, K & Guibas, LJ 2017, PointNet: Deep Learning on Point Sets for 3D Classification and Segmentation, arXiv, viewed 30 April 2025, <http://arxiv.org/abs/1612.00593>.
+    ```
+    ```
+    Qi, CR, Yi, L, Su, H & Guibas, LJ 2017, PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space, arXiv, viewed 30 April 2025, <http://arxiv.org/abs/1706.02413>.
+    ```

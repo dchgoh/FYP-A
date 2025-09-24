@@ -1,215 +1,217 @@
 import React, { useState } from "react";
-import "./login.css"; // Assuming you have this CSS file
-import { FaEnvelope, FaEye, FaSpinner } from "react-icons/fa";
-import { CircularProgress } from "@mui/material";
+import { FaEnvelope, FaEye, FaShieldHalved } from "react-icons/fa6";
+import {
+  CircularProgress, Box, Typography, Alert, TextField, Button,
+  IconButton, InputAdornment
+} from "@mui/material";
+import { authService } from "../../authService"; // Ensure this path is correct
 
 const Login = ({ onLoginSuccess }) => {
-  const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
-  const [isError, setIsError] = useState(false); // Differentiate error messages
-  const [mfaRequired, setMfaRequired] = useState(false);
   const [mfaCode, setMfaCode] = useState("");
+  
+  const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
+  
+  const [mfaRequired, setMfaRequired] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isMfaLoading, setIsMfaLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
-  const handleLogin = async () => {
+  // --- API Handlers ---
+  const handleLogin = async (event) => {
+    event.preventDefault();
     setIsLoading(true);
-    setMessage("");
-    setIsError(false);
-    setMfaRequired(false); // Reset MFA state on new login attempt
-
+    setError("");
+    setInfo("");
     try {
-      const response = await fetch("http://localhost:5000/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        // Handle HTTP errors (4xx, 5xx)
-        throw new Error(data.message || `HTTP error! Status: ${response.status}`);
+      const data = await authService.login(email, password);
+      if (data.mfaRequired) {
+        setMfaRequired(true);
+        setInfo("A verification code has been sent to your email.");
+      } else if (data.token) {
+        onLoginSuccess(data.token, data.role, data.username);
       }
-
-      // --- Check backend response ---
-      if (data.success) {
-        if (data.mfaRequired) {
-          // MFA is needed. Show MFA form. DO NOT call onLoginSuccess yet.
-          setMfaRequired(true);
-          setMessage("MFA code sent to your email."); // Success message
-          setIsError(false);
-        } else if (data.token) {
-          // Login successful WITHOUT MFA. Call onLoginSuccess with the FINAL token.
-          // App.js will handle localStorage, setIsAuthenticated, and navigation.
-          onLoginSuccess(data.token, data.role, data.username);
-          // No need to setMessage or navigate here
-        } else {
-           // Should not happen if backend logic is correct, but handle defensively
-           throw new Error("Login successful but missing token and MFA requirement.");
-        }
-      } else {
-        // Backend indicated failure (e.g., wrong password)
-        setMessage(data.message || "Invalid email or password.");
-        setIsError(true);
-        setMfaRequired(false); // Ensure MFA form is hidden
-      }
-      // --- End backend response check ---
-
-    } catch (error) {
-        console.error("Login error:", error);
-        setMessage(error.message || "An error occurred during login.");
-        setIsError(true);
-        setMfaRequired(false);
+    } catch (err) {
+      setError(err.message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const verifyMfa = async () => {
-    setIsMfaLoading(true);
-    setMessage("");
-    setIsError(false);
-
+  const verifyMfa = async (event) => {
+    event.preventDefault();
+    setIsLoading(true);
+    setError("");
     try {
-        const response = await fetch("http://localhost:5000/api/auth/verify-mfa", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            // Send email to identify user, and the code they entered
-            body: JSON.stringify({ email, code: mfaCode }),
-          });
-
-          const data = await response.json();
-
-          if (!response.ok) {
-             // Handle HTTP errors (4xx, 5xx)
-            throw new Error(data.message || `HTTP error! Status: ${response.status}`);
-          }
-
-          // --- Check backend response ---
-          if (data.success && data.token) {
-            // MFA verification successful. Call onLoginSuccess with the FINAL token.
-            // App.js handles localStorage, state, and navigation.
-            onLoginSuccess(data.token, data.role, data.username);
-             // No need to setMessage or navigate here
-          }
-          else {
-            // Backend indicated MFA failure (wrong code, expired, etc.)
-            setMessage(data.message || "Invalid MFA code.");
-            setIsError(true);
-            setMfaCode(""); // Clear the code input on failure
-          }
-           // --- End backend response check ---
-
-    } catch (error) {
-        console.error("MFA verification error:", error);
-        setMessage(error.message || "An error occurred during MFA verification.");
-        setIsError(true);
+      const data = await authService.verifyMfa(email, mfaCode);
+      if (data.token) {
+        onLoginSuccess(data.token, data.role, data.username);
+      }
+    } catch (err) {
+      setError(err.message);
+      setMfaCode("");
     } finally {
-        setIsMfaLoading(false);
+      setIsLoading(false);
+    }
+  };
+
+  // --- STYLES OBJECT (CSS-in-JS using MUI sx prop) ---
+  const styles = {
+    background: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: '100vh',
+      bgcolor: '#eef2f6',
+    },
+    loginContainer: {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      p: 2, // Padding for small screens
+      width: '100%',
+    },
+    logo: {
+      maxWidth: '150px',
+      mb: 3,
+    },
+    loginBox: {
+      bgcolor: 'white',
+      p: { xs: 3, sm: 5 },
+      borderRadius: '12px',
+      boxShadow: '0px 10px 30px rgba(0, 0, 0, 0.07)',
+      width: '100%',
+      maxWidth: '450px',
+      textAlign: 'center',
+    },
+    title: {
+      color: '#1a202c',
+      fontWeight: 700,
+      mb: 1,
+    },
+    subtext: {
+      color: '#718096',
+      mb: 4,
+    },
+    form: {
+      width: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '20px'
+    },
+    loginButton: {
+      py: '12px',
+      borderRadius: '8px',
+      fontWeight: 600,
+      fontSize: '16px',
+      textTransform: 'none',
+      height: '52px',
+      boxShadow: '0 4px 14px 0 rgba(0, 118, 255, 0.39)',
+      '&:hover': {
+        boxShadow: '0 6px 20px 0 rgba(0, 118, 255, 0.23)',
+      },
+    },
+    alert: {
+        width: '100%',
+        mb: 2
     }
   };
 
   return (
-    <div className="background">
-      <div className="login-container">
-        <img src="/assets/logo.png" alt="UAS Logo" className="logo" />
-        <div className="login-box">
-          <h2>{mfaRequired ? "Enter MFA Code" : "Login"}</h2>
-          {!mfaRequired && (
-            <p className="login-subtext">
-              Please enter your details to sign in your account
-            </p>
-          )}
+    <Box sx={styles.background}>
+      <Box sx={styles.loginContainer}>
+        <Box component="img" src="/assets/logo.png" alt="UAS Logo" sx={styles.logo} />
+        <Box
+          component="form" // <-- FIX: The form is the container now
+          onSubmit={mfaRequired ? verifyMfa : handleLogin}
+          sx={styles.loginBox}
+        >
+          <Typography variant="h4" component="h1" sx={styles.title}>
+            {mfaRequired ? "Two-Factor Authentication" : "Welcome Back"}
+          </Typography>
+          <Typography sx={styles.subtext}>
+            {mfaRequired ? "Enter the code from your email to continue." : "Please enter your details to sign in."}
+          </Typography>
 
-          {!mfaRequired ? (
-            <>
-              {/* Email Input */}
-              <div className="input-group">
-                <input
-                  type="text" // Changed from email to text for flexibility if needed
-                  placeholder="Enter your email"
+          {error && <Alert severity="error" sx={styles.alert}>{error}</Alert>}
+          {info && <Alert severity="success" sx={styles.alert}>{info}</Alert>}
+          
+          <Box sx={styles.form}>
+            {!mfaRequired ? (
+              <>
+                <TextField
+                  label="Email Address"
+                  variant="outlined"
+                  type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={isLoading}
+                  required
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start"><FaEnvelope color="#718096" size={16} /></InputAdornment>
+                    ),
+                  }}
                 />
-                <FaEnvelope className="icon" />
-              </div>
-
-              {/* Password Input */}
-              <div className="input-group">
-                <input
+                <TextField
+                  label="Password"
+                  variant="outlined"
                   type={showPassword ? "text" : "password"}
-                  placeholder="Enter your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={isLoading}
+                  required
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Button
+                          aria-label="toggle password visibility"
+                          onClick={() => setShowPassword(!showPassword)}
+                          edge="start"
+                          tabIndex={-1}
+                          sx={{ padding: 0, minWidth: 0 }}
+                        >
+                          <FaEye color={showPassword ? "#3182ce" : "#718096"} size={16} />
+                        </Button>
+                      </InputAdornment>
+                    ),
+                  }}
                 />
-                <span
-                  className={`icon ${isLoading ? 'disabled-icon' : ''}`}
-                  // Prevent toggling visibility when loading
-                  onMouseDown={() => !isLoading && setShowPassword(true)}
-                  onMouseUp={() => !isLoading && setShowPassword(false)}
-                  onMouseLeave={() => !isLoading && setShowPassword(false)}
-                  // Make it behave more like a button for accessibility if needed
-                  role="button"
-                  tabIndex={isLoading ? -1 : 0}
-                  aria-pressed={showPassword}
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  <FaEye />
-                </span>
-              </div>
-            </>
-          ) : (
-             // MFA Input
-            <div className="input-group">
-              <input
-                type="text" // Use text, maybe add pattern="[0-9]*" for numbers
-                placeholder="MFA Code"
+              </>
+            ) : (
+              <TextField
+                label="Verification Code"
+                variant="outlined"
+                type="text"
                 value={mfaCode}
                 onChange={(e) => setMfaCode(e.target.value)}
-                disabled={isMfaLoading}
-                maxLength={6} // Typical TOTP length
-                inputMode="numeric" // Hint for mobile keyboards
-                autoComplete="one-time-code" // Help password managers/OS fill code
+                disabled={isLoading}
+                required
+                inputProps={{ maxLength: 6, inputMode: "numeric" }}
+                autoFocus
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start"><FaShieldHalved color="#718096" /></InputAdornment>
+                  ),
+                }}
               />
-              {/* Optional: Add an icon here too */}
-            </div>
-          )}
-
-          {/* Display message */}
-          {message && (
-            <p className={`login-message ${isError ? 'error' : 'success'}`}>
-              {message}
-            </p>
-          )}
-
-          {/* Conditional Buttons */}
-          {mfaRequired ? (
-            <button
-                className="login-button"
-                onClick={verifyMfa}
-                disabled={isMfaLoading || !mfaCode || mfaCode.length !== 6} // Basic validation
+            )}
+            
+            <Button
+              type="submit"
+              variant="contained"
+              size="large"
+              fullWidth
+              sx={styles.loginButton}
+              disabled={isLoading || (mfaRequired ? mfaCode.length !== 6 : !email || !password)}
             >
-              {/* Show spinner *inside* button text area */}
-              {isMfaLoading ? <CircularProgress color="inherit" size={24} /> : "Verify MFA"}
-            </button>
-          ) : (
-            <button
-                className="login-button"
-                onClick={handleLogin}
-                disabled={isLoading || !email || !password}
-            >
-               {/* Show spinner *inside* button text area */}
-              {isLoading ? <CircularProgress color="inherit" size={24} /> : "Login"}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+              {isLoading ? <CircularProgress color="inherit" size={24} /> : (mfaRequired ? "Verify & Sign In" : "Sign In")}
+            </Button>
+          </Box>
+        </Box>
+      </Box>
+    </Box>
   );
 };
 

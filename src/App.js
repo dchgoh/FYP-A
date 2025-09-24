@@ -1,16 +1,14 @@
-import { useState, React, useEffect } from "react"; // Import useEffect
-import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
+import { useState, useEffect } from "react"; // Import useEffect
+import { Routes, Route, Navigate, useNavigate} from "react-router-dom";
 import { jwtDecode } from "jwt-decode";
 import Topbar from "./scenes/global/topbar";
 import Sidebar from "./scenes/global/sidebar";
 import Dashboard from "./scenes/dashboard/dashboard";
 import Team from "./scenes/team/team";
-import Upload from "./scenes/upload/upload";
+import Upload from "./scenes/filemanagement/FileManagement";
 import Login from "./scenes/login/login";
-import TreeCountDashboard from "./scenes/treecount/treecount";
-import AreaDataDashboard from "./scenes/area/area";
-import MapDashboard from "./scenes/map/map";
-import PotreeViewer from './scenes/potree_viewer/potree_viewer';
+import MapDashboard from "./scenes/map/MapComponent";
+import PointCloudViewer from './scenes/pointcloud_viewer/pointcloud_viewer';
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { ColorModeContext, useMode } from "./theme";
 
@@ -23,7 +21,6 @@ function App() {
     return storedCollapsed ? JSON.parse(storedCollapsed) : false;
   });
   const navigate = useNavigate();
-  const location = useLocation(); // Get the current location
 
   // --- Initialize Authentication State with JWT Validation ---
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -83,6 +80,13 @@ function App() {
     localStorage.removeItem("authToken");
     localStorage.removeItem("userRole");
     localStorage.removeItem("username");
+    localStorage.setItem("colorMode", "light"); // Reset theme to light mode
+    
+    // Force light mode if currently in dark mode
+    if (theme.palette.mode === "dark") {
+      colorMode.toggleColorMode();
+    }
+    
     setIsAuthenticated(false);
     navigate("/login");
   };
@@ -146,20 +150,12 @@ function App() {
                 element={isAuthenticated ? <Upload isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
               />
               <Route
-                path="/treecount"
-                element={isAuthenticated ? <TreeCountDashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
-              />
-              <Route
-                path="/area"
-                element={isAuthenticated ? <AreaDataDashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
-              />
-              <Route
                 path="/map"
                 element={isAuthenticated ? <MapDashboard isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
               />
               <Route
-                path="/potree"
-                element={isAuthenticated ? <PotreeViewer isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
+                path="/pointcloud"
+                element={isAuthenticated ? <PointCloudViewer isCollapsed={isCollapsed} /> : <Navigate to="/login" replace />}
               />
 
               {/* Fallback Route for unknown paths */}
