@@ -399,7 +399,14 @@ export const useFileManagement = () => {
     
       // --- ACTION HANDLERS ---
       const handleMenuClick = (event, file) => { setAnchorEl(event.currentTarget); setSelectedFile(file); };
-      const handleMenuClose = () => { setAnchorEl(null); /* setSelectedFile(null) potentially later if needed */ };
+      const handleMenuClose = (event) => {
+        // It's good practice to check if the event object exists
+        if (event && typeof event.stopPropagation === 'function') {
+            event.stopPropagation();
+        }
+        setAnchorEl(null);
+        /* setSelectedFile(null) potentially later if needed */
+        };
     
       const handleDownload = async (fileToDownload) => {
         if (!canPerformAction('download', fileToDownload)) { showSnackbar("Permission denied.", "error"); handleMenuClose(); return; }
@@ -1002,19 +1009,27 @@ export const useFileManagement = () => {
         return projectsList.filter(p => p.division_id === numericDivisionId);
       }, [projectsList, filterDivisionId]); 
     
-      const handleOpenReassignModal = (file) => {
-        if (!canPerformAction('reassign', file)) {
-            showSnackbar("Permission denied.", "error");
-            handleMenuClose();
-            return;
-        }
-        if (!file) return;
-        setFileToReassign(file);
-        setSelectedProjectIdForReassign(file.project_id ?? ''); 
-        setNewPlotNameForReassign(file.plot_name || ''); 
-        setReassignModalOpen(true);
-        handleMenuClose(); 
-    };
+      // In useFileManagement.js
+
+        const handleOpenReassignModal = (file) => {
+            // It's good practice to close the menu first in case of an early return.
+            handleMenuClose(); 
+
+            if (!canPerformAction('reassign', file)) {
+                showSnackbar("Permission denied.", "error");
+                // We already closed the menu, so no need to call it again here.
+                return;
+            }
+
+            if (!file) return;
+
+            setFileToReassign(file);
+            setSelectedProjectIdForReassign(file.project_id ?? '');
+            setNewPlotNameForReassign(file.plot_name || '');
+            setReassignModalOpen(true);
+            
+            // The menu is already closed. The call was here and should be removed.
+        };
     
     const handleCloseReassignModal = () => {
         if (isReassigning) return; 

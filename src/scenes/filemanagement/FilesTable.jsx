@@ -91,11 +91,41 @@ const FilesTable = ({
                                         <MoreVertIcon fontSize="small" />
                                     </IconButton>
                                     <Menu anchorEl={anchorEl} open={Boolean(anchorEl) && selectedFile?.id === file.id} onClose={handleMenuClose} PaperProps={{ sx: { backgroundColor: colors.primary[800], color: colors.grey[100] } }}>
-                                        {canPerformAction('reassign', file) && (<MenuItem onClick={() => { handleMenuClose(); handleOpenReassignModal(selectedFile); }}><ListItemIcon sx={styles.menuItemIcon}><AssignmentIcon fontSize="small" /></ListItemIcon><ListItemText>Edit / Reassign</ListItemText></MenuItem>)}
-                                        {canPerformAction('download', file) && (<MenuItem onClick={() => handleDownload(selectedFile)}><ListItemIcon sx={styles.menuItemIcon}><DownloadIcon fontSize="small" /></ListItemIcon><ListItemText>Download</ListItemText></MenuItem>)}
-                                        {canPerformAction('view', file) && isReady && (<MenuItem onClick={() => handleViewPotree(selectedFile)}><ListItemIcon sx={styles.menuItemIcon}><VisibilityIcon fontSize="small" /></ListItemIcon><ListItemText>View Point Cloud</ListItemText></MenuItem>)}
-                                        {canPerformAction('convert', file) && !isReady && !isEffectivelyConverting && (<MenuItem onClick={() => handleConvertPotree(selectedFile)}><ListItemIcon sx={styles.menuItemIcon}><TransformIcon fontSize="small" /></ListItemIcon><ListItemText>Convert to Potree</ListItemText></MenuItem>)}
-                                        {canDeleteThisFile && (<MenuItem onClick={() => handleRemove(selectedFile)} sx={{ color: colors.redAccent[400] }}><ListItemIcon sx={styles.menuItemIcon}><DeleteIcon fontSize="small" /></ListItemIcon><ListItemText>Remove File</ListItemText></MenuItem>)}
+                                        {canPerformAction('reassign', file) && (
+                                            <MenuItem onClick={(event) => { handleMenuClose(event); handleOpenReassignModal(selectedFile); }}>
+                                                <ListItemIcon sx={styles.menuItemIcon}><AssignmentIcon fontSize="small" /></ListItemIcon>
+                                                <ListItemText>Edit / Reassign</ListItemText>
+                                            </MenuItem>
+                                        )}
+
+                                        {canPerformAction('download', file) && (
+                                            <MenuItem onClick={(event) => { handleMenuClose(event); handleDownload(selectedFile); }}>
+                                                <ListItemIcon sx={styles.menuItemIcon}><DownloadIcon fontSize="small" /></ListItemIcon>
+                                                <ListItemText>Download</ListItemText>
+                                            </MenuItem>
+                                        )}
+
+                                        {canPerformAction('view', file) && isReady && (
+                                            <MenuItem onClick={(event) => { handleMenuClose(event); handleViewPotree(selectedFile); }}>
+                                                <ListItemIcon sx={styles.menuItemIcon}><VisibilityIcon fontSize="small" /></ListItemIcon>
+                                                <ListItemText>View Point Cloud</ListItemText>
+                                            </MenuItem>
+                                        )}
+
+                                        {canPerformAction('convert', file) && !isReady && !isEffectivelyConverting && (
+                                            <MenuItem onClick={(event) => { handleMenuClose(event); handleConvertPotree(selectedFile); }}>
+                                                <ListItemIcon sx={styles.menuItemIcon}><TransformIcon fontSize="small" /></ListItemIcon>
+                                                <ListItemText>Convert to Potree</ListItemText>
+                                            </MenuItem>
+                                        )}
+
+                                        {canDeleteThisFile && (
+                                            <MenuItem onClick={(event) => { handleMenuClose(event); handleRemove(selectedFile); }} sx={{ color: colors.redAccent[400] }}>
+                                                <ListItemIcon sx={styles.menuItemIcon}><DeleteIcon fontSize="small" /></ListItemIcon>
+                                                <ListItemText>Remove File</ListItemText>
+                                            </MenuItem>
+                                        )}
+                                        
                                     </Menu>
                                 </TableCell>
                             </TableRow>
