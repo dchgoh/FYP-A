@@ -118,7 +118,7 @@ export const useDashboardData = () => {
         fetchAndSet(`${API_BASE_URL}/files/count`, baseParams, setIsFetchingFileCount, setFilesUploadedCount, 'count', 'Error');
         fetchAndSet(`${API_BASE_URL}/files/count/trees`, baseParams, setIsFetchingTreeCount, setTotalTreesCount, 'count', 'Error');
         fetchAndSet(`${API_BASE_URL}/files/stats/sum-carbon-tonnes`, baseParams, setIsFetchingSumCarbon, setTotalSumCarbonTonnes, 'sum_carbon_tonnes', 'Error');
-        fetchAndSet(`${API_BASE_URL}/files/recent`, { ...baseParams, limit: 5 }, setLoadingTimeline, setRecentUploads, null, []); 
+        fetchAndSet(`${API_BASE_URL}/files/recent`, { ...baseParams, limit: 5 }, setLoadingTimeline, setRecentUploads, 'data', []); 
         fetchAndSet(`${API_BASE_URL}/files/all-tree-heights-adjusted`, baseParams, setLoadingHeightsChart, setAllTreeHeightsData, 'heights', []);
         fetchAndSet(`${API_BASE_URL}/files/statistics/all-tree-dbhs-cm`, baseParams, setLoadingDbhsChart, setAllTreeDbhsData, 'dbhs_cm', []);
         fetchAndSet(`${API_BASE_URL}/files/statistics/all-tree-volumes-m3-data`, baseParams, setLoadingVolumesChart, setAllTreeVolumesData, 'volumes_m3', []);

@@ -87,15 +87,11 @@ const ProcessingModal = ({
         return 'warning';
       case 'segmenting':
         return 'primary';
-      case 'converting_potree':
-        return 'secondary';
       case 'ready':
         return 'success';
       case 'failed':
       case 'error_las_processing':
       case 'error_segmentation':
-      case 'error_potree':
-        return 'error';
       default:
         return 'default';
     }
@@ -108,12 +104,8 @@ const ProcessingModal = ({
       case 'failed':
       case 'error_las_processing':
       case 'error_segmentation':
-      case 'error_potree':
-        return <ErrorIcon />;
       case 'processing_las_data':
       case 'segmenting':
-      case 'converting_potree':
-        return <PlayArrowIcon />;
       default:
         return <InfoIcon />;
     }
@@ -130,8 +122,6 @@ const ProcessingModal = ({
           return `AI Segmentation Progress: ${processingProgress.percentage}% complete (${processingProgress.current}/${processingProgress.total} chunks)`;
         }
         return 'Starting AI segmentation to identify tree components...';
-      case 'converting_potree':
-        return 'Converting to Potree format for visualization...';
       case 'ready':
         return 'Processing completed successfully!';
       case 'failed':
@@ -140,8 +130,6 @@ const ProcessingModal = ({
         return 'LAS data processing failed';
       case 'error_segmentation':
         return 'AI segmentation failed';
-      case 'error_potree':
-        return 'Potree conversion failed';
       default:
         return 'Unknown status';
     }
@@ -160,26 +148,22 @@ const ProcessingModal = ({
           return processingProgress.percentage;
         }
         return 0; // Start at 0% when segmentation begins but no progress data yet
-      case 'converting_potree':
-        return 85;
       case 'ready':
         return 100;
       case 'failed':
       case 'error_las_processing':
       case 'error_segmentation':
-      case 'error_potree':
-        return 0;
       default:
         return 0;
     }
   };
 
   const isProcessing = (status) => {
-    return ['uploaded', 'processing_las_data', 'segmenting', 'converting_potree'].includes(status);
+    return ['uploaded', 'processing_las_data', 'segmenting'].includes(status);
   };
 
   const hasError = (status) => {
-    return ['failed', 'error_las_processing', 'error_segmentation', 'error_potree'].includes(status);
+    return ['failed', 'error_las_processing', 'error_segmentation'].includes(status);
   };
 
   const processingCount = processingFiles.filter(file => isProcessing(file.status)).length;

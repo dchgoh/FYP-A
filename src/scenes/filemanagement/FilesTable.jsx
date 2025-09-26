@@ -7,13 +7,13 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 
-const ACTIVE_PIPELINE_PROCESSING_STATUSES = ['segmenting', 'processing_las_data', 'converting_potree', 'processing'];
+const ACTIVE_PIPELINE_PROCESSING_STATUSES = ['segmenting', 'processing_las_data', 'processing'];
 
 const FilesTable = ({
     colors, theme, files, isLoading, isLoadingPermissions, selectedFileIds,
     handleSelectAllClick, handleRowCheckboxClick, canPerformAction,
     filesBeingProcessed, deletingProjectId, deletingDivisionId, isDeletingBulk,
-    handleDownload, handleRemove, handleConvertPotree, handleViewPotree,
+    handleDownload, handleRemove, handleViewPointCloud,
     handleOpenReassignModal, numTotalSelectableForDelete
 }) => {
     const [anchorEl, setAnchorEl] = useState(null);
@@ -54,14 +54,14 @@ const FilesTable = ({
                         <TableCell sx={styles.headCell}>Project</TableCell>
                         <TableCell sx={styles.headCell}>Size</TableCell>
                         <TableCell sx={styles.headCell}>Uploaded</TableCell>
-                        <TableCell sx={{...styles.headCell, textAlign:'center'}}>Potree Status</TableCell>
+                        <TableCell sx={{...styles.headCell, textAlign:'center'}}>Status</TableCell>
                         <TableCell sx={{...styles.headCell, textAlign:'center'}}>Actions</TableCell>
                     </TableRow>
                 </TableHead>
                 <TableBody>
                     {files.map((file) => {
                         const isSelected = selectedFileIds.has(file.id);
-                        const isReady = !!file.potreeUrl;
+                        const isReady = file.status === 'ready';
                         const isEffectivelyConverting = ACTIVE_PIPELINE_PROCESSING_STATUSES.includes(file.status) || filesBeingProcessed.has(file.id);
                         const isGlobalDeleteActive = !!deletingProjectId || !!deletingDivisionId || isDeletingBulk;
                         const canDeleteThisFile = canPerformAction('delete', file);
@@ -72,7 +72,7 @@ const FilesTable = ({
                         else if (file.status === 'failed' || file.status.startsWith('error')) { statusText = "Failed"; statusColor = colors.redAccent[400]; }
                         else if (file.status === 'uploaded') { statusText = "Queued"; statusColor = colors.orangeAccent ? colors.orangeAccent[400] : colors.grey[400]; }
 
-                        const hasAnyAction = canPerformAction('reassign', file) || canPerformAction('download', file) || (canPerformAction('view', file) && isReady) || (canPerformAction('convert', file) && !isReady && !isEffectivelyConverting) || canDeleteThisFile;
+                        const hasAnyAction = canPerformAction('reassign', file) || canPerformAction('download', file) || (canPerformAction('view', file) && isReady) || canDeleteThisFile;
 
                         return (
                             <TableRow key={file.id} hover selected={isSelected} onClick={() => { if (!isEffectivelyConverting && canDeleteThisFile && !isGlobalDeleteActive) { handleRowCheckboxClick({ target: { checked: !isSelected } }, file.id); } }} sx={{ opacity: isEffectivelyConverting || isGlobalDeleteActive ? 0.6 : 1, cursor: (!isEffectivelyConverting && canDeleteThisFile && !isGlobalDeleteActive) ? 'pointer' : 'default', backgroundColor: isSelected ? `${colors.blueAccent[800]} !important` : 'transparent' }}>
@@ -106,16 +106,9 @@ const FilesTable = ({
                                         )}
 
                                         {canPerformAction('view', file) && isReady && (
-                                            <MenuItem onClick={(event) => { handleMenuClose(event); handleViewPotree(selectedFile); }}>
+                                            <MenuItem onClick={(event) => { handleMenuClose(event); handleViewPointCloud(selectedFile); }}>
                                                 <ListItemIcon sx={styles.menuItemIcon}><VisibilityIcon fontSize="small" /></ListItemIcon>
                                                 <ListItemText>View Point Cloud</ListItemText>
-                                            </MenuItem>
-                                        )}
-
-                                        {canPerformAction('convert', file) && !isReady && !isEffectivelyConverting && (
-                                            <MenuItem onClick={(event) => { handleMenuClose(event); handleConvertPotree(selectedFile); }}>
-                                                <ListItemIcon sx={styles.menuItemIcon}><TransformIcon fontSize="small" /></ListItemIcon>
-                                                <ListItemText>Convert to Potree</ListItemText>
                                             </MenuItem>
                                         )}
 

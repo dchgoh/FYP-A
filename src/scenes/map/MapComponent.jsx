@@ -138,7 +138,7 @@ const MapComponent = ({ isCollapsed }) => {
                                     <Box sx={styles.popupDetailsSection}>
                                         <Typography variant="body2">Plot: {file.plot_name || 'N/A'}</Typography>
                                         <Typography variant="body2">Project: {file.projectName}</Typography>
-                                        {file.potreeUrl && <Link to={`/potree?url=${encodeURIComponent(file.potreeUrl)}`} style={{ color: colors.blueAccent[300], fontWeight: 'bold' }}>View Point Cloud</Link>}
+                                        {file.status === 'ready' && <Link to={`/pointcloud?fileId=${file.id}`} style={{ color: colors.blueAccent[300], fontWeight: 'bold' }}>View Point Cloud</Link>}
                                     </Box>
                                 </Box>
                             </Popup>

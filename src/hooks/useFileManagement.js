@@ -115,7 +115,7 @@ export const useFileManagement = () => {
       const canPerformAction = useCallback((action, file = null) => {
         if (isLoadingPermissions || !userRole) return false;
     
-        const requiresFileContext = ['download', 'delete', 'convert', 'assignProject', 'view', 'reassign']; // Added reassign
+        const requiresFileContext = ['download', 'delete', 'assignProject', 'view', 'reassign']; // Added reassign
         if (requiresFileContext.includes(action) && !file) {
              if (action !== 'upload' && action !== 'manageAssignments' && action !== 'createProject' && action !== 'createDivision') { // Added createProject, createDivision
                  console.warn(`canPerformAction denied - missing file object for action: ${action}`);
@@ -435,7 +435,7 @@ export const useFileManagement = () => {
         if (!fileId) { handleMenuClose(); return; }
         handleMenuClose(); // Close menu before confirmation
         
-        const conf = window.confirm(`Delete "${fileToRemove.name}" and associated Potree data?`);
+        const conf = window.confirm(`Delete "${fileToRemove.name}" and associated data?`);
         if (!conf) return;
     
         const token = localStorage.getItem('authToken');
