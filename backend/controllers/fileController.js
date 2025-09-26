@@ -5,6 +5,7 @@ const { pool } = require('../config/db'); // Adjust path relative to controllers
 const ROLES = require('../config/roles'); // Adjust path relative to controllers/
 const segmentationService = require('../services/segmentationService');
 const lasProcessingService = require('../services/lasProcessingService');
+const { encryptFileTo, decryptToStream } = require('../utils/fileCrypto');
 
 
 const formatFileRecord = (dbRecord) => {
@@ -211,7 +212,21 @@ exports.uploadFile = async (req, res) => {
 
                         // Set status to ready for point cloud viewer instead of Potree conversion
                         await pool.query("UPDATE uploaded_files SET status = 'ready' WHERE id = $1", [currentFileId]);
-                        
+
+                        // Encrypt file at rest now that processing is complete
+                        try {
+                            const encPathAbsolute = `${stored_path_absolute}.enc`;
+                            await encryptFileTo(stored_path_absolute, encPathAbsolute);
+                            // Update DB to point to encrypted file and remove plaintext
+                            const encPathRelative = `${path.join('uploads', filename)}.enc`;
+                            await pool.query("UPDATE uploaded_files SET stored_path = $1 WHERE id = $2", [encPathRelative, currentFileId]);
+                            fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error(`[Controller BG] (FileID ${currentFileId}) error deleting plaintext after encryption:`, err); });
+                            console.log(`[Controller BG] (FileID ${currentFileId}): File encrypted and plaintext removed.`);
+                        } catch (encErr) {
+                            console.error(`[Controller BG] (FileID ${currentFileId}) Encryption error:`, encErr);
+                            // Do not fail the pipeline; file remains plaintext if encryption fails
+                        }
+
                         console.log(`[Controller BG] (FileID ${currentFileId}): File ready for point cloud viewer.`);
 
                     } else {
@@ -231,6 +246,19 @@ exports.uploadFile = async (req, res) => {
                             // --- 3. Set ready for point cloud viewer ---
                             console.log(`[Controller BG] (FileID ${currentFileId}): Setting status to ready for point cloud viewer.`);
                             await pool.query("UPDATE uploaded_files SET status = 'ready' WHERE id = $1", [currentFileId]);
+
+                            // Encrypt file at rest now that processing is complete
+                            try {
+                                const encPathAbsolute = `${stored_path_absolute}.enc`;
+                                await encryptFileTo(stored_path_absolute, encPathAbsolute);
+                                const encPathRelative = `${path.join('uploads', filename)}.enc`;
+                                await pool.query("UPDATE uploaded_files SET stored_path = $1 WHERE id = $2", [encPathRelative, currentFileId]);
+                                fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error(`[Controller BG] (FileID ${currentFileId}) error deleting plaintext after encryption:`, err); });
+                                console.log(`[Controller BG] (FileID ${currentFileId}): File encrypted and plaintext removed.`);
+                            } catch (encErr) {
+                                console.error(`[Controller BG] (FileID ${currentFileId}) Encryption error:`, encErr);
+                            }
+
                             console.log(`[Controller BG] (FileID ${currentFileId}): File ready for point cloud viewer.`);
                         } else {
                             const currentStatus = statusCheckAfterSegmentation.rows.length > 0 ? statusCheckAfterSegmentation.rows[0].status : 'unknown';
@@ -361,7 +389,7 @@ exports.getRecentFiles = async (req, res) => {
             };
         });
 
-        res.json(formattedTimeline);
+        res.json({ data: formattedTimeline });
 
     } catch (error) {
         // <<< --- MORE DETAILED LOGGING FOR ERRORS --- >>>
@@ -506,16 +534,32 @@ exports.downloadFile = async (req, res) => {
         const absoluteFilePath = path.resolve(__dirname, '..', file.stored_path);
 
         if (fs.existsSync(absoluteFilePath)) {
-            res.download(absoluteFilePath, file.original_name, (err) => {
-                if (err) {
-                    console.error(`Error sending file ${file.original_name} (ID: ${fileId}) for download:`, err);
-                    if (!res.headersSent) {
-                        res.status(500).json({ message: "Error preparing file for download." });
-                    }
-                } else {
-                     console.log(`Successfully sent ${file.original_name} for download.`);
+            const isEncrypted = file.stored_path.endsWith('.enc');
+            if (isEncrypted) {
+                try {
+                    res.setHeader('Content-Disposition', `attachment; filename="${file.original_name}"`);
+                    const stream = decryptToStream(absoluteFilePath, res);
+                    stream.on('error', (err) => {
+                        console.error(`Decryption stream error for ${file.original_name} (ID: ${fileId}):`, err);
+                        if (!res.headersSent) res.status(500).json({ message: 'Error decrypting file for download.' });
+                    });
+                    stream.pipe(res);
+                } catch (e) {
+                    console.error(`Error preparing decryption for ${file.original_name} (ID: ${fileId}):`, e);
+                    return res.status(500).json({ message: 'Error preparing encrypted file for download.' });
                 }
-            });
+            } else {
+                res.download(absoluteFilePath, file.original_name, (err) => {
+                    if (err) {
+                        console.error(`Error sending file ${file.original_name} (ID: ${fileId}) for download:`, err);
+                        if (!res.headersSent) {
+                            res.status(500).json({ message: "Error preparing file for download." });
+                        }
+                    } else {
+                         console.log(`Successfully sent ${file.original_name} for download.`);
+                    }
+                });
+            }
         } else {
             console.error(`Download error: File source missing on disk for ID ${fileId}. Expected at: ${absoluteFilePath}`);
             res.status(404).json({ message: "File source missing on server." });
