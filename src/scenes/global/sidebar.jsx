@@ -98,7 +98,7 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
                         </Box>
                     )}
 
-                    <Box paddingLeft={isCollapsed ? undefined : "10%"} paddingRight={isCollapsed ? undefined : "10%"}>
+                    <Box paddingLeft={isCollapsed ? undefined : "7%"} paddingRight={isCollapsed ? undefined : "10%"}>
                         {routes.map((route) => {
                             // Logic to decide if the item should be rendered
                             if (route.omitFromSidebar) return null;
