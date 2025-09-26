@@ -8,7 +8,7 @@ body,
   height: 100%;
   width: 100%;
   font-family: "Inter", sans-serif;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .app {
@@ -33,4 +33,13 @@ body,
 /* Handle on hover */
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
+}
+
+/* Hide horizontal scrollbar when pointcloud viewer is active */
+body:has(.pointcloud-viewer) {
+  overflow-x: hidden !important;
+}
+
+body:has(.pointcloud-viewer) .content {
+  overflow-x: hidden !important;
 }

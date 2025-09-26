@@ -8,7 +8,7 @@ export const createPointCloudGeometry = (points, colors) => {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  
+
   // Add size attribute for each point (for shader)
   const pointCount = points.length / 3;
   const sizes = new Float32Array(pointCount);
@@ -16,7 +16,7 @@ export const createPointCloudGeometry = (points, colors) => {
   
   // Set size for each point (original size)
   for (let i = 0; i < pointCount; i++) {
-    sizes[i] = 8.0; // Original size
+    sizes[i] = 10.0; // Original size
   }
   
   geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
@@ -158,7 +158,7 @@ export const filterPointCloudByClassifications = (originalGeometry, classificati
     // If no points are visible, create empty geometry with at least one point to avoid errors
     const emptyPositions = new Float32Array([0, 0, 0]);
     const emptyColors = new Float32Array([0, 0, 0]);
-    const emptySizes = new Float32Array([8.0]);
+    const emptySizes = new Float32Array([1]);
     finalGeometry.setAttribute('position', new THREE.Float32BufferAttribute(emptyPositions, 3));
     finalGeometry.setAttribute('color', new THREE.Float32BufferAttribute(emptyColors, 3));
     finalGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(emptyColors, 3));
@@ -245,7 +245,7 @@ export const filterPointCloudByTreeIDs = (originalGeometry, treeIDs, treeIDData)
     // If no points are visible, create empty geometry with at least one point to avoid errors
     const emptyPositions = new Float32Array([0, 0, 0]);
     const emptyColors = new Float32Array([0, 0, 0]);
-    const emptySizes = new Float32Array([8.0]);
+    const emptySizes = new Float32Array([1]);
     finalGeometry.setAttribute('position', new THREE.Float32BufferAttribute(emptyPositions, 3));
     finalGeometry.setAttribute('color', new THREE.Float32BufferAttribute(emptyColors, 3));
     finalGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(emptyColors, 3));

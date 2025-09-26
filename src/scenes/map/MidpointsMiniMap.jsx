@@ -114,21 +114,28 @@ const MidpointsMiniMap = ({ midpoints, centerCoords, mainFileName }) => {
       const timer = setTimeout(() => {
         if (mapRef.current) {
           map.invalidateSize();
-          if (validMidpoints.length > 0) {
-            const pointsForBounds = validMidpoints.map(m => [m.latitude, m.longitude]);
-            const bounds = L.latLngBounds(pointsForBounds);
-            map.fitBounds(bounds.pad(0.15), { // Slightly more padding for fitBounds
-              maxZoom: MAX_MINI_MAP_ZOOM - 2,
-              padding: [10, 10] // Add small padding to fitBounds
-            });
-          } else if (centerCoords) {
-            map.setView(centerCoords, 15);
+          // Only set initial view if map hasn't been interacted with
+          const currentCenter = map.getCenter();
+          const currentZoom = map.getZoom();
+          const isAtInitialPosition = (currentCenter.lat === 0 && currentCenter.lng === 0) || currentZoom <= 3;
+          
+          if (isAtInitialPosition) {
+            if (validMidpoints.length > 0) {
+              const pointsForBounds = validMidpoints.map(m => [m.latitude, m.longitude]);
+              const bounds = L.latLngBounds(pointsForBounds);
+              map.fitBounds(bounds.pad(0.15), {
+                maxZoom: MAX_MINI_MAP_ZOOM - 2,
+                padding: [10, 10]
+              });
+            } else if (centerCoords) {
+              map.setView(centerCoords, 15);
+            }
           }
         }
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [validMidpoints, centerCoords, mainFileName]);
+  }, [validMidpoints, centerCoords]); // Removed mainFileName from dependencies
 
 
   if (!midpoints || Object.keys(midpoints).length === 0) {
@@ -203,14 +210,14 @@ const MidpointsMiniMap = ({ midpoints, centerCoords, mainFileName }) => {
             border: '1px solid #ccc',
             borderRadius: '4px', // Optional: for rounded corners
             position: 'relative', // Good for potential overlays or absolute positioned elements inside
+            overflow: 'hidden', // Prevent content from overflowing
         }}
     >
       <MapContainer
-        key={mainFileName || Date.now()} // Using Date.now() as part of key if mainFileName is null/undefined ensures re-mount
         center={initialCenter}
         zoom={initialZoom}
         maxZoom={MAX_MINI_MAP_ZOOM}
-        style={{ height: '100%', width: '100%', borderRadius: 'inherit' }} // Inherit border radius from parent Box
+        style={{ height: '100%', width: '100%', borderRadius: 'inherit', overflow: 'hidden' }} // Inherit border radius from parent Box
         scrollWheelZoom={true}
         zoomControl={true} // Leaflet's zoom control is fairly responsive
         attributionControl={false} // Usually not needed for a mini-map

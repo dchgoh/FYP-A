@@ -3,7 +3,7 @@ import { tokens } from '../../theme';
 export const createStyles = (theme, colors) => ({
   container: {
     display: "flex",
-    height: "calc(100vh - 112px)", // Adjusted for top bar
+    height: "calc(100vh - 76px)", // Adjusted for top bar
     bgcolor: colors.grey[900],
     transition: "margin 0.3s ease",
     position: 'relative',

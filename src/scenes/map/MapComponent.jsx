@@ -72,7 +72,7 @@ const MapComponent = ({ isCollapsed }) => {
         filterFormControl: { minWidth: { xs: 120, sm: 150, md: 180 }, width: '100%', '& .MuiInputLabel-root': { color: colors.grey[300], '&.Mui-focused': { color: colors.blueAccent[300] } }, '& .MuiOutlinedInput-root': { color: colors.grey[100], '& .MuiOutlinedInput-notchedOutline': { borderColor: colors.grey[600] }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: colors.primary[300] }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: colors.blueAccent[400] }, '& .MuiSelect-icon': { color: colors.grey[300] } } },
         mapContainerWrapper: { flexGrow: 1, width: '100%', position: 'relative', border: `1px solid ${colors.grey[700]}`, borderRadius: theme.shape.borderRadius, overflow: 'hidden', minHeight: { xs: 300, md: 400 } },
         popupContentBox: { lineHeight: 1.5, display: 'flex', flexDirection: 'column', maxHeight: { xs: '65vh', md: '500px' }, overflowY: 'auto', width: '100%', p: {xs: 1, sm: 1.5} },
-        popupMiniMapContainer: { height: { xs: '180px', md: '250px' }, width: '100%', mb: 1.5, border: `1px solid ${colors.grey[700]}`, borderRadius: theme.shape.borderRadius },
+        popupMiniMapContainer: { height: { xs: '180px', md: '250px' }, width: '100%', mb: 1.5, border: `1px solid ${colors.grey[700]}`, borderRadius: theme.shape.borderRadius, overflow: 'hidden' },
         popupDetailsSection: { mt: 'auto', borderTop: `1px solid ${colors.grey[700]}`, pt: 1.5, flexShrink: 0, color: colors.grey[200], fontSize: {xs: '0.75rem', sm: '0.875rem'} }
     };
 

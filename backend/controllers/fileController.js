@@ -5,7 +5,7 @@ const { pool } = require('../config/db'); // Adjust path relative to controllers
 const ROLES = require('../config/roles'); // Adjust path relative to controllers/
 const segmentationService = require('../services/segmentationService');
 const lasProcessingService = require('../services/lasProcessingService');
-const potreeConversionService = require('../services/potreeConversionService');
+const { encryptFileTo, decryptToStream } = require('../utils/fileCrypto');
 
 
 const formatFileRecord = (dbRecord) => {
@@ -76,7 +76,7 @@ const formatFileRecord = (dbRecord) => {
         size_bytes: dbRecord.size_bytes,
         upload_date: dbRecord.upload_date,
         stored_path: dbRecord.stored_path,
-        potreeUrl: dbRecord.potree_metadata_path || dbRecord.potreeUrl || null,
+        // Potree URL removed - files now use point cloud viewer directly
         project_id: dbRecord.project_id,
         plot_name: dbRecord.plot_name,
         latitude: dbRecord.latitude,
@@ -208,11 +208,26 @@ exports.uploadFile = async (req, res) => {
                     if (shouldSkipSegmentation) {
                         // --- PATH A: SKIP SEGMENTATION ---
                         console.log(`[Controller BG] (FileID ${currentFileId}): LAS processing successful. Skipping segmentation as requested.`);
-                        console.log(`[Controller BG] (FileID ${currentFileId}): Initiating Potree conversion directly.`);
+                        console.log(`[Controller BG] (FileID ${currentFileId}): Setting status to ready for point cloud viewer.`);
 
-                        await potreeConversionService.initiatePotree(currentFileId, stored_path_absolute, projectRootDir);
-                        
-                        console.log(`[Controller BG] (FileID ${currentFileId}): Potree conversion initiated.`);
+                        // Set status to ready for point cloud viewer instead of Potree conversion
+                        await pool.query("UPDATE uploaded_files SET status = 'ready' WHERE id = $1", [currentFileId]);
+
+                        // Encrypt file at rest now that processing is complete
+                        try {
+                            const encPathAbsolute = `${stored_path_absolute}.enc`;
+                            await encryptFileTo(stored_path_absolute, encPathAbsolute);
+                            // Update DB to point to encrypted file and remove plaintext
+                            const encPathRelative = `${path.join('uploads', filename)}.enc`;
+                            await pool.query("UPDATE uploaded_files SET stored_path = $1 WHERE id = $2", [encPathRelative, currentFileId]);
+                            fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error(`[Controller BG] (FileID ${currentFileId}) error deleting plaintext after encryption:`, err); });
+                            console.log(`[Controller BG] (FileID ${currentFileId}): File encrypted and plaintext removed.`);
+                        } catch (encErr) {
+                            console.error(`[Controller BG] (FileID ${currentFileId}) Encryption error:`, encErr);
+                            // Do not fail the pipeline; file remains plaintext if encryption fails
+                        }
+
+                        console.log(`[Controller BG] (FileID ${currentFileId}): File ready for point cloud viewer.`);
 
                     } else {
                         // --- PATH B: FULL PIPELINE WITH SEGMENTATION ---
@@ -224,17 +239,30 @@ exports.uploadFile = async (req, res) => {
                         await segmentationService.runSegmentation(currentFileId, stored_path_absolute, projectRootDir);
                         console.log(`[Controller BG] (FileID ${currentFileId}): Segmentation completed.`);
 
-                        // Check status after segmentation to ensure it's ready for Potree
+                        // Check status after segmentation to ensure it's ready for point cloud viewer
                         let statusCheckAfterSegmentation = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [currentFileId]);
 
                         if (statusCheckAfterSegmentation.rows.length > 0 && statusCheckAfterSegmentation.rows[0].status === statusAfterSegmentationReadyForPotree) {
-                            // --- 3. Potree Conversion ---
-                            console.log(`[Controller BG] (FileID ${currentFileId}): Initiating Potree conversion.`);
-                            await potreeConversionService.initiatePotree(currentFileId, stored_path_absolute, projectRootDir);
-                            console.log(`[Controller BG] (FileID ${currentFileId}): Potree conversion initiated.`);
+                            // --- 3. Set ready for point cloud viewer ---
+                            console.log(`[Controller BG] (FileID ${currentFileId}): Setting status to ready for point cloud viewer.`);
+                            await pool.query("UPDATE uploaded_files SET status = 'ready' WHERE id = $1", [currentFileId]);
+
+                            // Encrypt file at rest now that processing is complete
+                            try {
+                                const encPathAbsolute = `${stored_path_absolute}.enc`;
+                                await encryptFileTo(stored_path_absolute, encPathAbsolute);
+                                const encPathRelative = `${path.join('uploads', filename)}.enc`;
+                                await pool.query("UPDATE uploaded_files SET stored_path = $1 WHERE id = $2", [encPathRelative, currentFileId]);
+                                fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error(`[Controller BG] (FileID ${currentFileId}) error deleting plaintext after encryption:`, err); });
+                                console.log(`[Controller BG] (FileID ${currentFileId}): File encrypted and plaintext removed.`);
+                            } catch (encErr) {
+                                console.error(`[Controller BG] (FileID ${currentFileId}) Encryption error:`, encErr);
+                            }
+
+                            console.log(`[Controller BG] (FileID ${currentFileId}): File ready for point cloud viewer.`);
                         } else {
                             const currentStatus = statusCheckAfterSegmentation.rows.length > 0 ? statusCheckAfterSegmentation.rows[0].status : 'unknown';
-                            console.warn(`[Controller BG] (FileID ${currentFileId}): Skipping Potree for ${originalname}. Status after Segmentation: ${currentStatus}. Expected '${statusAfterSegmentationReadyForPotree}'.`);
+                            console.warn(`[Controller BG] (FileID ${currentFileId}): Skipping point cloud viewer setup for ${originalname}. Status after Segmentation: ${currentStatus}. Expected '${statusAfterSegmentationReadyForPotree}'.`);
                         }
                     }
                 } else {
@@ -248,7 +276,7 @@ exports.uploadFile = async (req, res) => {
                 console.error(`[Controller BG] Error (FileID ${currentFileId}): Background processing pipeline for ${originalname} failed: ${pipelineError.message}`);
                 try {
                     const { rows } = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [currentFileId]);
-                    if (rows.length > 0 && !['failed', 'error_segmentation', 'error_las_processing', 'error_potree'].includes(rows[0].status)) {
+                    if (rows.length > 0 && !['failed', 'error_segmentation', 'error_las_processing'].includes(rows[0].status)) {
                         const errMsgForDb = (pipelineError.message || "Unknown background pipeline error").substring(0, 250);
 
                         let failureStatus = 'failed';
@@ -256,8 +284,6 @@ exports.uploadFile = async (req, res) => {
                             failureStatus = 'error_las_processing';
                         } else if (pipelineError.message.toLowerCase().includes('segmentation')) {
                             failureStatus = 'error_segmentation';
-                        } else if (pipelineError.message.toLowerCase().includes('potree')) {
-                            failureStatus = 'error_potree';
                         }
 
                         await pool.query(
@@ -294,109 +320,9 @@ exports.uploadFile = async (req, res) => {
 };
 
 
-// --- Manual Potree Conversion Endpoint ---
-exports.convertFile = async (req, res) => {
-    const fileId = parseInt(req.params.id);
-    if (isNaN(fileId)) {
-        return res.status(400).json({ success: false, message: "Invalid file ID." });
-    }
-
-    // --- IMPORTANT: Define projectRootDir correctly (same as in uploadFile) ---
-    const projectRootDir = path.resolve(__dirname, '..');
-    console.log(`[Controller] (convertFile) projectRootDir determined as: ${projectRootDir}`);
-
-    let poolClient; // For transaction during initial checks
-
-    try {
-        // --- Step 1: Initial Checks and Status (within transaction) ---
-        poolClient = await pool.connect();
-        await poolClient.query('BEGIN');
-
-        const fileRes = await poolClient.query(
-            "SELECT stored_path, potree_metadata_path, status FROM uploaded_files WHERE id = $1 FOR UPDATE", // Lock row
-            [fileId]
-        );
-
-        if (fileRes.rows.length === 0) {
-            await poolClient.query('ROLLBACK');
-            poolClient.release();
-            return res.status(404).json({ success: false, message: "File not found." });
-        }
-
-        const file = fileRes.rows[0];
-        if (file.potree_metadata_path) {
-            await poolClient.query('ROLLBACK');
-            poolClient.release();
-            return res.status(400).json({ success: false, message: "File already converted." });
-        }
-        // Check against all active processing states
-        const activeProcessingStates = ['segmenting', 'segmented_ready_for_las', 'processing_las_data', 'processed_ready_for_potree', 'converting_potree'];
-        if (activeProcessingStates.includes(file.status)) {
-             await poolClient.query('ROLLBACK');
-             poolClient.release();
-             return res.status(400).json({ success: false, message: `File is already in the processing pipeline (status: ${file.status}). Cannot start manual conversion.` });
-        }
-        if (!file.stored_path) {
-             await poolClient.query('ROLLBACK');
-             poolClient.release();
-             return res.status(500).json({ success: false, message: `File record (ID: ${fileId}) exists but has no stored path for conversion.` });
-        }
-        // If status is 'failed', but the failure was not related to Potree itself, user might want to retry Potree.
-        // If status is 'processed' (meaning LAS data extracted, but auto-Potree was skipped or failed before 'converting_potree' stage), allow manual.
-
-        // Commit transaction for checks if all good
-        await poolClient.query('COMMIT');
-        poolClient.release(); // Release client from this transaction
-        poolClient = null;    // Nullify to prevent issues in outer catch
-
-        // Resolve the absolute path to the LAS file using projectRootDir
-        // Assumes file.stored_path is relative to projectRootDir (e.g., 'uploads/filename.las')
-        const lasPath = path.resolve(projectRootDir, file.stored_path);
-
-        if (!fs.existsSync(lasPath)) {
-            // Update DB status to failed if file is missing, as conversion can't proceed.
-            await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = 'LAS file missing on disk for manual conversion' WHERE id = $1", [fileId]);
-            return res.status(500).json({ success: false, message: `Input LAS file missing on disk for manual conversion: ${lasPath}` });
-        }
-
-        // --- Step 2: Send 202 Accepted Response ---
-        res.status(202).json({
-            success: true,
-            message: "Manual Potree conversion accepted. Processing in background.",
-            fileId: fileId
-        });
-
-        // --- Step 3: Call Potree Conversion Service Asynchronously ---
-        // The potreeConversionService.initiatePotree will:
-        // 1. Set status to 'converting_potree'
-        // 2. Spawn PotreeConverter.exe
-        // 3. On completion, set status to 'ready' or 'failed'
-        potreeConversionService.initiatePotree(fileId, lasPath, projectRootDir)
-            .then(conversionResult => {
-                console.log(`[Controller] (FileID ${fileId}): Manual Potree conversion via service successful. Message: ${conversionResult.message}`);
-                // DB updates are handled by the service
-            })
-            .catch(conversionError => {
-                console.error(`[Controller] Error (FileID ${fileId}): Manual Potree conversion via service failed. Err: ${conversionError.message}`);
-                // DB updates for failure are handled by the service
-            });
-
-    } catch (error) {
-        if (poolClient) { // If error occurred during the transaction
-             try { await poolClient.query('ROLLBACK'); } catch (rbErr) { console.error("Rollback error in convertFile:", rbErr); }
-             finally { poolClient.release(); }
-        }
-        console.error(`[Controller] Error during manual Potree conversion setup (FileID: ${fileId}):`, error.message);
-         if (!res.headersSent) {
-            let statusCode = 500;
-            let responseMessage = error.message || "Server error during Potree conversion setup.";
-            if (error.message.includes("File not found")) statusCode = 404;
-            else if (error.message.includes("already converted") || error.message.includes("already in processing pipeline")) statusCode = 400;
-
-            res.status(statusCode).json({ success: false, message: responseMessage });
-         }
-    }
-};
+// --- Manual Potree Conversion Endpoint - REMOVED ---
+// This endpoint has been removed as we no longer use Potree conversion.
+// Files are now directly ready for the point cloud viewer after processing.
 
 // --- NEW: Get Recent Files for Timeline ---
 exports.getRecentFiles = async (req, res) => {
@@ -463,7 +389,7 @@ exports.getRecentFiles = async (req, res) => {
             };
         });
 
-        res.json(formattedTimeline);
+        res.json({ data: formattedTimeline });
 
     } catch (error) {
         // <<< --- MORE DETAILED LOGGING FOR ERRORS --- >>>
@@ -519,7 +445,6 @@ exports.getFiles = async (req, res) => {
           f.size_bytes,
           f.upload_date,
           f.stored_path,
-          f.potree_metadata_path,
           f.plot_name,
           f.project_id,
           f.latitude,
@@ -609,16 +534,32 @@ exports.downloadFile = async (req, res) => {
         const absoluteFilePath = path.resolve(__dirname, '..', file.stored_path);
 
         if (fs.existsSync(absoluteFilePath)) {
-            res.download(absoluteFilePath, file.original_name, (err) => {
-                if (err) {
-                    console.error(`Error sending file ${file.original_name} (ID: ${fileId}) for download:`, err);
-                    if (!res.headersSent) {
-                        res.status(500).json({ message: "Error preparing file for download." });
-                    }
-                } else {
-                     console.log(`Successfully sent ${file.original_name} for download.`);
+            const isEncrypted = file.stored_path.endsWith('.enc');
+            if (isEncrypted) {
+                try {
+                    res.setHeader('Content-Disposition', `attachment; filename="${file.original_name}"`);
+                    const stream = decryptToStream(absoluteFilePath, res);
+                    stream.on('error', (err) => {
+                        console.error(`Decryption stream error for ${file.original_name} (ID: ${fileId}):`, err);
+                        if (!res.headersSent) res.status(500).json({ message: 'Error decrypting file for download.' });
+                    });
+                    stream.pipe(res);
+                } catch (e) {
+                    console.error(`Error preparing decryption for ${file.original_name} (ID: ${fileId}):`, e);
+                    return res.status(500).json({ message: 'Error preparing encrypted file for download.' });
                 }
-            });
+            } else {
+                res.download(absoluteFilePath, file.original_name, (err) => {
+                    if (err) {
+                        console.error(`Error sending file ${file.original_name} (ID: ${fileId}) for download:`, err);
+                        if (!res.headersSent) {
+                            res.status(500).json({ message: "Error preparing file for download." });
+                        }
+                    } else {
+                         console.log(`Successfully sent ${file.original_name} for download.`);
+                    }
+                });
+            }
         } else {
             console.error(`Download error: File source missing on disk for ID ${fileId}. Expected at: ${absoluteFilePath}`);
             res.status(404).json({ message: "File source missing on server." });
@@ -641,14 +582,13 @@ exports.deleteFile = async (req, res) => {
 
     let poolClient;
     let originalFilePath = null;
-    let potreeOutputDirPath = null;
 
     try {
         poolClient = await pool.connect();
         await poolClient.query('BEGIN');
 
         const fileResult = await poolClient.query(
-            "SELECT stored_path, potree_metadata_path FROM uploaded_files WHERE id = $1 FOR UPDATE",
+            "SELECT stored_path FROM uploaded_files WHERE id = $1 FOR UPDATE",
             [fileId]
         );
 
@@ -662,13 +602,6 @@ exports.deleteFile = async (req, res) => {
 
         if (fileData.stored_path) {
             originalFilePath = path.resolve(__dirname, '..', fileData.stored_path);
-        }
-        if (fileData.potree_metadata_path) {
-             const parts = fileData.potree_metadata_path.split('/');
-             if (parts.length >= 3 && parts[1] === 'pointclouds') {
-                 const outputDirName = parts[2];
-                 potreeOutputDirPath = path.resolve(__dirname, "..", "pointclouds", outputDirName);
-             }
         }
 
         const deleteResult = await poolClient.query("DELETE FROM uploaded_files WHERE id = $1", [fileId]);
@@ -688,12 +621,6 @@ exports.deleteFile = async (req, res) => {
             fs.unlink(originalFilePath, (err) => {
                 if (err && err.code !== 'ENOENT') { console.error(`Error deleting original file ${originalFilePath} (ID: ${fileId}):`, err); }
                 else { console.log(`Attempted deletion of original file (ID: ${fileId}): ${originalFilePath}. ${err ? '(Already gone)' : ''}`); }
-            });
-        }
-        if (potreeOutputDirPath) {
-            fs.rm(potreeOutputDirPath, { recursive: true, force: true }, (err) => {
-                 if (err && err.code !== 'ENOENT') { console.error(`Error deleting Potree output directory ${potreeOutputDirPath} (ID: ${fileId}):`, err); }
-                 else { console.log(`Attempted deletion of Potree directory (ID: ${fileId}): ${potreeOutputDirPath}. ${err ? '(Already gone)' : ''}`); }
              });
         }
 
@@ -714,274 +641,9 @@ exports.deleteFile = async (req, res) => {
 };
 
 
-exports.convertFile = async (req, res) => {
-    const fileId = parseInt(req.params.id);
-    if (isNaN(fileId)) {
-        // No DB transaction needed for basic validation error
-        return res.status(400).json({ success: false, message: "Invalid file ID." });
-    }
-
-    let poolClient;
-    let outDir = null; // Keep track of the potential output directory for cleanup on *conversion* failure
-
-    try {
-        // --- Step 1: Initial Checks and Status Update (Synchronous) ---
-        poolClient = await pool.connect(); // Acquire client
-        await poolClient.query('BEGIN'); // Start transaction
-
-        // Select necessary fields including the new 'status'
-        const fileRes = await poolClient.query(
-            "SELECT stored_path, potree_metadata_path, status FROM uploaded_files WHERE id = $1 FOR UPDATE",
-            [fileId]
-        );
-
-        if (fileRes.rows.length === 0) {
-            await poolClient.query('ROLLBACK'); // Rollback before releasing
-            poolClient.release();
-            return res.status(404).json({ success: false, message: "File not found." });
-        }
-
-        const file = fileRes.rows[0];
-        // Check current state based on existing data and status column
-        if (file.potree_metadata_path) {
-            await poolClient.query('ROLLBACK');
-            poolClient.release();
-            return res.status(400).json({ success: false, message: "File already converted." });
-        }
-        if (file.status === 'processing') {
-             await poolClient.query('ROLLBACK');
-             poolClient.release();
-             return res.status(400).json({ success: false, message: "File is already being processed." });
-        }
-        // Check if the original file path exists and is valid
-        if (!file.stored_path) {
-             await poolClient.query('ROLLBACK');
-             poolClient.release();
-             return res.status(500).json({ success: false, message: `File record (ID: ${fileId}) exists but has no stored path.` });
-        }
-
-        const lasPath = path.resolve(__dirname, '..', file.stored_path);
-        const converterPath = path.resolve(__dirname, "..", "potreeconverter", "PotreeConverter.exe"); // Keep .exe for Windows environment
-        const outDirName = fileId.toString(); // Use file ID for output directory name
-        const outBase = path.resolve(__dirname, "..", "pointclouds"); // Base directory for Potree data
-        outDir = path.join(outBase, outDirName); // Full output directory path
-
-        // Validate file and converter existence before proceeding
-        if (!fs.existsSync(lasPath)) {
-            await poolClient.query('ROLLBACK');
-            poolClient.release();
-            return res.status(500).json({ success: false, message: `Input LAS file missing on disk: ${lasPath}` });
-        }
-        if (!fs.existsSync(converterPath)) {
-            await poolClient.query('ROLLBACK');
-            poolClient.release();
-            return res.status(500).json({ success: false, message: `PotreeConverter not found at: ${converterPath}` });
-        }
-
-        // Create output directories if they don't exist
-        try {
-            fs.mkdirSync(outBase, { recursive: true });
-            fs.mkdirSync(outDir, { recursive: true }); // Create the specific output directory for this conversion
-        } catch (mkdirErr) {
-             console.error(`Error creating directories for Potree output (ID: ${fileId}):`, mkdirErr);
-             await poolClient.query('ROLLBACK');
-             poolClient.release();
-             // Attempt cleanup of the specific output dir if mkdirSync failed partially
-             if (outDir && fs.existsSync(outDir)) {
-                 fs.rm(outDir, { recursive: true, force: true }, (rmErr) => {
-                    if (rmErr) console.error(`Error cleaning up Potree dir ${outDir} after mkdir failure:`, rmErr);
-                 });
-             }
-             return res.status(500).json({ success: false, message: "Server error preparing output directory for conversion." });
-        }
-
-
-        // --- IMPORTANT: Update status to 'processing' BEFORE spawning the heavy task ---
-        // This update is committed to the DB immediately so the frontend can see the status change.
-        await poolClient.query(
-            "UPDATE uploaded_files SET status = 'processing', processing_error = NULL WHERE id = $1", // Clear previous errors on retry
-            [fileId]
-        );
-        await poolClient.query('COMMIT'); // Commit the status update transaction
-        poolClient.release(); // Release the client immediately after the commit
-
-        // *** FIX for double release: Set poolClient variable to null after releasing ***
-        poolClient = null; // Ensures the 'if (poolClient)' check in the catch block works correctly
-
-
-        // --- Step 2: Send Response Immediately (Conversion Started) ---
-        // Use 202 Accepted status code to indicate that the request has been
-        // accepted for processing, but the processing is not complete.
-        // The frontend should receive this quickly and update its UI state.
-        res.status(202).json({
-            success: true,
-            message: "Potree conversion started. Processing in background.",
-            fileId: fileId // Return file ID so frontend knows which file is being processed
-        });
-
-        // --- Step 3: Spawn PotreeConverter Process Asynchronously (AFTER sending response) ---
-        // This part runs in the background relative to the HTTP request.
-        const converterArgs = [
-            lasPath,
-            '-o', outDir,
-            '--output-format', 'LAS' // Or BINARY, PLY etc. depending on converter version/needs
-        ];
-        console.log(`Spawning PotreeConverter (ID: ${fileId}). Command: "${converterPath}" ${converterArgs.join(' ')}`);
-
-        // Using spawn with arguments array is safer than execSync with a single string
-        // stdio: 'inherit' pipes child process output to the parent Node.js process's console.
-        // You could also use 'pipe' to capture stdout/stderr programmatically if needed.
-        const potreeProcess = spawn(converterPath, converterArgs, { stdio: ['inherit', 'inherit', 'pipe'] });
-
-        let stderrData = ''; // Buffer stderr for potential logging on failure
-        potreeProcess.stderr.on('data', (data) => {
-             const errorMsg = data.toString().trim();
-              if (errorMsg) {
-                  stderrData += errorMsg + '\n';
-                  // You might want to limit how much you log here for very verbose converters
-                  // console.error(`PotreeConverter stderr (FileID ${fileId}): ${errorMsg}`);
-              }
-        });
-
-        // Handle errors specifically related to *spawning* the process (e.g., converter not found, permissions)
-        potreeProcess.on('error', async (error) => {
-            console.error(`Node Error (FileID ${fileId}): Failed to start PotreeConverter process. Err: ${error.message}`);
-            let client; // Acquire a new client for this background update
-            try {
-                client = await pool.connect();
-                 await client.query(
-                    "UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2",
-                    [`Failed to start converter process: ${error.message}`, fileId] // Store specific error message
-                 );
-                console.log(`Node (FileID ${fileId}): DB status updated to 'failed' due to spawn error.`);
-            } catch (dbError) {
-                console.error(`Node DB Error (FileID ${fileId}): Error updating status after spawn error:`, dbError);
-            } finally {
-                if (client) client.release(); // Always release the client
-                 // Attempt cleanup of the specific output dir on failure *to spawn*
-                 if (outDir && fs.existsSync(outDir)) {
-                     fs.rm(outDir, { recursive: true, force: true }, (rmErr) => {
-                        if (rmErr) console.error(`Error cleaning up Potree dir ${outDir} after spawn error:`, rmErr);
-                        else console.log(`Cleaned up Potree dir ${outDir} after spawn error.`);
-                     });
-                }
-            }
-        });
-
-        // Handle the process finishing (either success or non-zero exit code)
-        potreeProcess.on('close', async (code) => {
-            console.log(`Node (FileID ${fileId}): PotreeConverter exited with code ${code}.`);
-            let client; // Acquire a new client for this background update
-            try {
-                client = await pool.connect(); // Get a new client for this background DB operation
-
-                if (code === 0) {
-                    // Conversion successful based on exit code
-                    const metaPath = `/pointclouds/${outDirName}/metadata.json`; // Path relative to public directory
-                    const fullMetaFilePath = path.join(outDir, 'metadata.json'); // Full path to check existence
-
-                    // Basic check if the expected metadata file was actually created
-                    if (fs.existsSync(fullMetaFilePath)) {
-                         await client.query(
-                            "UPDATE uploaded_files SET potree_metadata_path = $1, status = 'ready', processing_error = NULL WHERE id = $2",
-                            [metaPath, fileId]
-                         );
-                         console.log(`Node (FileID ${fileId}): DB status updated to 'ready', potree_metadata_path set.`);
-                         // Optionally, log success message or emit a WebSocket event to frontend
-                    } else {
-                         // Conversion exited with 0 but metadata file is missing (unexpected scenario)
-                         console.error(`Node Error (FileID ${fileId}): PotreeConverter exited code 0, but metadata.json not found at ${fullMetaFilePath}.`);
-                          await client.query(
-                             "UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2",
-                             [`Converter exited 0, but output missing: ${fullMetaFilePath}`, fileId] // Record the error
-                         );
-                         console.log(`Node (FileId ${fileId}): DB status updated to 'failed'.`);
-                         // Attempt cleanup of the specific output dir on this specific failure
-                         if (outDir && fs.existsSync(outDir)) {
-                             fs.rm(outDir, { recursive: true, force: true }, (rmErr) => {
-                                if (rmErr) console.error(`Error cleaning up Potree dir ${outDir} after metadata missing error:`, rmErr);
-                                else console.log(`Cleaned up Potree dir ${outDir} after metadata missing error.`);
-                             });
-                         }
-                    }
-
-                } else {
-                    // Conversion failed (non-zero exit code)
-                    console.error(`Node Error (FileID ${fileId}): Potree conversion failed (code ${code}). Stderr:\n${stderrData}`);
-                    // Update status to 'failed' and store the error message from stderr
-                    await client.query(
-                       "UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2",
-                       [`Conversion failed (code ${code}): ${stderrData.substring(0, 500)}...`, fileId] // Store first 500 chars of stderr
-                    );
-                    console.log(`Node (FileId ${fileId}): DB status updated to 'failed'.`);
-
-                    // Attempt cleanup of the specific output dir on failure
-                     if (outDir && fs.existsSync(outDir)) {
-                         fs.rm(outDir, { recursive: true, force: true }, (rmErr) => {
-                            if (rmErr) console.error(`Error cleaning up Potree dir ${outDir} after conversion failure:`, rmErr);
-                            else console.log(`Cleaned up Potree dir ${outDir} after conversion failure.`);
-                         });
-                    }
-                }
-            } catch (dbError) {
-                console.error(`Node DB Error (FileID ${fileId}): Error updating status after conversion process finished:`, dbError);
-                // Note: If the update to 'failed' itself fails, the status might remain 'processing'
-                // or the previous state, requiring manual intervention or a cleanup job.
-            } finally {
-                if (client) client.release(); // Always release the client acquired in this block
-            }
-        });
-
-        // The main async function `exports.convertFile` finishes here after sending the 202 response.
-        // The spawned process and its event handlers continue in the background.
-
-    } catch (error) {
-        // This outer catch handles errors that occur *before* the 202 response is sent.
-        // These are typically synchronous errors during the initial setup phase.
-        console.error(`Error during initial Potree conversion setup (ID: ${fileId}):`, error.message);
-
-        // *** FIX for double release (continued): Only attempt rollback/release if poolClient was acquired and NOT set to null (released) ***
-        if (poolClient) { // This checks if poolClient was successfully assigned a client from the pool
-             try {
-                 // Only rollback the transaction if we successfully started one and committed before error
-                 // Most errors caught here will happen *before* the commit, so rollback is appropriate
-                 await poolClient.query('ROLLBACK');
-                 console.warn(`Rolled back transaction for file ${fileId} due to setup error.`);
-             } catch (rbErr) { console.error("Rollback error in outer catch:", rbErr); }
-             finally {
-                 poolClient.release(); // Release the client if it was acquired
-             }
-        }
-
-        // Attempt cleanup of the output directory if it was created but conversion setup failed
-         if (outDir && fs.existsSync(outDir)) {
-             fs.rm(outDir, { recursive: true, force: true }, (rmErr) => {
-                if (rmErr) console.error(`Error cleaning up Potree dir ${outDir} after setup failure:`, rmErr);
-             });
-         }
-
-        // Send an appropriate error response if headers haven't been sent already.
-         if (!res.headersSent) {
-            let statusCode = 500;
-            let responseMessage = "Server error during Potree conversion setup."; // Default message
-
-             if (error.message === "File not found.") statusCode = 404;
-             else if (error.message === "File already converted.") statusCode = 400;
-             else if (error.message === "File is already being processed.") statusCode = 400;
-             else if (error.message.includes("missing on disk") || error.message.includes("not found at")) statusCode = 500; // Indicate server-side file issue
-             else if (error.message.includes("preparing output directory")) statusCode = 500; // Specific mkdir error
-             else if (error.message.includes("Cannot read properties of null")) { // Catch the specific spawn error during setup
-                 statusCode = 500;
-                 responseMessage = "Server failed to start the conversion process. Check server logs.";
-             }
-
-
-             res.status(statusCode).json({ success: false, message: error.message || responseMessage });
-         }
-    }
-    // No 'finally' block needed for the outer try...catch because poolClient is explicitly
-    // released in the try block (on success) or the catch block (on synchronous error).
-};
+// --- Manual Potree Conversion Endpoint - REMOVED ---
+// This endpoint has been removed as we no longer use Potree conversion.
+// Files are now directly ready for the point cloud viewer after processing.
 
 // Assign Project to File (PATCH)
 exports.assignProjectToFile = async (req, res) => {
