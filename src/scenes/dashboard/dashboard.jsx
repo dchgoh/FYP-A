@@ -1,29 +1,280 @@
-import React, { useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import axios from 'axios';
+
+// --- Imports for the Dashboard Component ---
+import React from 'react';
 import { Box, useTheme } from "@mui/material";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, LineElement, LinearScale, PointElement, CategoryScale, BarElement } from "chart.js";
 import ChartDataLabels from "chartjs-plugin-datalabels";
 
 import { tokens } from "../../theme";
-import { useDashboardData } from '../../hooks/useDashboardData';
 
-// Import the new presentational components
+// --- Presentational Component Imports ---
 import DashboardFilters from './DashboardFilters';
 import StatCard from './StatCard';
 import HistogramChart from './HistogramChart';
 import RecentUploadsTimeline from './RecentUploadsTimeline';
 
-// Register Chart.js components
+
+const API_BASE_URL = "/api";
+
+export const useDashboardData = () => {
+    // --- State Variables ---
+    const [totalMembers, setTotalMembers] = useState(null);
+    const [filesUploadedCount, setFilesUploadedCount] = useState(null);
+    const [isFetchingFileCount, setIsFetchingFileCount] = useState(false);
+    const [totalTreesCount, setTotalTreesCount] = useState(null);
+    const [isFetchingTreeCount, setIsFetchingTreeCount] = useState(false);
+
+    const [divisionsList, setDivisionsList] = useState([]);
+    const [projectsList, setProjectsList] = useState([]);
+    const [plotsList, setPlotsList] = useState([]);
+    const [loadingFilters, setLoadingFilters] = useState(true);
+    const [loadingPlots, setLoadingPlots] = useState(false);
+
+    const [filterDivisionId, setFilterDivisionId] = useState('all');
+    const [filterProjectId, setFilterProjectId] = useState('all');
+    const [filterPlotName, setFilterPlotName] = useState('all');
+    const [filterDateRange, setFilterDateRange] = useState('all'); // NEW: Date filter state
+
+    const [recentUploads, setRecentUploads] = useState([]);
+    const [loadingTimeline, setLoadingTimeline] = useState(true);
+
+    const [allTreeHeightsData, setAllTreeHeightsData] = useState([]);
+    const [loadingHeightsChart, setLoadingHeightsChart] = useState(false);
+
+    const [allTreeDbhsData, setAllTreeDbhsData] = useState([]);
+    const [loadingDbhsChart, setLoadingDbhsChart] = useState(false);
+
+    const [allTreeVolumesData, setAllTreeVolumesData] = useState([]);
+    const [loadingVolumesChart, setLoadingVolumesChart] = useState(false);
+
+    const [totalSumCarbonTonnes, setTotalSumCarbonTonnes] = useState(null);
+    const [isFetchingSumCarbon, setIsFetchingSumCarbon] = useState(false);
+
+    // --- Memoized Derived State ---
+    const canFetchPlots = useMemo(() => {
+        return filterDivisionId !== 'all' && filterProjectId !== 'all' && filterProjectId !== 'unassigned';
+    }, [filterDivisionId, filterProjectId]);
+
+    const areFiltersDefault = useMemo(() => {
+        // MODIFIED: Include date filter in the check
+        return filterDivisionId === 'all' && filterProjectId === 'all' && filterPlotName === 'all' && filterDateRange === 'all';
+    }, [filterDivisionId, filterProjectId, filterPlotName, filterDateRange]);
+
+    // --- Data Fetching Callbacks ---
+    const fetchFilterData = useCallback(async () => {
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            setDivisionsList([]); setProjectsList([]); setLoadingFilters(false); return;
+        }
+        setLoadingFilters(true);
+        try {
+            const [divisionsRes, projectsRes] = await Promise.all([
+                axios.get(`${API_BASE_URL}/divisions`, { headers: { 'Authorization': `Bearer ${token}` } }),
+                axios.get(`${API_BASE_URL}/projects`, { headers: { 'Authorization': `Bearer ${token}` } })
+            ]);
+            setDivisionsList(Array.isArray(divisionsRes.data) ? divisionsRes.data : []);
+            setProjectsList(Array.isArray(projectsRes.data) ? projectsRes.data : []);
+        } catch (error) {
+            console.error("Failed to fetch filter data:", error.response?.data?.message || error.message);
+            setDivisionsList([]); setProjectsList([]);
+        } finally {
+            setLoadingFilters(false);
+        }
+    }, []);
+
+    const fetchPlotsList = useCallback(async (divisionId, projectId) => {
+        const token = localStorage.getItem('authToken');
+        if (!token) { setPlotsList([]); return; }
+        setLoadingPlots(true);
+        setPlotsList([]);
+        try {
+            const params = { divisionId, projectId };
+            const response = await axios.get(`${API_BASE_URL}/files/plots`, { headers: { 'Authorization': `Bearer ${token}` }, params });
+            const plotsData = response.data?.plots;
+            setPlotsList(Array.isArray(plotsData) ? plotsData : []);
+        } catch (error) {
+            console.error("Failed to fetch plot names:", error.response?.data?.message || error.message);
+            setPlotsList([]);
+        } finally {
+            setLoadingPlots(false);
+        }
+    }, []);
+    
+    const fetchData = useCallback(async () => {
+        const token = localStorage.getItem('authToken');
+        if (!token) return;
+
+        const baseParams = {};
+        if (filterDivisionId !== 'all') baseParams.divisionId = filterDivisionId;
+        if (filterProjectId !== 'all' && filterProjectId !== 'unassigned') baseParams.projectId = filterProjectId;
+        else if (filterProjectId === 'unassigned') baseParams.projectId = 'unassigned';
+        if (filterPlotName !== 'all' && canFetchPlots) baseParams.plotName = filterPlotName;
+
+        // NEW: Add date range parameters to API calls
+        if (filterDateRange !== 'all') {
+            const endDate = new Date();
+            const startDate = new Date();
+            switch (filterDateRange) {
+                case '7d': startDate.setDate(endDate.getDate() - 7); break;
+                case '30d': startDate.setMonth(endDate.getMonth() - 1); break;
+                case '6m': startDate.setMonth(endDate.getMonth() - 6); break;
+                case '1y': startDate.setFullYear(endDate.getFullYear() - 1); break;
+                default: break;
+            }
+            // Format to YYYY-MM-DD for backend compatibility
+            baseParams.startDate = startDate.toISOString().split('T')[0];
+            baseParams.endDate = endDate.toISOString().split('T')[0];
+        }
+
+
+        const headers = { 'Authorization': `Bearer ${token}` };
+
+        const fetchAndSet = async (url, params, setLoading, setData, dataKey, errorVal) => {
+            setLoading(true);
+            setData(null);
+            try {
+                const res = await axios.get(url, { headers, params });
+                const responseData = dataKey ? res.data[dataKey] : res.data;
+                setData(responseData);
+            } catch (error) {
+                console.error(`Failed to fetch data from ${url}:`, error.response?.data?.message || error.message);
+                setData(errorVal);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchAndSet(`${API_BASE_URL}/files/count`, baseParams, setIsFetchingFileCount, setFilesUploadedCount, 'count', 'Error');
+        fetchAndSet(`${API_BASE_URL}/files/count/trees`, baseParams, setIsFetchingTreeCount, setTotalTreesCount, 'count', 'Error');
+        fetchAndSet(`${API_BASE_URL}/files/stats/sum-carbon-tonnes`, baseParams, setIsFetchingSumCarbon, setTotalSumCarbonTonnes, 'sum_carbon_tonnes', 'Error');
+        fetchAndSet(`${API_BASE_URL}/files/recent`, { ...baseParams, limit: 5 }, setLoadingTimeline, setRecentUploads, 'data', []); 
+        fetchAndSet(`${API_BASE_URL}/files/all-tree-heights-adjusted`, baseParams, setLoadingHeightsChart, setAllTreeHeightsData, 'heights', []);
+        fetchAndSet(`${API_BASE_URL}/files/statistics/all-tree-dbhs-cm`, baseParams, setLoadingDbhsChart, setAllTreeDbhsData, 'dbhs_cm', []);
+        fetchAndSet(`${API_BASE_URL}/files/statistics/all-tree-volumes-m3-data`, baseParams, setLoadingVolumesChart, setAllTreeVolumesData, 'volumes_m3', []);
+    }, [filterDivisionId, filterProjectId, filterPlotName, canFetchPlots, filterDateRange]); // MODIFIED: Add date filter dependency
+
+
+    // --- Effects ---
+    useEffect(() => {
+        const fetchUserCount = async () => {
+            const token = localStorage.getItem('authToken');
+            if (!token) { setTotalMembers('Error'); return; }
+            try {
+                const response = await axios.get(`${API_BASE_URL}/users/count`, { headers: { 'Authorization': `Bearer ${token}` } });
+                setTotalMembers(response.data.count);
+            } catch (error) {
+                console.error("Failed to fetch user count:", error.response?.data?.message || error.message);
+                setTotalMembers('Error');
+            }
+        };
+        fetchUserCount();
+        fetchFilterData();
+    }, [fetchFilterData]);
+
+    useEffect(() => {
+        if (canFetchPlots && !loadingFilters) {
+            fetchPlotsList(filterDivisionId, filterProjectId);
+        } else if (!canFetchPlots) {
+            setPlotsList([]);
+            if (filterPlotName !== 'all') setFilterPlotName('all');
+        }
+    }, [filterDivisionId, filterProjectId, loadingFilters, canFetchPlots, fetchPlotsList, filterPlotName]);
+
+    useEffect(() => {
+        if (!loadingFilters) {
+            fetchData();
+        }
+    }, [filterDivisionId, filterProjectId, filterPlotName, filterDateRange, loadingFilters, fetchData]); // MODIFIED: Add date filter dependency
+
+    // --- Filter Handlers ---
+    const handleDivisionFilterChange = (event) => {
+        setFilterDivisionId(event.target.value);
+        setFilterProjectId('all');
+        setFilterPlotName('all');
+    };
+
+    const handleProjectFilterChange = (event) => {
+        setFilterProjectId(event.target.value);
+        setFilterPlotName('all');
+    };
+
+    const handlePlotFilterChange = (event) => {
+        setFilterPlotName(event.target.value);
+    };
+    
+    // NEW: Handler for the date filter
+    const handleDateFilterChange = (event) => {
+        setFilterDateRange(event.target.value);
+    };
+
+    const handleResetFilters = () => {
+        setFilterDivisionId('all');
+        setFilterProjectId('all');
+        setFilterPlotName('all');
+        setFilterDateRange('all'); // MODIFIED: Reset date filter
+    };
+
+    const filteredProjectsForDropdown = useMemo(() => {
+        if (filterDivisionId === 'all') return projectsList;
+        return projectsList.filter(p => p.division_id === parseInt(filterDivisionId, 10));
+    }, [projectsList, filterDivisionId]);
+
+    // --- Return Value ---
+    return {
+        // Data
+        totalMembers,
+        filesUploadedCount,
+        totalTreesCount,
+        totalSumCarbonTonnes,
+        recentUploads,
+        allTreeHeightsData,
+        allTreeDbhsData,
+        allTreeVolumesData,
+        divisionsList,
+        plotsList,
+        filteredProjectsForDropdown,
+        // Loading States
+        isFetchingFileCount,
+        isFetchingTreeCount,
+        isFetchingSumCarbon,
+        loadingFilters,
+        loadingPlots,
+        loadingTimeline,
+        loadingHeightsChart,
+        loadingDbhsChart,
+        loadingVolumesChart,
+        // Filter State
+        filterDivisionId,
+        filterProjectId,
+        filterPlotName,
+        filterDateRange, // NEW: Expose date filter state
+        // Filter Derived State
+        canFetchPlots,
+        areFiltersDefault,
+        // Filter Handlers
+        handleDivisionFilterChange,
+        handleProjectFilterChange,
+        handlePlotFilterChange,
+        handleDateFilterChange, // NEW: Expose date filter handler
+        handleResetFilters,
+    };
+};
+
+
+// =================================================================================
+// The Dashboard component itself remains unchanged, as all logic is handled by the hook.
+// =================================================================================
 ChartJS.register(ArcElement, Tooltip, Legend, LineElement, LinearScale, PointElement, CategoryScale, BarElement, ChartDataLabels);
 
 const Dashboard = ({ isCollapsed }) => {
     const theme = useTheme();
     const colors = tokens(theme.palette.mode);
 
-    // --- All state, data fetching, and logic is now encapsulated in this single hook call! ---
     const dashboardData = useDashboardData();
 
     // --- Chart Data Transformation & Options ---
-    // This logic stays in the UI component because it's purely for presentation and depends on the `colors` theme prop.
     const treeHeightHistogramData = useMemo(() => {
         const currentData = Array.isArray(dashboardData.allTreeHeightsData) ? dashboardData.allTreeHeightsData : [];
         if (currentData.length === 0) return { labels: [], datasets: [] };
@@ -141,7 +392,6 @@ const Dashboard = ({ isCollapsed }) => {
         chartsGridRow3: { display: "grid", gridTemplateColumns: { xs: "1fr", lg: "3fr 2fr" }, gap: '16px', mt: 3 },
     };
 
-    // Calculate a general loading state to pass to the filters component
     const isDataLoading = dashboardData.loadingFilters || dashboardData.isFetchingFileCount || dashboardData.isFetchingTreeCount || dashboardData.loadingPlots || dashboardData.loadingHeightsChart || dashboardData.loadingDbhsChart || dashboardData.loadingVolumesChart || dashboardData.isFetchingSumCarbon;
 
     return (
@@ -151,7 +401,7 @@ const Dashboard = ({ isCollapsed }) => {
                 <DashboardFilters
                     colors={colors}
                     isDataLoading={isDataLoading}
-                    {...dashboardData} // Spread the rest of the props from the hook
+                    {...dashboardData}
                 />
                 
                 <Box sx={styles.statsGrid}>
