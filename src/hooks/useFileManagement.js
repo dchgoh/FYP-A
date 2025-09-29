@@ -75,7 +75,6 @@ export const useFileManagement = () => {
     const [filesBeingProcessed, setFilesBeingProcessed] = useState(new Set());
     const [isPolling, setIsPolling] = useState(false);
     const [skipSegmentation, setSkipSegmentation] = useState(false);
-    const [processingModalOpen, setProcessingModalOpen] = useState(false);
     const [selectedFileIds, setSelectedFileIds] = useState(new Set());
     const [isDeletingBulk, setIsDeletingBulk] = useState(false);
 
@@ -98,18 +97,6 @@ export const useFileManagement = () => {
         return files.filter(file => processingStatuses.includes(file.status));
       }, [files]);
     
-      // Handle processing modal open/close
-      const handleOpenProcessingModal = () => {
-        setProcessingModalOpen(true);
-      };
-    
-      const handleCloseProcessingModal = () => {
-        setProcessingModalOpen(false);
-      };
-    
-      const handleToggleProcessingModal = () => {
-        fetchFiles(); // Refresh data when toggling
-      };
     
       // --- PERMISSION CHECK FUNCTION ---
       const canPerformAction = useCallback((action, file = null) => {
@@ -1201,14 +1188,14 @@ export const useFileManagement = () => {
         deletingProjectId, plotName, selectedProjectId, selectedDivisionIdForCreation, isDivisionProjectSettingsModalOpen,
         deletingDivisionId, reassignModalOpen, fileToReassign, selectedProjectIdForReassign,
         newPlotNameForReassign, isReassigning, filesBeingProcessed, isPolling, skipSegmentation,
-        processingModalOpen, selectedFileIds, isDeletingBulk, fileInputRef, isLoadingPermissions,
+        selectedFileIds, isDeletingBulk, fileInputRef, isLoadingPermissions,
 
         // State Setters (for controlled components in modals/forms)
         setOpenUploadModal, setNewFile, setUploadProgress, setIsUploading, setPlotName, setSelectedProjectId,
         setSkipSegmentation, setAssignProjectModalOpen, setFileToAssignProject, setSelectedProjectIdForAssignment,
         setCreateProjectModalOpen, setNewProjectName, setSelectedDivisionIdForCreation, setCreateDivisionModalOpen,
         setNewDivisionName, setIsProjectSettingsModalOpen, setIsDivisionProjectSettingsModalOpen, setReassignModalOpen,
-        setFileToReassign, setSelectedProjectIdForReassign, setNewPlotNameForReassign, setProcessingModalOpen,
+        setFileToReassign, setSelectedProjectIdForReassign, setNewPlotNameForReassign,
         setSelectedManagerToAddInModal,
 
         // Handlers
@@ -1223,8 +1210,7 @@ export const useFileManagement = () => {
         handleOpenDivisionProjectSettingsModal, handleCloseDivisionProjectSettingsModal, handleDeleteDivision,
         handleOpenProjectSettingsModal, handleCloseProjectSettingsModal, handleModalAccordionChange,
         handleSelectManagerChangeInModal, handleAssignManagerInModal, handleRemoveManagerInModal,
-        handleOpenReassignModal, handleCloseReassignModal, handleOpenProcessingModal,
-        handleCloseProcessingModal, handleToggleProcessingModal,
+        handleOpenReassignModal, handleCloseReassignModal,
         
         // Derived State & Utils
         canPerformAction, filteredProjectsForDropdown, getProcessingFiles, numTotalSelectableForDelete,

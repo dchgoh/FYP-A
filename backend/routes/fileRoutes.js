@@ -58,7 +58,5 @@ router.patch(
     fileController.reassignFileDetails // <-- Use the new controller
 );
 
-// Test endpoint for setting progress data (for debugging)
-router.post('/:id/test-progress', fileController.setTestProgress);
 
 module.exports = router;
