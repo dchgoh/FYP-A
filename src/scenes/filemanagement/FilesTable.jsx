@@ -106,5 +106,4 @@ const FilesTable = ({
         </TableContainer>
     );
 };
-
 export default FilesTable;

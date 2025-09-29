@@ -83,7 +83,6 @@ const formatFileRecord = (dbRecord) => {
         longitude: dbRecord.longitude,
         status: dbRecord.status || 'unknown',
         processing_error: dbRecord.processing_error || null,
-        processing_progress: dbRecord.processing_progress || null,
         tree_midpoints: combinedTreeData,
         tree_heights_adjusted: dbRecord.tree_heights_adjusted || null,
         tree_dbhs_cm: dbRecord.tree_dbhs_cm || null,
@@ -477,36 +476,6 @@ exports.getRecentFiles = async (req, res) => {
 };
 
 
-// Test endpoint to manually set progress data for debugging
-exports.setTestProgress = async (req, res) => {
-    const { fileId } = req.params;
-    const { percentage, current, total, elapsed, eta, rate } = req.body;
-    
-    if (!fileId || isNaN(parseInt(fileId))) {
-        return res.status(400).json({ success: false, message: "Invalid file ID" });
-    }
-    
-    try {
-        const progressData = {
-            percentage: percentage || 50,
-            current: current || 100,
-            total: total || 200,
-            elapsed: elapsed || "01:30",
-            eta: eta || "01:30",
-            rate: rate || "1.5 chunks/s"
-        };
-        
-        await pool.query(
-            "UPDATE uploaded_files SET processing_progress = $1 WHERE id = $2",
-            [JSON.stringify(progressData), fileId]
-        );
-        
-        res.json({ success: true, message: "Test progress data set", progressData });
-    } catch (error) {
-        console.error("Error setting test progress:", error);
-        res.status(500).json({ success: false, message: "Error setting test progress" });
-    }
-};
 
 // Get List of Files
 exports.getFiles = async (req, res) => {
@@ -526,7 +495,6 @@ exports.getFiles = async (req, res) => {
           f.longitude,
           f.status,
           f.processing_error,
-          f.processing_progress,
           f.tree_midpoints,
           f.tree_heights_adjusted,       
           f.tree_dbhs_cm,                

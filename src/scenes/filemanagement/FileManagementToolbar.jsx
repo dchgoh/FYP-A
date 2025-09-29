@@ -1,15 +1,14 @@
 import React from 'react';
 import { Grid, Button, Tooltip, FormControl, InputLabel, Select, MenuItem, Typography, CircularProgress } from '@mui/material';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
-import TransformIcon from '@mui/icons-material/Transform';
 import SettingsIcon from '@mui/icons-material/Settings';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 
 const FileManagementToolbar = ({
     colors, theme, ROLES,
     canPerformAction, userRole, isUploading, isLoading, loadingProjectsList, deletingProjectId,
-    isDeletingBulk, deletingDivisionId, getProcessingFiles, loadingDivisionsList,
-    handleOpenUploadModal, handleOpenProcessingModal,
+    isDeletingBulk, deletingDivisionId, loadingDivisionsList,
+    handleOpenUploadModal,
     handleOpenDivisionProjectSettingsModal, handleOpenProjectSettingsModal,
     filterDivisionId, handleDivisionFilterChange, divisionsList,
     filterProjectId, handleProjectFilterChange, filteredProjectsForDropdown,
@@ -39,9 +38,6 @@ const FileManagementToolbar = ({
                 {canPerformAction('upload') && (
                     <Button fullWidth variant="contained" startIcon={<UploadFileIcon />} size={theme.breakpoints.down('sm') ? "small" : "medium"} sx={{ backgroundColor: colors.primary[700], color: "white", "&:hover": { backgroundColor: colors.primary[400] }, textTransform: 'none', py: { xs: 0.8, sm: 1 } }} onClick={handleOpenUploadModal} disabled={isUploading || isAnythingLoadingOrDeleting}>Upload File</Button>
                 )}
-            </Grid>
-            <Grid item xs={12} sm={6} md="auto">
-                <Button fullWidth variant="outlined" startIcon={<TransformIcon />} size={theme.breakpoints.down('sm') ? "small" : "medium"} sx={{ borderColor: colors.primary[700], color: colors.primary[700], "&:hover": { borderColor: colors.primary[400], backgroundColor: colors.primary[50] }, textTransform: 'none', py: { xs: 0.8, sm: 1 } }} onClick={handleOpenProcessingModal} disabled={isLoading}>Processing ({getProcessingFiles().length})</Button>
             </Grid>
             <Grid item sx={{ flexGrow: 1, display: { xs: 'none', md: 'block' } }} />
             {userRole === ROLES.ADMIN && (

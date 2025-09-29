@@ -18,7 +18,6 @@ import ProjectSettingsModal from './ProjectSettingsModal';
 import DivisionProjectSettingsModal from './DivisionProjectSettingsModal';
 import CreateDivisionModal from './CreateDivisionModal';
 import CreateProjectModal from './CreateProjectModal';
-import ProcessingModal from '../../components/ProcessingModal'; // This one is in a different folder
 // --- END OF CRUCIAL IMPORTS ---
 
 const FileManagement = ({ isCollapsed }) => {
@@ -84,12 +83,6 @@ const FileManagement = ({ isCollapsed }) => {
                 <CreateDivisionModal open={createDivisionModalOpen} colors={colors} theme={theme} {...fileManagementProps} />
                 <CreateProjectModal open={createProjectModalOpen} colors={colors} theme={theme} {...fileManagementProps} />
                 
-                <ProcessingModal 
-                    open={processingModalOpen}
-                    onClose={() => fileManagementProps.setProcessingModalOpen(false)}
-                    processingFiles={fileManagementProps.getProcessingFiles()}
-                    onToggleModal={fileManagementProps.handleToggleProcessingModal}
-                />
 
                 <Snackbar
                     open={snackbar.open}
