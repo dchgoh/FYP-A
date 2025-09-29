@@ -4,7 +4,7 @@ import axios from 'axios';
 import { jwtDecode } from 'jwt-decode';
 
 // --- CONSTANTS ---
-const API_BASE_URL = "http://localhost:5000/api";
+const API_BASE_URL = "/api";
 const ROLES = {
   ADMIN: 'Administrator',
   DATA_MANAGER: 'Data Manager',

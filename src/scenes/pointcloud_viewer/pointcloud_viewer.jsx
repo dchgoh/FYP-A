@@ -133,7 +133,7 @@ const PointCloudViewer = ({ isCollapsed }) => {
       setIsLoadingMiniMapFiles(true);
       setErrorMiniMapFiles(null);
       try {
-        const response = await fetch(`http://localhost:5000/api/files`, {
+        const response = await fetch(`/api/files`, {
           headers: { 'Authorization': `Bearer ${storedToken}` }
         });
         if (!response.ok) {
@@ -254,7 +254,7 @@ const PointCloudViewer = ({ isCollapsed }) => {
 
       console.log('Getting file info from backend...');
       // Get file information from the files list
-      const filesResponse = await axios.get(`http://localhost:5000/api/files/`, {
+      const filesResponse = await axios.get(`/api/files/`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -277,7 +277,7 @@ const PointCloudViewer = ({ isCollapsed }) => {
       console.log('File size_bytes:', fileInfo.size_bytes);
       
       // Download the file from backend
-      const response = await axios.get(`http://localhost:5000/api/files/download/${fileId}`, {
+      const response = await axios.get(`/api/files/download/${fileId}`, {
         headers: { 'Authorization': `Bearer ${token}` },
         responseType: 'blob'
       });
