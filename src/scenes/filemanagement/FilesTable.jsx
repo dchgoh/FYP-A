@@ -74,6 +74,19 @@ const FilesTable = ({
 
                         const hasAnyAction = canPerformAction('reassign', file) || canPerformAction('download', file) || (canPerformAction('view', file) && isReady) || canDeleteThisFile;
 
+                        const progressPercent = (() => {
+                            const candidates = [
+                                file?.segmentation_progress,
+                                file?.processing_progress,
+                                file?.progress_percent,
+                                file?.progress
+                            ];
+                            for (const val of candidates) {
+                                if (typeof val === 'number' && !isNaN(val)) return Math.round(val);
+                            }
+                            return null;
+                        })();
+
                         return (
                             <TableRow key={file.id} hover selected={isSelected} onClick={() => { if (!isEffectivelyConverting && canDeleteThisFile && !isGlobalDeleteActive) { handleRowCheckboxClick({ target: { checked: !isSelected } }, file.id); } }} sx={{ opacity: isEffectivelyConverting || isGlobalDeleteActive ? 0.6 : 1, cursor: (!isEffectivelyConverting && canDeleteThisFile && !isGlobalDeleteActive) ? 'pointer' : 'default', backgroundColor: isSelected ? `${colors.blueAccent[800]} !important` : 'transparent' }}>
                                 <TableCell padding="checkbox"><Checkbox checked={isSelected} onChange={(event) => handleRowCheckboxClick(event, file.id)} onClick={(e) => e.stopPropagation()} disabled={isEffectivelyConverting || !canDeleteThisFile || isGlobalDeleteActive} /></TableCell>
@@ -84,7 +97,16 @@ const FilesTable = ({
                                 <TableCell sx={styles.bodyCell}>{file.size}</TableCell>
                                 <TableCell sx={styles.bodyCell}>{file.uploadDate}</TableCell>
                                 <TableCell sx={{ ...styles.bodyCell, textAlign: 'center' }}>
-                                    {isEffectivelyConverting ? (<Box sx={styles.statusText}><CircularProgress size={16} sx={{ color: statusColor }} /><Typography variant="caption" sx={{ color: statusColor, ml: 0.5, display: { xs: 'none', sm: 'inline' } }}>{statusText}</Typography></Box>) : (<Typography variant="caption" sx={{ color: statusColor }}>{statusText}</Typography>)}
+                                    {isEffectivelyConverting ? (
+                                        <Box sx={styles.statusText}>
+                                            <CircularProgress size={16} sx={{ color: statusColor }} />
+                                            <Typography variant="caption" sx={{ color: statusColor, ml: 0.5 }}>
+                                                {statusText}{progressPercent !== null ? ` ${progressPercent}%` : ''}
+                                            </Typography>
+                                        </Box>
+                                    ) : (
+                                        <Typography variant="caption" sx={{ color: statusColor }}>{statusText}</Typography>
+                                    )}
                                 </TableCell>
                                 <TableCell sx={{ ...styles.bodyCell, textAlign: 'center' }}>
                                     <IconButton aria-label={`actions for ${file.name}`} onClick={(e) => handleMenuClick(e, file)} sx={styles.actionButton} size="small" disabled={isEffectivelyConverting || !hasAnyAction || isGlobalDeleteActive} title="More Actions">

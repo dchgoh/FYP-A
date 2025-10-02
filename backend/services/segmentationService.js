@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require("child_process");
 const { pool } = require('../config/db'); // Assuming shared DB config
+const { setProgress, clearProgress } = require('./progressStore');
 
 async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
     console.log(`[SegmentationService] (FileID ${fileId}): Starting for ${inputFileAbsolutePath}`);
@@ -46,14 +47,29 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
         let segStdout = '', segStderr = '';
         
         segmentationProcess.stdout.on('data', (data) => { 
-            segStdout += data.toString(); 
-            process.stdout.write(`[SegPy STDOUT FID ${fileId}] ${data.toString()}`);
+            const output = data.toString();
+            segStdout += output; 
+            process.stdout.write(`[SegPy STDOUT FID ${fileId}] ${output}`);
+            try {
+                const match = output.match(/(\d{1,3})%/);
+                if (match) {
+                    const pct = parseInt(match[1], 10);
+                    if (!isNaN(pct)) setProgress(fileId, pct);
+                }
+            } catch (_) { /* noop */ }
         });
         
         segmentationProcess.stderr.on('data', (data) => { 
             const output = data.toString();
             segStderr += output;
             process.stderr.write(`[SegPy STDERR FID ${fileId}] ${output}`);
+            try {
+                const match = output.match(/(\d{1,3})%/);
+                if (match) {
+                    const pct = parseInt(match[1], 10);
+                    if (!isNaN(pct)) setProgress(fileId, pct);
+                }
+            } catch (_) { /* noop */ }
         });
 
         segmentationProcess.on('error', async (error) => {
@@ -102,6 +118,7 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
                     // Successfully segmented, don't change status yet, let controller do it or next service
                     // Or set to 'segmented_ready_for_las_processing'
                     await pool.query("UPDATE uploaded_files SET status = 'segmented_ready_for_las', processing_error = NULL WHERE id = $1", [fileId]);
+                    try { setProgress(fileId, 100); } catch (_) { /* noop */ }
                     console.log(`[SegmentationService] (FileID ${fileId}): Success. Status 'segmented_ready_for_las'.`);
                     resolve({ success: true, message: "Segmentation successful.", stdout: segStdout });
                 }
@@ -109,6 +126,7 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
                 const errMsg = `[SegmentationService] Script failed. Code: ${code}. Stderr: ${segStderr.substring(0,200)}`;
                 if (originalFileBackupPath && fs.existsSync(originalFileBackupPath)) { /* restore backup */ try { fs.renameSync(originalFileBackupPath, inputFileAbsolutePath); } catch (e) {console.error('Backup restore failed', e)}}
                 try { await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2", [errMsg, fileId]); } catch (dbErr) {/* log */}
+                try { clearProgress(fileId); } catch (_) { /* noop */ }
                 reject(new Error(errMsg));
             }
         });

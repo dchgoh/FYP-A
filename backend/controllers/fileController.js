@@ -4,6 +4,7 @@ const { execSync, spawn } = require("child_process");
 const { pool } = require('../config/db'); // Adjust path relative to controllers/
 const ROLES = require('../config/roles'); // Adjust path relative to controllers/
 const segmentationService = require('../services/segmentationService');
+const { getProgress, clearProgress } = require('../services/progressStore');
 const lasProcessingService = require('../services/lasProcessingService');
 const { encryptFileTo, decryptToStream } = require('../utils/fileCrypto');
 
@@ -102,6 +103,8 @@ const formatFileRecord = (dbRecord) => {
         divisionName: dbRecord.division_name || "Unassigned",
         projectName: dbRecord.project_name || "Unassigned",
         division_id: dbRecord.division_id || null,
+        // Transient runtime field (in-memory progress parsed from terminal)
+        progress_percent: getProgress(typeof dbRecord.id === 'number' ? dbRecord.id : parseInt(dbRecord.id)) || null,
     };
 };
 
@@ -211,6 +214,7 @@ exports.uploadFile = async (req, res) => {
 
                         // Set status to ready for point cloud viewer instead of Potree conversion
                         await pool.query("UPDATE uploaded_files SET status = 'ready' WHERE id = $1", [currentFileId]);
+                        try { clearProgress(currentFileId); } catch (_) {}
 
                         // Encrypt file at rest now that processing is complete
                         try {
@@ -245,6 +249,7 @@ exports.uploadFile = async (req, res) => {
                             // --- 3. Set ready for point cloud viewer ---
                             console.log(`[Controller BG] (FileID ${currentFileId}): Setting status to ready for point cloud viewer.`);
                             await pool.query("UPDATE uploaded_files SET status = 'ready' WHERE id = $1", [currentFileId]);
+                            try { clearProgress(currentFileId); } catch (_) {}
 
                             // Encrypt file at rest now that processing is complete
                             try {
