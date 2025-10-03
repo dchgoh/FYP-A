@@ -1,5 +1,3 @@
-import { tokens } from '../../theme';
-
 export const createStyles = (theme, colors) => ({
   container: {
     display: "flex",
@@ -209,6 +207,68 @@ export const createStyles = (theme, colors) => ({
   
   classificationName: {
     color: colors.grey[200],
+    flex: 1,
+    fontSize: '0.875rem'
+  },
+
+   annotationSection: {
+    mt: 3,
+    p: 2,
+    backgroundColor: colors.primary[900], // A slightly different background
+    borderRadius: '8px',
+    border: `1px solid ${colors.primary[700]}`,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+  },
+
+  annotationTitle: {
+    color: colors.grey[100],
+    fontWeight: "bold",
+    textAlign: 'center',
+    fontSize: '1rem',
+    borderBottom: `1px solid ${colors.grey[700]}`,
+    pb: 1,
+    mb: 1,
+  },
+  
+  toolButton: {
+    minWidth: '40px',
+    padding: '8px',
+    borderColor: colors.grey[500],
+    color: colors.grey[300],
+  },
+  
+  // Style for the list of saved annotations
+  annotationListSection: {
+    mt: 2,
+    p: 1.5,
+    backgroundColor: colors.grey[800],
+    borderRadius: '8px',
+    border: `1px solid ${colors.grey[600]}`,
+  },
+  
+  annotationItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 1,
+    padding: '4px 8px',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    border: '1px solid transparent',
+    '&:hover': {
+      backgroundColor: colors.primary[800],
+    },
+  },
+  
+  activeAnnotationItem: {
+    backgroundColor: colors.primary[700],
+    borderColor: colors.primary[500],
+    fontWeight: 'bold'
+  },
+  
+  annotationName: {
+    color: colors.grey[100],
     flex: 1,
     fontSize: '0.875rem'
   },

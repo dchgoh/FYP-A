@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { findClassificationByColor } from './classificationUtils';
-import { findTreeIDByID } from './treeIDUtils';
+import { createInitialTreeIDs, findTreeIDByID } from './treeIDUtils';
 
 export const createPointCloudGeometry = (points, colors) => {
   const geometry = new THREE.BufferGeometry();
@@ -33,44 +33,54 @@ export const createPointCloudGeometry = (points, colors) => {
   return geometry;
 };
 
+// In pointCloudManager.js
+
 export const createPointCloudMaterial = () => {
-  // Custom shader material for point cloud with border
   const vertexShader = `
+    // ADD THIS UNIFORM
+    uniform float u_pointSize;
+
     attribute float size;
     attribute vec3 customColor;
     varying vec3 vColor;
+    varying vec3 vWorldPosition;
+
     void main() {
       vColor = customColor;
-      vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-      gl_PointSize = size * (10.0 / -mvPosition.z);
+      vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+      vWorldPosition = worldPosition.xyz;
+      vec4 mvPosition = viewMatrix * worldPosition;
+      
+      // REPLACE THE HARDCODED 10.0 with the new uniform
+      gl_PointSize = size * (u_pointSize / -mvPosition.z);
+      
       gl_Position = projectionMatrix * mvPosition;
     }
   `;
 
   const fragmentShader = `
+    // The fragment shader does NOT need to be changed
     uniform vec3 color;
     uniform float opacity;
     varying vec3 vColor;
+    varying vec3 vWorldPosition;
+    uniform bool u_clippingEnabled;
+    uniform vec3 u_clipBoxMin;
+    uniform vec3 u_clipBoxMax;
     void main() {
-      // Create a circular point with thin border
+      if (u_clippingEnabled) {
+        if (vWorldPosition.x < u_clipBoxMin.x || vWorldPosition.x > u_clipBoxMax.x ||
+            vWorldPosition.y < u_clipBoxMin.y || vWorldPosition.y > u_clipBoxMax.y ||
+            vWorldPosition.z < u_clipBoxMin.z || vWorldPosition.z > u_clipBoxMax.z) {
+          discard;
+        }
+      }
       vec2 center = gl_PointCoord - vec2(0.5);
       float dist = length(center);
-      
-      // Discard pixels outside the circle to make it truly circular
-      if (dist > 0.5) {
-        discard;
-      }
-      
-      // Thin border effect
+      if (dist > 0.5) discard;
       if (dist > 0.45) {
-        // Border color (dark)
         gl_FragColor = vec4(0.0, 0.0, 0.0, opacity);
-      } else if (dist > 0.42) {
-        // Smooth transition for thin border
-        float alpha = smoothstep(0.42, 0.45, dist);
-        gl_FragColor = mix(vec4(vColor, opacity), vec4(0.0, 0.0, 0.0, opacity), alpha);
       } else {
-        // Main point color
         gl_FragColor = vec4(vColor, opacity);
       }
     }
@@ -79,178 +89,100 @@ export const createPointCloudMaterial = () => {
   return new THREE.ShaderMaterial({
     uniforms: {
       color: { value: new THREE.Color(0xffffff) },
-      opacity: { value: 1.0 }
+      opacity: { value: 1.0 },
+      u_clippingEnabled: { value: false },
+      u_clipBoxMin: { value: new THREE.Vector3() },
+      u_clipBoxMax: { value: new THREE.Vector3() },
+      
+      // ADD THE NEW UNIFORM HERE with a default value
+      u_pointSize: { value: 10.0 },
     },
     vertexShader: vertexShader,
     fragmentShader: fragmentShader,
     transparent: false,
     depthWrite: true,
     depthTest: true,
-    blending: THREE.NormalBlending,
-    side: THREE.DoubleSide
   });
 };
 
 export const filterPointCloudByClassifications = (originalGeometry, classifications) => {
   if (!originalGeometry) return null;
   
-  // Clone the original geometry to work with
-  const newGeometry = originalGeometry.clone();
-  const positions = newGeometry.attributes.position.array;
-  const colors = newGeometry.attributes.color.array;
-  const sizes = newGeometry.attributes.size ? newGeometry.attributes.size.array : null;
+  const positions = originalGeometry.attributes.position.array;
+  const colors = originalGeometry.attributes.color.array;
+  const customColors = originalGeometry.attributes.customColor.array;
+  const sizes = originalGeometry.attributes.size.array;
   
-  let visiblePointCount = 0;
+  const newPositions = [];
+  const newColors = [];
+  const newCustomColors = [];
+  const newSizes = [];
   
-  // Create new arrays for visible points only
-  const newPositions = new Float32Array(positions.length);
-  const newColors = new Float32Array(colors.length);
-  const newSizes = sizes ? new Float32Array(sizes.length) : null;
-  const newCustomColors = new Float32Array(colors.length);
-  
-  // Filter points based on classification visibility
   for (let i = 0; i < positions.length; i += 3) {
-    const pointIndex = i / 3;
-    const colorIndex = pointIndex * 3;
+    const r = colors[i], g = colors[i+1], b = colors[i+2];
+    const { isVisible } = findClassificationByColor(r, g, b, classifications);
     
-    const r = colors[colorIndex];
-    const g = colors[colorIndex + 1];
-    const b = colors[colorIndex + 2];
-    
-    // Find matching classification
-    const { id: classificationId, isVisible } = findClassificationByColor(r, g, b, classifications);
-    
-    // Only include visible points
     if (isVisible) {
-      const newIndex = visiblePointCount * 3;
-      newPositions[newIndex] = positions[i];
-      newPositions[newIndex + 1] = positions[i + 1];
-      newPositions[newIndex + 2] = positions[i + 2];
-      
-      newColors[newIndex] = r;
-      newColors[newIndex + 1] = g;
-      newColors[newIndex + 2] = b;
-      
-      newCustomColors[newIndex] = r;
-      newCustomColors[newIndex + 1] = g;
-      newCustomColors[newIndex + 2] = b;
-      
-      if (newSizes) {
-        newSizes[visiblePointCount] = sizes[pointIndex];
-      }
-      
-      visiblePointCount++;
+      const pointIndex = i / 3;
+      newPositions.push(positions[i], positions[i+1], positions[i+2]);
+      newColors.push(colors[i], colors[i+1], colors[i+2]);
+      newCustomColors.push(customColors[i], customColors[i+1], customColors[i+2]);
+      newSizes.push(sizes[pointIndex]);
     }
   }
   
-  // Create final geometry with only visible points
+  if (newPositions.length === 0) return new THREE.BufferGeometry();
+
   const finalGeometry = new THREE.BufferGeometry();
-  
-  if (visiblePointCount > 0) {
-    finalGeometry.setAttribute('position', new THREE.Float32BufferAttribute(newPositions.slice(0, visiblePointCount * 3), 3));
-    finalGeometry.setAttribute('color', new THREE.Float32BufferAttribute(newColors.slice(0, visiblePointCount * 3), 3));
-    finalGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(newCustomColors.slice(0, visiblePointCount * 3), 3));
-    
-    if (newSizes) {
-      finalGeometry.setAttribute('size', new THREE.BufferAttribute(newSizes.slice(0, visiblePointCount), 1));
-    }
-  } else {
-    // If no points are visible, create empty geometry with at least one point to avoid errors
-    const emptyPositions = new Float32Array([0, 0, 0]);
-    const emptyColors = new Float32Array([0, 0, 0]);
-    const emptySizes = new Float32Array([1]);
-    finalGeometry.setAttribute('position', new THREE.Float32BufferAttribute(emptyPositions, 3));
-    finalGeometry.setAttribute('color', new THREE.Float32BufferAttribute(emptyColors, 3));
-    finalGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(emptyColors, 3));
-    finalGeometry.setAttribute('size', new THREE.BufferAttribute(emptySizes, 1));
-  }
+  finalGeometry.setAttribute('position', new THREE.Float32BufferAttribute(newPositions, 3));
+  finalGeometry.setAttribute('color', new THREE.Float32BufferAttribute(newColors, 3));
+  finalGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(newCustomColors, 3));
+  finalGeometry.setAttribute('size', new THREE.Float32BufferAttribute(newSizes, 1));
   
   return finalGeometry;
 };
 
-export const filterPointCloudByTreeIDs = (originalGeometry, treeIDs, treeIDData) => {
+export const filterPointCloudByTreeIDs = (originalGeometry, treeIDData, treeIDs) => {
   if (!originalGeometry || !treeIDData) return null;
   
-  // Clone the original geometry to work with
-  const newGeometry = originalGeometry.clone();
-  const positions = newGeometry.attributes.position.array;
-  const colors = newGeometry.attributes.color.array;
-  const sizes = newGeometry.attributes.size ? newGeometry.attributes.size.array : null;
+  const positions = originalGeometry.attributes.position.array;
+  const sizes = originalGeometry.attributes.size.array;
   
-  let visiblePointCount = 0;
+  const newPositions = [];
+  const newColors = []; // Will be populated with Tree ID colors
+  const newCustomColors = [];
+  const newSizes = [];
   
-  // Create new arrays for visible points only
-  const newPositions = new Float32Array(positions.length);
-  const newColors = new Float32Array(colors.length);
-  const newSizes = sizes ? new Float32Array(sizes.length) : null;
-  const newCustomColors = new Float32Array(colors.length);
-  
-  // Filter points based on treeID visibility
+  const uniqueTreeIDData = createInitialTreeIDs(treeIDData); // Get the color map
+
   for (let i = 0; i < positions.length; i += 3) {
     const pointIndex = i / 3;
-    const colorIndex = pointIndex * 3;
-    const treeID = treeIDs[pointIndex];
-    
-    // Find matching treeID
-    const { id: treeIDValue, isVisible } = findTreeIDByID(treeID, treeIDData);
-    
-    // Only include visible points
+    const treeID = treeIDData[pointIndex];
+    const { isVisible } = findTreeIDByID(treeID, treeIDs);
+
     if (isVisible) {
-      const newIndex = visiblePointCount * 3;
-      newPositions[newIndex] = positions[i];
-      newPositions[newIndex + 1] = positions[i + 1];
-      newPositions[newIndex + 2] = positions[i + 2];
+      newPositions.push(positions[i], positions[i+1], positions[i+2]);
+      newSizes.push(sizes[pointIndex]);
       
-      // Use treeID colors instead of classification colors
-      const treeIDInfo = treeIDData[treeIDValue];
-      if (treeIDInfo && treeIDInfo.color) {
-        newColors[newIndex] = treeIDInfo.color[0];
-        newColors[newIndex + 1] = treeIDInfo.color[1];
-        newColors[newIndex + 2] = treeIDInfo.color[2];
-        
-        newCustomColors[newIndex] = treeIDInfo.color[0];
-        newCustomColors[newIndex + 1] = treeIDInfo.color[1];
-        newCustomColors[newIndex + 2] = treeIDInfo.color[2];
+      const treeInfo = uniqueTreeIDData[treeID];
+      if (treeInfo && treeInfo.color) {
+        newColors.push(...treeInfo.color);
+        newCustomColors.push(...treeInfo.color);
       } else {
-        // Fallback to original colors if treeID color not found
-        newColors[newIndex] = colors[colorIndex];
-        newColors[newIndex + 1] = colors[colorIndex + 1];
-        newColors[newIndex + 2] = colors[colorIndex + 2];
-        
-        newCustomColors[newIndex] = colors[colorIndex];
-        newCustomColors[newIndex + 1] = colors[colorIndex + 1];
-        newCustomColors[newIndex + 2] = colors[colorIndex + 2];
+        // Fallback color if something goes wrong
+        newColors.push(0.5, 0.5, 0.5);
+        newCustomColors.push(0.5, 0.5, 0.5);
       }
-      
-      if (newSizes) {
-        newSizes[visiblePointCount] = sizes[pointIndex];
-      }
-      
-      visiblePointCount++;
     }
   }
-  
-  // Create final geometry with only visible points
+
+  if (newPositions.length === 0) return new THREE.BufferGeometry();
+
   const finalGeometry = new THREE.BufferGeometry();
-  
-  if (visiblePointCount > 0) {
-    finalGeometry.setAttribute('position', new THREE.Float32BufferAttribute(newPositions.slice(0, visiblePointCount * 3), 3));
-    finalGeometry.setAttribute('color', new THREE.Float32BufferAttribute(newColors.slice(0, visiblePointCount * 3), 3));
-    finalGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(newCustomColors.slice(0, visiblePointCount * 3), 3));
-    
-    if (newSizes) {
-      finalGeometry.setAttribute('size', new THREE.BufferAttribute(newSizes.slice(0, visiblePointCount), 1));
-    }
-  } else {
-    // If no points are visible, create empty geometry with at least one point to avoid errors
-    const emptyPositions = new Float32Array([0, 0, 0]);
-    const emptyColors = new Float32Array([0, 0, 0]);
-    const emptySizes = new Float32Array([1]);
-    finalGeometry.setAttribute('position', new THREE.Float32BufferAttribute(emptyPositions, 3));
-    finalGeometry.setAttribute('color', new THREE.Float32BufferAttribute(emptyColors, 3));
-    finalGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(emptyColors, 3));
-    finalGeometry.setAttribute('size', new THREE.BufferAttribute(emptySizes, 1));
-  }
+  finalGeometry.setAttribute('position', new THREE.Float32BufferAttribute(newPositions, 3));
+  finalGeometry.setAttribute('color', new THREE.Float32BufferAttribute(newColors, 3));
+  finalGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(newCustomColors, 3));
+  finalGeometry.setAttribute('size', new THREE.Float32BufferAttribute(newSizes, 1));
   
   return finalGeometry;
 };
@@ -263,4 +195,74 @@ export const updatePointCloudGeometry = (pointCloud, newGeometry) => {
   
   // Set new geometry
   pointCloud.geometry = newGeometry;
+};
+
+// --- NEW HELPER FUNCTION: Point in Polygon Test ---
+// A standard algorithm to check if a 2D point is inside a 2D polygon.
+function isPointInPolygon(point, polygon) {
+  let isInside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y;
+    const xj = polygon[j].x, yj = polygon[j].y;
+
+    const intersect = ((yi > point.y) !== (yj > point.y)) &&
+      (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi);
+    if (intersect) isInside = !isInside;
+  }
+  return isInside;
+}
+
+
+// --- NEW FILTERING FUNCTION ---
+export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasRect) => {
+  const originalGeometry = pointCloud.geometry;
+  if (!originalGeometry || !lassoPoints || lassoPoints.length === 0) {
+    return null;
+  }
+  
+  // Get ALL original attributes
+  const positions = originalGeometry.attributes.position.array;
+  const colors = originalGeometry.attributes.color.array;
+  const customColors = originalGeometry.attributes.customColor.array;
+  const sizes = originalGeometry.attributes.size.array;
+  
+  // Create arrays for ALL new attributes
+  const newPositions = [];
+  const newColors = [];
+  const newCustomColors = [];
+  const newSizes = [];
+  
+  const point = new THREE.Vector3();
+  const worldMatrix = pointCloud.matrixWorld;
+
+  for (let i = 0; i < positions.length; i += 3) {
+    point.set(positions[i], positions[i+1], positions[i+2]).applyMatrix4(worldMatrix);
+    const projectedPoint = point.clone().project(camera);
+
+    if (projectedPoint.z > -1 && projectedPoint.z < 1) {
+      const screenX = (projectedPoint.x + 1) * canvasRect.width / 2;
+      const screenY = (-projectedPoint.y + 1) * canvasRect.height / 2;
+
+      if (isPointInPolygon({x: screenX, y: screenY}, lassoPoints)) {
+        const pointIndex = i / 3;
+        // Copy POSITION
+        newPositions.push(positions[i], positions[i+1], positions[i+2]);
+        // Copy all other attributes
+        newColors.push(colors[i], colors[i+1], colors[i+2]);
+        newCustomColors.push(customColors[i], customColors[i+1], customColors[i+2]);
+        newSizes.push(sizes[pointIndex]);
+      }
+    }
+  }
+
+  if (newPositions.length === 0) return new THREE.BufferGeometry();
+
+  const finalGeometry = new THREE.BufferGeometry();
+  finalGeometry.setAttribute('position', new THREE.Float32BufferAttribute(newPositions, 3));
+  finalGeometry.setAttribute('color', new THREE.Float32BufferAttribute(newColors, 3));
+  // --- ADD THESE TWO LINES ---
+  finalGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(newCustomColors, 3));
+  finalGeometry.setAttribute('size', new THREE.Float32BufferAttribute(newSizes, 1));
+  
+  return finalGeometry;
 };
