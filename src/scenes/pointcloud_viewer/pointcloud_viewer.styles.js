@@ -229,7 +229,6 @@ export const createStyles = (theme, colors) => ({
     fontSize: '1rem',
     borderBottom: `1px solid ${colors.grey[700]}`,
     pb: 1,
-    mb: 1,
   },
   
   toolButton: {
