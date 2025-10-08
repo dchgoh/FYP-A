@@ -1375,4 +1375,137 @@ exports.getSumTreeCarbonTonnes = async (req, res) => {
         console.error("Params:", queryParams);
         res.status(500).json({ message: "Server error fetching sum of tree carbon data." });
     }
-};
+}
+
+// --- NEW: Get detailed tree data for Excel export ---
+exports.getDetailedTreeDataForExport = async (req, res) => {
+    const { projectId, divisionId, plotName } = req.query;
+    
+    let query = `
+        SELECT 
+            f.id as file_id,
+            f.original_name as file_name,
+            f.plot_name,
+            f.tree_count,
+            f.latitude as file_latitude,
+            f.longitude as file_longitude,
+            f.tree_midpoints,
+            f.tree_heights_adjusted,
+            f.tree_dbhs_cm,
+            f.tree_stem_volumes_m3,
+            f.tree_above_ground_volumes_m3,
+            f.tree_total_volumes_m3,
+            f.tree_biomass_tonnes,
+            f.tree_carbon_tonnes,
+            f.tree_co2_equivalent_tonnes,
+            f.assumed_d2_cm_for_volume,
+            f.upload_date,
+            p.name as project_name,
+            d.name as division_name
+        FROM uploaded_files f
+        LEFT JOIN projects p ON f.project_id = p.id
+        LEFT JOIN divisions d ON p.division_id = d.id
+    `;
+    
+    const queryParams = [];
+    const whereConditions = [
+        "f.status = 'ready'" // Only export data from successfully processed files
+    ];
+
+    // Filter by Division ID
+    if (divisionId && divisionId !== 'all' && !isNaN(parseInt(divisionId))) {
+        queryParams.push(parseInt(divisionId));
+        whereConditions.push(`d.id = $${queryParams.length}`);
+    }
+
+    // Filter by Project ID
+    if (projectId && projectId !== 'all' && projectId !== 'unassigned' && !isNaN(parseInt(projectId))) {
+        queryParams.push(parseInt(projectId));
+        whereConditions.push(`f.project_id = $${queryParams.length}`);
+    } else if (projectId === 'unassigned') {
+        whereConditions.push(`f.project_id IS NULL`);
+    }
+
+    // Filter by Plot Name
+    if (plotName && plotName !== 'all' && typeof plotName === 'string' && plotName.trim() !== '') {
+        queryParams.push(plotName.trim());
+        whereConditions.push(`f.plot_name = $${queryParams.length}`);
+    }
+
+    if (whereConditions.length > 0) {
+        query += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+
+    query += ` ORDER BY f.upload_date DESC`;
+
+    try {
+        const result = await pool.query(query, queryParams);
+        
+        // Transform the data into a flat structure for Excel export
+        const exportData = [];
+        
+        result.rows.forEach(file => {
+            if (file.tree_midpoints && typeof file.tree_midpoints === 'object') {
+                // Process each tree in the file
+                Object.keys(file.tree_midpoints).forEach(treeId => {
+                    const midpoint = file.tree_midpoints[treeId];
+                    if (midpoint && typeof midpoint.latitude === 'number' && typeof midpoint.longitude === 'number') {
+                        const treeData = {
+                            // File information
+                            file_id: file.file_id,
+                            file_name: file.file_name,
+                            plot_name: file.plot_name || 'N/A',
+                            division_name: file.division_name || 'N/A',
+                            project_name: file.project_name || 'Unassigned',
+                            upload_date: file.upload_date ? new Date(file.upload_date).toLocaleDateString() : 'N/A',
+                            
+                            // Tree information
+                            tree_id: treeId,
+                            tree_latitude: midpoint.latitude,
+                            tree_longitude: midpoint.longitude,
+                            
+                            // Tree measurements
+                            tree_height_m: file.tree_heights_adjusted && file.tree_heights_adjusted[treeId] !== undefined 
+                                ? file.tree_heights_adjusted[treeId] : 'N/A',
+                            tree_dbh_cm: file.tree_dbhs_cm && file.tree_dbhs_cm[treeId] !== undefined 
+                                ? file.tree_dbhs_cm[treeId] : 'N/A',
+                            tree_stem_volume_m3: file.tree_stem_volumes_m3 && file.tree_stem_volumes_m3[treeId] !== undefined 
+                                ? file.tree_stem_volumes_m3[treeId] : 'N/A',
+                            tree_above_ground_volume_m3: file.tree_above_ground_volumes_m3 && file.tree_above_ground_volumes_m3[treeId] !== undefined 
+                                ? file.tree_above_ground_volumes_m3[treeId] : 'N/A',
+                            tree_total_volume_m3: file.tree_total_volumes_m3 && file.tree_total_volumes_m3[treeId] !== undefined 
+                                ? file.tree_total_volumes_m3[treeId] : 'N/A',
+                            tree_biomass_tonnes: file.tree_biomass_tonnes && file.tree_biomass_tonnes[treeId] !== undefined 
+                                ? file.tree_biomass_tonnes[treeId] : 'N/A',
+                            tree_carbon_tonnes: file.tree_carbon_tonnes && file.tree_carbon_tonnes[treeId] !== undefined 
+                                ? file.tree_carbon_tonnes[treeId] : 'N/A',
+                            tree_co2_equivalent_tonnes: file.tree_co2_equivalent_tonnes && file.tree_co2_equivalent_tonnes[treeId] !== undefined 
+                                ? file.tree_co2_equivalent_tonnes[treeId] : 'N/A',
+                            
+                            // Additional file-level data
+                            file_latitude: file.file_latitude,
+                            file_longitude: file.file_longitude,
+                            tree_count_in_file: file.tree_count || 0,
+                            assumed_d2_cm_for_volume: file.assumed_d2_cm_for_volume || 'N/A'
+                        };
+                        
+                        exportData.push(treeData);
+                    }
+                });
+            }
+        });
+
+        res.json({ 
+            success: true, 
+            data: exportData,
+            total_trees: exportData.length,
+            total_files: result.rows.length
+        });
+        
+    } catch (error) {
+        console.error("Error fetching detailed tree data for export:", error);
+        console.error("Query:", query);
+        console.error("Params:", queryParams);
+        res.status(500).json({ message: "Server error fetching detailed tree data for export." });
+    }
+};;

@@ -3,12 +3,13 @@ import { Grid, Button, Tooltip, FormControl, InputLabel, Select, MenuItem, Typog
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import SettingsIcon from '@mui/icons-material/Settings';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
 
 const FileManagementToolbar = ({
     colors, theme, ROLES,
     canPerformAction, userRole, isUploading, isLoading, loadingProjectsList, deletingProjectId,
     isDeletingBulk, deletingDivisionId, loadingDivisionsList,
-    handleOpenUploadModal,
+    handleOpenUploadModal, handleOpenExportModal,
     handleOpenDivisionProjectSettingsModal, handleOpenProjectSettingsModal,
     filterDivisionId, handleDivisionFilterChange, divisionsList,
     filterProjectId, handleProjectFilterChange, filteredProjectsForDropdown,
@@ -38,6 +39,14 @@ const FileManagementToolbar = ({
                 {canPerformAction('upload') && (
                     <Button fullWidth variant="contained" startIcon={<UploadFileIcon />} size={theme.breakpoints.down('sm') ? "small" : "medium"} sx={{ backgroundColor: colors.primary[700], color: "white", "&:hover": { backgroundColor: colors.primary[400] }, textTransform: 'none', py: { xs: 0.8, sm: 1 } }} onClick={handleOpenUploadModal} disabled={isUploading || isAnythingLoadingOrDeleting}>Upload File</Button>
                 )}
+            </Grid>
+            <Grid item xs={12} sm={6} md="auto" sx={{ mt: { xs: 1, sm: 0 } }}>
+                <Tooltip title="Export tree measurements (height, DBH, volume, coordinates) to Excel">
+                    <Button fullWidth variant="outlined" startIcon={<FileDownloadIcon />} size={theme.breakpoints.down('sm') ? "small" : "medium"} sx={{ borderColor: colors.greenAccent[500], color: colors.greenAccent[400], '&:hover': { borderColor: colors.greenAccent[300], backgroundColor: 'rgba(76, 175, 80, 0.1)' }, textTransform: 'none', py: { xs: 0.8, sm: 1 } }} onClick={handleOpenExportModal} disabled={isAnythingLoadingOrDeleting}>
+                        <Typography component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>Export Tree Data</Typography>
+                        <Typography component="span" sx={{ display: { xs: 'inline', md: 'none' } }}>Export</Typography>
+                    </Button>
+                </Tooltip>
             </Grid>
             <Grid item sx={{ flexGrow: 1, display: { xs: 'none', md: 'block' } }} />
             {userRole === ROLES.ADMIN && (
