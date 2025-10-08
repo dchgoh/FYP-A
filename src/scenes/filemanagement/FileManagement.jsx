@@ -18,6 +18,7 @@ import ProjectSettingsModal from './ProjectSettingsModal';
 import DivisionProjectSettingsModal from './DivisionProjectSettingsModal';
 import CreateDivisionModal from './CreateDivisionModal';
 import CreateProjectModal from './CreateProjectModal';
+import ExportModal from './ExportModal';
 // --- END OF CRUCIAL IMPORTS ---
 
 const FileManagement = ({ isCollapsed }) => {
@@ -33,7 +34,7 @@ const FileManagement = ({ isCollapsed }) => {
         isLoadingPermissions, userRole, userId, snackbar, handleSnackbarClose,
         openUploadModal, createProjectModalOpen, createDivisionModalOpen,
         reassignModalOpen, isProjectSettingsModalOpen, isDivisionProjectSettingsModalOpen,
-        processingModalOpen,
+        exportModalOpen,
     } = fileManagementProps;
 
     // --- STYLES ---
@@ -82,6 +83,7 @@ const FileManagement = ({ isCollapsed }) => {
                 <DivisionProjectSettingsModal open={isDivisionProjectSettingsModalOpen} colors={colors} theme={theme} {...fileManagementProps} />
                 <CreateDivisionModal open={createDivisionModalOpen} colors={colors} theme={theme} {...fileManagementProps} />
                 <CreateProjectModal open={createProjectModalOpen} colors={colors} theme={theme} {...fileManagementProps} />
+                <ExportModal open={exportModalOpen} colors={colors} theme={theme} {...fileManagementProps} />
                 
 
                 <Snackbar
