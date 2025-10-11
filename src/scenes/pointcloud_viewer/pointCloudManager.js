@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { findClassificationByColor } from './classificationUtils';
 import { createInitialTreeIDs, findTreeIDByID } from './treeIDUtils';
 
-export const createPointCloudGeometry = (points, colors) => {
+export const createPointCloudGeometry = (points, colors, treeIDs = null) => {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
@@ -21,6 +21,13 @@ export const createPointCloudGeometry = (points, colors) => {
   
   geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
   geometry.setAttribute('customColor', new THREE.BufferAttribute(customColors, 3));
+  
+  // Add treeID attribute if provided
+  if (treeIDs && treeIDs.length === pointCount) {
+    const treeIDArray = new Float32Array(treeIDs);
+    geometry.setAttribute('treeID', new THREE.BufferAttribute(treeIDArray, 1));
+    console.log(`Added treeID attribute to geometry (${pointCount} points)`);
+  }
   
   // Normalize the geometry to center it
   geometry.computeBoundingBox();
@@ -225,12 +232,14 @@ export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasR
   const colors = originalGeometry.attributes.color.array;
   const customColors = originalGeometry.attributes.customColor.array;
   const sizes = originalGeometry.attributes.size.array;
+  const treeIDs = originalGeometry.attributes.treeID?.array || null;
   
   // Create arrays for ALL new attributes
   const newPositions = [];
   const newColors = [];
   const newCustomColors = [];
   const newSizes = [];
+  const newTreeIDs = [];
   
   const point = new THREE.Vector3();
   const worldMatrix = pointCloud.matrixWorld;
@@ -251,6 +260,10 @@ export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasR
         newColors.push(colors[i], colors[i+1], colors[i+2]);
         newCustomColors.push(customColors[i], customColors[i+1], customColors[i+2]);
         newSizes.push(sizes[pointIndex]);
+        // Copy treeID if available
+        if (treeIDs) {
+          newTreeIDs.push(treeIDs[pointIndex]);
+        }
       }
     }
   }
@@ -260,9 +273,14 @@ export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasR
   const finalGeometry = new THREE.BufferGeometry();
   finalGeometry.setAttribute('position', new THREE.Float32BufferAttribute(newPositions, 3));
   finalGeometry.setAttribute('color', new THREE.Float32BufferAttribute(newColors, 3));
-  // --- ADD THESE TWO LINES ---
   finalGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(newCustomColors, 3));
   finalGeometry.setAttribute('size', new THREE.Float32BufferAttribute(newSizes, 1));
+  
+  // Add treeID if we have it
+  if (newTreeIDs.length > 0) {
+    finalGeometry.setAttribute('treeID', new THREE.Float32BufferAttribute(newTreeIDs, 1));
+    console.log(`Preserved ${newTreeIDs.length} treeIDs in lasso selection`);
+  }
   
   return finalGeometry;
 };
