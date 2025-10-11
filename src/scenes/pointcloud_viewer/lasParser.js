@@ -88,15 +88,76 @@ export const parseLASFile = async (file, onProgress = null) => {
         
         console.log(`Processing ${randomIndices.length} random points...`);
         
-        // This placeholder function is for performance. The old `findTreeIDInExtraBytes`
-        // is too slow to run inside this loop. To re-enable TreeID, you must determine the
-        // *exact byte offset* for your files and read it directly.
-        const findTreeIDQuickly = (offset) => {
-            // EXAMPLE: If your treeID is known to be a float at byte 30 of the record:
-            // if(offset + 34 <= arrayBuffer.byteLength) {
-            //   return dataView.getFloat32(offset + 30, true);
-            // }
-            return 0; // Return a default value for now to ensure speed.
+        // Function to find treeID in extra bytes
+        const findTreeIDInExtraBytes = (offset, pointFormat, recordLength) => {
+          // Standard LAS point record structure
+          const standardBytes = {
+            0: 20,  // X(4) + Y(4) + Z(4) + Intensity(2) + Return(1) + Flags(1) + Classification(1) + ScanAngle(1) + UserData(1) + PointSourceID(2) + GPSTime(8)
+            1: 28,  // + WavePacketDescriptor(1) + WaveformDataOffset(8) + WaveformPacketSize(4) + ReturnPointWaveformLocation(4) + X(4) + Y(4) + Z(4) + Intensity(4)
+            2: 26,  // + R(2) + G(2) + B(2)
+            3: 34,  // + R(2) + G(2) + B(2) + WavePacketDescriptor(1) + WaveformDataOffset(8) + WaveformPacketSize(4) + ReturnPointWaveformLocation(4) + X(4) + Y(4) + Z(4) + Intensity(4)
+            4: 57,  // + R(2) + G(2) + B(2) + WavePacketDescriptor(1) + WaveformDataOffset(8) + WaveformPacketSize(4) + ReturnPointWaveformLocation(4) + X(4) + Y(4) + Z(4) + Intensity(4) + WaveformData(23)
+            5: 63,  // + R(2) + G(2) + B(2) + WavePacketDescriptor(1) + WaveformDataOffset(8) + WaveformPacketSize(4) + ReturnPointWaveformLocation(4) + X(4) + Y(4) + Z(4) + Intensity(4) + WaveformData(29)
+            6: 30,  // + R(2) + G(2) + B(2) + WavePacketDescriptor(1) + WaveformDataOffset(8) + WaveformPacketSize(4) + ReturnPointWaveformLocation(4) + X(4) + Y(4) + Z(4) + Intensity(4)
+            7: 36,  // + R(2) + G(2) + B(2) + WavePacketDescriptor(1) + WaveformDataOffset(8) + WaveformPacketSize(4) + ReturnPointWaveformLocation(4) + X(4) + Y(4) + Z(4) + Intensity(4) + WaveformData(6)
+            8: 38,  // + R(2) + G(2) + B(2) + WavePacketDescriptor(1) + WaveformDataOffset(8) + WaveformPacketSize(4) + ReturnPointWaveformLocation(4) + X(4) + Y(4) + Z(4) + Intensity(4) + WaveformData(8)
+            9: 59,  // + R(2) + G(2) + B(2) + WavePacketDescriptor(1) + WaveformDataOffset(8) + WaveformPacketSize(4) + ReturnPointWaveformLocation(4) + X(4) + Y(4) + Z(4) + Intensity(4) + WaveformData(29)
+            10: 67, // + R(2) + G(2) + B(2) + WavePacketDescriptor(1) + WaveformDataOffset(8) + WaveformPacketSize(4) + ReturnPointWaveformLocation(4) + X(4) + Y(4) + Z(4) + Intensity(4) + WaveformData(37)
+          };
+          
+          const standardLength = standardBytes[pointFormat] || 20;
+          const extraBytesStart = standardLength;
+          const extraBytesLength = recordLength - standardLength;
+          
+          console.log(`Point format ${pointFormat}: Standard length ${standardLength}, Extra bytes: ${extraBytesLength} bytes starting at offset ${extraBytesStart}`);
+          
+          // Try to find treeID in extra bytes
+          if (extraBytesLength >= 4) { // Need at least 4 bytes for float32
+            // Try different positions in extra bytes
+            const positionsToTry = [
+              extraBytesStart,           // First 4 bytes
+              extraBytesStart + 4,       // Next 4 bytes
+              extraBytesStart + 8,       // Next 4 bytes
+              extraBytesStart + 12,      // Next 4 bytes
+              extraBytesStart + 16,      // Next 4 bytes
+            ];
+            
+            for (const pos of positionsToTry) {
+              // Try float32 first (4 bytes)
+              if (pos + 4 <= offset + recordLength) {
+                try {
+                  const float32TreeID = dataView.getFloat32(offset + pos, true);
+                  const roundedTreeID = Math.round(float32TreeID);
+                  
+                  // Check if this looks like a valid treeID (positive integer, not too large)
+                  if (roundedTreeID > 0 && roundedTreeID < 1000000) {
+                    console.log(`Found treeID (float32) at position ${pos}: ${roundedTreeID}`);
+                    return Math.abs(roundedTreeID);
+                  }
+                } catch (e) {
+                  // Continue to next position
+                }
+              }
+              
+              // Try float64 (8 bytes)
+              if (pos + 8 <= offset + recordLength) {
+                try {
+                  const float64TreeID = dataView.getFloat64(offset + pos, true);
+                  const roundedTreeID = Math.round(float64TreeID);
+                  
+                  // Check if this looks like a valid treeID (positive integer, not too large)
+                  if (roundedTreeID > 0 && roundedTreeID < 1000000) {
+                    console.log(`Found treeID (float64) at position ${pos}: ${roundedTreeID}`);
+                    return Math.abs(roundedTreeID);
+                  }
+                } catch (e) {
+                  // Continue to next position
+                }
+              }
+            }
+          }
+          
+          return 0; // No valid treeID found
         };
         
         // Process the randomly selected points in chunks to keep the UI responsive.
@@ -138,9 +199,9 @@ export const parseLASFile = async (file, onProgress = null) => {
             const classificationData = getClassificationColor(classification);
             colors.push(classificationData.color[0], classificationData.color[1], classificationData.color[2]);
             
-            // Read treeID using the fast, placeholder function.
-            const treeID = findTreeIDQuickly(offset);
-            treeIDs.push(Math.round(treeID));
+            // Read treeID from extra bytes using flexible detection
+            const treeID = findTreeIDInExtraBytes(offset, pointDataRecordFormat, pointDataRecordLength);
+            treeIDs.push(treeID);
           }
         };
         
@@ -149,6 +210,7 @@ export const parseLASFile = async (file, onProgress = null) => {
         // --- END OF NEW RANDOM SAMPLING LOGIC ---
         
         console.log(`Finished parsing ${points.length / 3} randomly sampled points.`);
+        console.log(`Found treeIDs:`, [...new Set(treeIDs)].sort((a, b) => a - b));
         resolve({ points, colors, treeIDs, numberOfPointRecords });
       } catch (error) {
         console.error("Fatal error during LAS file parsing:", error);
