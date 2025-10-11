@@ -28,16 +28,20 @@ function encryptFileTo(filePath, outPath) {
 
         input.pipe(cipher).pipe(output);
 
-        input.on('end', () => {
+        output.on('finish', () => {
             try {
                 const authTag = cipher.getAuthTag();
-                output.end(authTag, () => resolve());
+                fs.appendFile(outPath, authTag, (err) => {
+                    if (err) return reject(err);
+                    resolve();
+                });
             } catch (e) {
                 reject(e);
             }
         });
     });
 }
+
 
 function decryptFileTo(filePath, outPath) {
     return new Promise((resolve, reject) => {
