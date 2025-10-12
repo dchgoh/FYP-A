@@ -22,20 +22,24 @@ export const createInitialTreeIDs = (treeIDs) => {
 
 export const toggleTreeID = (treeIDs, treeID) => {
   const newTreeIDs = { ...treeIDs };
-  if (newTreeIDs[treeID]) {
-    newTreeIDs[treeID] = {
-      ...newTreeIDs[treeID],
-      visible: !newTreeIDs[treeID].visible
+  // Convert treeID to string to match Object.keys() behavior
+  const treeIDKey = String(treeID);
+  if (newTreeIDs[treeIDKey]) {
+    newTreeIDs[treeIDKey] = {
+      ...newTreeIDs[treeIDKey],
+      visible: !newTreeIDs[treeIDKey].visible
     };
   }
   return newTreeIDs;
 };
 
 export const findTreeIDByID = (treeID, treeIDs) => {
-  if (!treeIDs[treeID]) {
+  // Convert treeID to string to match Object.keys() behavior
+  const treeIDKey = String(treeID);
+  if (!treeIDs[treeIDKey]) {
     return { id: treeID, isVisible: true };
   }
-  return { id: treeID, isVisible: treeIDs[treeID].visible };
+  return { id: treeID, isVisible: treeIDs[treeIDKey].visible };
 };
 
 const generateTreeIDColor = (index) => {
