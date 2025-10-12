@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Box, Button, Typography, Paper, Alert, CircularProgress, useTheme, FormControlLabel, Checkbox, FormControl, InputLabel, Select, MenuItem, IconButton, Slider, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Menu, ListItemIcon, ListItemText} from '@mui/material';
 import { tokens } from '../../theme';
-import { CloudUpload, Map, Close, Gesture, HistoryEdu, DeleteSweep, Edit, Save, Delete, Merge } from '@mui/icons-material';
+import { CloudUpload, Map, Close, Gesture, HistoryEdu, DeleteSweep, Edit, Save, Delete, Merge, CloudDownload } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import * as THREE from 'three';
@@ -12,6 +12,7 @@ import { createStyles, getResponsiveMarginLeft } from './pointcloud_viewer.style
 import { createInitialClassifications, toggleClassification } from './classificationUtils';
 import { createInitialTreeIDs, toggleTreeID } from './treeIDUtils';
 import { parseLASFile } from './lasParser';
+import { exportGeometryToLAS } from './lasExporter';
 import {
   createPointCloudGeometry,
   createPointCloudMaterial,
@@ -96,6 +97,15 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const [annotationDialogOpen, setAnnotationDialogOpen] = useState(false);
   const [newAnnotationName, setNewAnnotationName] = useState('');
   const [newAnnotationColor, setNewAnnotationColor] = useState([1, 0, 0]); // Default red
+  
+  // --- Save Selected Part State ---
+  const [isSavingPart, setIsSavingPart] = useState(false);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [savePartName, setSavePartName] = useState('');
+  const [saveToProjectId, setSaveToProjectId] = useState(fileInfo?.project_id || null);
+  const [savePlotName, setSavePlotName] = useState(fileInfo?.plot_name || '');
+  const [availableProjects, setAvailableProjects] = useState([]);
+  const [enableSegmentation, setEnableSegmentation] = useState(true);
 
   // This effect updates the shader when the slider value changes
   useEffect(() => {
@@ -519,7 +529,7 @@ const PointCloudViewer = ({ isCollapsed }) => {
 
       await new Promise(resolve => {
         requestAnimationFrame(() => {
-          const geometry = createPointCloudGeometry(points, colors);
+          const geometry = createPointCloudGeometry(points, colors, treeIDs);
           const material = createPointCloudMaterial();
           const newPointCloud = new THREE.Points(geometry, material);
           sceneManagerRef.current.scene.add(newPointCloud);
@@ -633,6 +643,111 @@ const PointCloudViewer = ({ isCollapsed }) => {
   useEffect(() => {
     updatePointCloudColors();
   }, [filterMode, classifications, treeIDs]);
+
+  // Fetch available projects for save dialog
+  useEffect(() => {
+    const fetchProjects = async () => {
+      try {
+        const token = localStorage.getItem('authToken');
+        if (!token) return;
+        
+        const response = await axios.get('/api/projects', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        setAvailableProjects(response.data || []);
+      } catch (err) {
+        console.error('Failed to fetch projects:', err);
+      }
+    };
+    fetchProjects();
+  }, []);
+
+  // Handle opening save dialog
+  const handleOpenSaveDialog = () => {
+    if (selectedParts.length === 0) {
+      setError('Please select a part to save');
+      return;
+    }
+    
+    const timestamp = new Date().toISOString().split('T')[0];
+    const baseName = fileInfo?.name?.replace('.las', '').replace('.laz', '') || 'point_cloud';
+    const partName = parts.find(p => p.id === selectedParts[0])?.name || 'Part';
+    setSavePartName(`${baseName}_${partName}_${timestamp}`);
+    
+    if (fileInfo) {
+      setSaveToProjectId(fileInfo.project_id || null);
+      setSavePlotName(fileInfo.plot_name || '');
+    }
+    
+    setEnableSegmentation(true);
+    setSaveDialogOpen(true);
+  };
+
+  // Handle saving selected part as new file
+  const handleSaveSelectedPart = async () => {
+    if (selectedParts.length === 0) {
+      setError('No part selected');
+      return;
+    }
+
+    setIsSavingPart(true);
+    setError(null);
+
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        throw new Error('Authentication required');
+      }
+
+      const selectedPart = parts.find(p => p.id === selectedParts[0]);
+      if (!selectedPart || !selectedPart.geometry) {
+        throw new Error('Selected part has no geometry');
+      }
+
+      console.log('Exporting geometry to LAS format...');
+      const geometryTreeIDs = selectedPart.geometry.attributes.treeID ? 
+        Array.from(selectedPart.geometry.attributes.treeID.array) : null;
+      const lasBlob = exportGeometryToLAS(selectedPart.geometry, null, geometryTreeIDs);
+      
+      const formData = new FormData();
+      const filename = `${savePartName}.las`;
+      formData.append('file', lasBlob, filename);
+      formData.append('plot_name', savePlotName || '');
+      if (saveToProjectId) {
+        formData.append('project_id', saveToProjectId);
+      }
+      formData.append('skipSegmentation', enableSegmentation ? 'false' : 'true');
+
+      console.log('Uploading to backend...');
+      const response = await axios.post('/api/files/upload', formData, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+
+      if (response.data.success) {
+        console.log('File uploaded successfully:', response.data.file);
+        const processingMsg = enableSegmentation 
+          ? 'The file will be processed with AI segmentation and appear in File Management shortly.'
+          : 'The file will be processed (without segmentation) and appear in File Management shortly.';
+        alert(`✅ Successfully saved "${savePartName}.las"!\n\n${processingMsg}`);
+        setSaveDialogOpen(false);
+        
+        setSavePartName('');
+        setSavePlotName('');
+        setSaveToProjectId(null);
+        setEnableSegmentation(true);
+      } else {
+        throw new Error(response.data.message || 'Upload failed');
+      }
+    } catch (err) {
+      console.error('Error saving part:', err);
+      setError(`Failed to save part: ${err.response?.data?.message || err.message}`);
+    } finally {
+      setIsSavingPart(false);
+    }
+  };
 
   return (
     <Box 
@@ -843,6 +958,21 @@ const PointCloudViewer = ({ isCollapsed }) => {
                       Annotate Selected Part
                     </Button>
                     
+                    {/* Save Selected Part Button */}
+                    {selectedParts.length > 0 && (
+                      <Button
+                        variant="contained"
+                        color="success"
+                        onClick={handleOpenSaveDialog}
+                        disabled={isSavingPart}
+                        fullWidth
+                        sx={{ mt: 1, mb: 2 }}
+                        startIcon={<CloudDownload />}
+                      >
+                        Save Selected Part
+                      </Button>
+                    )}
+                    
                     {/* Selection Tool */}
                     <Box sx={{ mt: 2 }}>
                       <Typography gutterBottom variant="body2" sx={{ color: colors.grey[300], mb: 1 }}>
@@ -1035,8 +1165,223 @@ const PointCloudViewer = ({ isCollapsed }) => {
          </DialogActions>
        </Dialog>
 
-       {/* Context Menu */}
-       <Menu
+      {/* Save Selected Part Dialog */}
+      <Dialog 
+        open={saveDialogOpen} 
+        onClose={() => !isSavingPart && setSaveDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            backgroundColor: colors.primary[400],
+            backgroundImage: 'none',
+          }
+        }}
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CloudDownload sx={{ color: colors.greenAccent[500], fontSize: 32 }} />
+              <Box>
+                <Typography variant="h5" sx={{ fontWeight: 600, color: colors.grey[100] }}>
+                  Save Selected Part as New File
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.grey[300] }}>
+                  Export and process the selected point cloud region
+                </Typography>
+              </Box>
+            </Box>
+            <IconButton 
+              onClick={() => setSaveDialogOpen(false)} 
+              disabled={isSavingPart}
+              sx={{ color: colors.grey[300] }}
+            >
+              <Close />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ pt: 2 }}>
+            <Alert 
+              severity="info" 
+              sx={{ 
+                mb: 3,
+                backgroundColor: colors.primary[700],
+                '& .MuiAlert-icon': { color: colors.blueAccent[500] }
+              }}
+            >
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                This will export the selected region as a new .las file and automatically process it through the analysis pipeline.
+              </Typography>
+            </Alert>
+
+            <Paper sx={{ p: 2, mb: 3, backgroundColor: colors.primary[700], boxShadow: 'none' }}>
+              <Typography variant="subtitle2" sx={{ color: colors.grey[100], mb: 2, fontWeight: 600 }}>
+                📁 File Information
+              </Typography>
+              
+              <TextField
+                fullWidth
+                label="File Name *"
+                value={savePartName}
+                onChange={(e) => setSavePartName(e.target.value)}
+                sx={{ mb: 2 }}
+                helperText="Enter a descriptive name (without .las extension)"
+                required
+                error={!savePartName.trim() && savePartName.length > 0}
+                InputProps={{
+                  endAdornment: <Typography sx={{ color: colors.grey[400] }}>.las</Typography>
+                }}
+              />
+              
+              <TextField
+                fullWidth
+                label="Plot Name"
+                value={savePlotName}
+                onChange={(e) => setSavePlotName(e.target.value)}
+                sx={{ mb: 2 }}
+                helperText="Optional: Assign this file to a specific plot"
+                placeholder="e.g., Plot A, Section 1"
+              />
+              
+              <FormControl fullWidth>
+                <InputLabel>Project Assignment</InputLabel>
+                <Select 
+                  value={saveToProjectId || ''} 
+                  label="Project Assignment" 
+                  onChange={(e) => setSaveToProjectId(e.target.value || null)}
+                >
+                  <MenuItem value="">
+                    <em>None (Unassigned)</em>
+                  </MenuItem>
+                  {availableProjects.map(project => (
+                    <MenuItem key={project.id} value={project.id}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ 
+                          width: 8, 
+                          height: 8, 
+                          borderRadius: '50%', 
+                          backgroundColor: colors.greenAccent[500] 
+                        }} />
+                        {project.name}
+                        {project.division_name && (
+                          <Typography variant="caption" sx={{ color: colors.grey[400], ml: 1 }}>
+                            ({project.division_name})
+                          </Typography>
+                        )}
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Paper>
+
+            <Paper sx={{ p: 2, mb: 2, backgroundColor: colors.primary[700], boxShadow: 'none' }}>
+              <Typography variant="subtitle2" sx={{ color: colors.grey[100], mb: 2, fontWeight: 600 }}>
+                ⚙️ Processing Options
+              </Typography>
+              
+              <FormControlLabel
+                control={
+                  <Checkbox 
+                    checked={enableSegmentation}
+                    onChange={(e) => setEnableSegmentation(e.target.checked)}
+                    sx={{ 
+                      color: colors.greenAccent[600],
+                      '&.Mui-checked': {
+                        color: colors.greenAccent[500],
+                      }
+                    }}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 500, color: colors.grey[100] }}>
+                      Enable AI Segmentation
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: colors.grey[400], display: 'block', mt: 0.5 }}>
+                      {enableSegmentation 
+                        ? '✓ AI will classify points into terrain, vegetation, stems, and branches'
+                        : '✗ Only basic metrics will be extracted (faster processing)'
+                      }
+                    </Typography>
+                  </Box>
+                }
+              />
+
+              <Box sx={{ 
+                mt: 2, 
+                p: 1.5, 
+                backgroundColor: colors.primary[800], 
+                borderRadius: 1,
+                borderLeft: `4px solid ${enableSegmentation ? colors.greenAccent[500] : colors.blueAccent[500]}`
+              }}>
+                <Typography variant="caption" sx={{ color: colors.grey[300], display: 'flex', alignItems: 'center', gap: 1 }}>
+                  ⏱️ Estimated processing time: 
+                  <strong style={{ color: colors.grey[100] }}>
+                    {enableSegmentation ? '5-15 minutes' : '1-3 minutes'}
+                  </strong>
+                  {enableSegmentation && ' (includes AI segmentation)'}
+                </Typography>
+              </Box>
+            </Paper>
+
+            <Paper sx={{ p: 2, backgroundColor: colors.primary[700], boxShadow: 'none' }}>
+              <Typography variant="subtitle2" sx={{ color: colors.grey[100], mb: 1.5, fontWeight: 600 }}>
+                📊 Metrics to be Calculated
+              </Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 1 }}>
+                <Typography variant="caption" sx={{ color: colors.grey[300] }}>
+                  ✓ Tree count & positions
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.grey[300] }}>
+                  ✓ Tree heights
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.grey[300] }}>
+                  ✓ DBH (diameter at breast height)
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.grey[300] }}>
+                  ✓ Volume calculations
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.grey[300] }}>
+                  ✓ Biomass estimates
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.grey[300] }}>
+                  ✓ Carbon sequestration
+                </Typography>
+              </Box>
+            </Paper>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button 
+            onClick={() => setSaveDialogOpen(false)} 
+            disabled={isSavingPart}
+            sx={{ color: colors.grey[300] }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSaveSelectedPart}
+            variant="contained"
+            color="success"
+            disabled={!savePartName.trim() || isSavingPart}
+            startIcon={isSavingPart ? <CircularProgress size={20} /> : <Save />}
+            sx={{
+              px: 3,
+              backgroundColor: colors.greenAccent[600],
+              '&:hover': {
+                backgroundColor: colors.greenAccent[700],
+              }
+            }}
+          >
+            {isSavingPart ? 'Saving and Processing...' : 'Save and Process'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+        {/* Context Menu */}
+        <Menu
          open={contextMenu !== null}
          onClose={handleCloseContextMenu}
          anchorReference="anchorPosition"

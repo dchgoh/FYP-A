@@ -314,7 +314,15 @@ if __name__ == "__main__":
 
     try:
         log_stderr("Main", f"Reading LAS file: {las_file_path}")
-        las = laspy.read(las_file_path)
+        # Try reading with strict validation first
+        try:
+            las = laspy.read(las_file_path)
+        except laspy.errors.LaspyException as e_strict:
+            # If strict validation fails due to point size mismatch, try lax mode
+            log_stderr("Main", f"Strict validation failed: {e_strict}. Attempting lax validation...")
+            las = laspy.read(las_file_path, lax=True)
+            output_results["warnings"].append(f"LAS file read with lax validation due to format inconsistencies: {e_strict}")
+        
         log_stderr("Main", f"LAS file read successfully. Point count: {len(las.points)}")
 
         transformer_to_wgs84 = None

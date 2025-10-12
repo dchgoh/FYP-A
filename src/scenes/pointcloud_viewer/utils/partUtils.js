@@ -26,12 +26,14 @@ export const combineVisibleParts = (parts, originalGeometry) => {
   const allColors = [];
   const allCustomColors = [];
   const allSizes = [];
+  const allTreeIDs = [];
   
   visibleParts.forEach(part => {
     const positions = part.geometry.attributes.position.array;
     const colors = part.geometry.attributes.color.array;
     const customColors = part.geometry.attributes.customColor.array;
     const sizes = part.geometry.attributes.size.array;
+    const treeIDs = part.geometry.attributes.treeID?.array;
     
     for (let i = 0; i < positions.length; i += 3) {
       allPositions.push(positions[i], positions[i+1], positions[i+2]);
@@ -41,6 +43,9 @@ export const combineVisibleParts = (parts, originalGeometry) => {
     
     for (let i = 0; i < sizes.length; i++) {
       allSizes.push(sizes[i]);
+      if (treeIDs) {
+        allTreeIDs.push(treeIDs[i]);
+      }
     }
   });
   
@@ -51,6 +56,10 @@ export const combineVisibleParts = (parts, originalGeometry) => {
   combinedGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(allCustomColors, 3));
   combinedGeometry.setAttribute('size', new THREE.Float32BufferAttribute(allSizes, 1));
   
+  if (allTreeIDs.length > 0) {
+    combinedGeometry.setAttribute('treeID', new THREE.Float32BufferAttribute(allTreeIDs, 1));
+  }
+  
   return combinedGeometry;
 };
 
@@ -59,6 +68,7 @@ export const createRemainingGeometry = (sourceGeometry, selectedGeometry) => {
   const sourceColors = sourceGeometry.attributes.color.array;
   const sourceCustomColors = sourceGeometry.attributes.customColor.array;
   const sourceSizes = sourceGeometry.attributes.size.array;
+  const sourceTreeIDs = sourceGeometry.attributes.treeID?.array;
   
   const selectedPositions = selectedGeometry.attributes.position.array;
   
@@ -74,16 +84,21 @@ export const createRemainingGeometry = (sourceGeometry, selectedGeometry) => {
   const remainingColors = [];
   const remainingCustomColors = [];
   const remainingSizes = [];
+  const remainingTreeIDs = [];
   
   for (let i = 0; i < sourcePositions.length; i += 3) {
     const key = `${sourcePositions[i].toFixed(3)},${sourcePositions[i+1].toFixed(3)},${sourcePositions[i+2].toFixed(3)}`;
     
     if (!selectedPositionSet.has(key)) {
       // This point is not in the selected geometry, add it to remaining
+      const pointIndex = i / 3;
       remainingPositions.push(sourcePositions[i], sourcePositions[i+1], sourcePositions[i+2]);
       remainingColors.push(sourceColors[i], sourceColors[i+1], sourceColors[i+2]);
       remainingCustomColors.push(sourceCustomColors[i], sourceCustomColors[i+1], sourceCustomColors[i+2]);
-      remainingSizes.push(sourceSizes[i/3]);
+      remainingSizes.push(sourceSizes[pointIndex]);
+      if (sourceTreeIDs) {
+        remainingTreeIDs.push(sourceTreeIDs[pointIndex]);
+      }
     }
   }
   
@@ -93,6 +108,10 @@ export const createRemainingGeometry = (sourceGeometry, selectedGeometry) => {
   remainingGeometry.setAttribute('color', new THREE.Float32BufferAttribute(remainingColors, 3));
   remainingGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(remainingCustomColors, 3));
   remainingGeometry.setAttribute('size', new THREE.Float32BufferAttribute(remainingSizes, 1));
+  
+  if (remainingTreeIDs.length > 0) {
+    remainingGeometry.setAttribute('treeID', new THREE.Float32BufferAttribute(remainingTreeIDs, 1));
+  }
   
   return remainingGeometry;
 };
@@ -118,12 +137,14 @@ export const mergeParts = (setParts, setSelectedParts) => (partIds) => {
     const allColors = [];
     const allCustomColors = [];
     const allSizes = [];
+    const allTreeIDs = [];
     
     partsToMerge.forEach(part => {
       const positions = part.geometry.attributes.position.array;
       const colors = part.geometry.attributes.color.array;
       const customColors = part.geometry.attributes.customColor.array;
       const sizes = part.geometry.attributes.size.array;
+      const treeIDs = part.geometry.attributes.treeID?.array;
       
       for (let i = 0; i < positions.length; i += 3) {
         allPositions.push(positions[i], positions[i+1], positions[i+2]);
@@ -133,6 +154,9 @@ export const mergeParts = (setParts, setSelectedParts) => (partIds) => {
       
       for (let i = 0; i < sizes.length; i++) {
         allSizes.push(sizes[i]);
+        if (treeIDs) {
+          allTreeIDs.push(treeIDs[i]);
+        }
       }
     });
     
@@ -142,6 +166,10 @@ export const mergeParts = (setParts, setSelectedParts) => (partIds) => {
     mergedGeometry.setAttribute('color', new THREE.Float32BufferAttribute(allColors, 3));
     mergedGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(allCustomColors, 3));
     mergedGeometry.setAttribute('size', new THREE.Float32BufferAttribute(allSizes, 1));
+    
+    if (allTreeIDs.length > 0) {
+      mergedGeometry.setAttribute('treeID', new THREE.Float32BufferAttribute(allTreeIDs, 1));
+    }
     
     // Create merged part
     const mergedPart = {
