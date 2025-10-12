@@ -8,7 +8,7 @@ async function processLasData (fileIdToUpdate, stored_path_absolute) {
     return new Promise(async (resolve, reject) => {
         const pythonScriptName = 'process_las.py';
         const pythonScriptPath = path.resolve(__dirname, '..', pythonScriptName);
-        const pythonCommand = 'python';
+        const pythonCommand = path.resolve(__dirname, '..', 'venv', 'Scripts', 'python.exe');
 
         if (!fs.existsSync(pythonScriptPath)) {
             const errMsg = `Python script not found at ${pythonScriptPath}. Cannot process file.`;

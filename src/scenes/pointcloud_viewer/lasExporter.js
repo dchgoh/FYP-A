@@ -47,13 +47,15 @@ export const exportGeometryToLAS = (geometry, originalHeader = null, treeIDs = n
   const zOffset = originalHeader?.zOffset || zMin;
 
   // Determine point format and length based on what data we have
-  // If we have treeIDs, we need extra bytes, so we'll use format 3 (with time + RGB) or custom
-  // For simplicity with treeID, we'll use format 2 (RGB) and add extra bytes
+  // To ensure compatibility with laspy, we use format 3 (with RGB + GPS time) when we have extra bytes
+  // This avoids validation errors in laspy that expect specific point record lengths for each format
   const hasTreeIDs = treeIDs && treeIDs.length === numPoints;
   const extraBytesPerPoint = hasTreeIDs ? 4 : 0; // 4 bytes for float32 treeID
   
-  const pointDataRecordFormat = colors ? 2 : 0;
-  const basePointRecordLength = colors ? 26 : 20;
+  // Use format 3 when we have colors AND treeIDs to avoid laspy validation errors
+  // Format 3 includes RGB + GPS Time = 34 bytes base
+  const pointDataRecordFormat = (colors && hasTreeIDs) ? 3 : (colors ? 2 : 0);
+  const basePointRecordLength = (colors && hasTreeIDs) ? 34 : (colors ? 26 : 20);
   const pointDataRecordLength = basePointRecordLength + extraBytesPerPoint;
   
   // Need VLR for extra bytes if we have treeID
@@ -323,8 +325,15 @@ export const exportGeometryToLAS = (geometry, originalHeader = null, treeIDs = n
     dataView.setUint16(offset, 0, true);
     offset += 2;
 
-    // For Format 2, add RGB values
-    if (pointDataRecordFormat === 2 && colors) {
+    // For Format 3, add GPS Time before RGB
+    if (pointDataRecordFormat === 3) {
+      // GPS Time (8 bytes - double) - default to 0
+      dataView.setFloat64(offset, 0, true);
+      offset += 8;
+    }
+
+    // For Format 2 or 3, add RGB values
+    if ((pointDataRecordFormat === 2 || pointDataRecordFormat === 3) && colors) {
       const r = Math.round(colors[idx] * 65535);
       const g = Math.round(colors[idx + 1] * 65535);
       const b = Math.round(colors[idx + 2] * 65535);
