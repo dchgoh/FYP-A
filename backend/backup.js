@@ -54,16 +54,39 @@ async function createDropboxClient() {
     return new Dropbox({ accessToken, fetch });
 }
 
-// --- Upload file to Dropbox ---
+// --- Upload file to Dropbox (skip if same file already exists) ---
 async function uploadFileToDropbox(localFilePath, dropboxFilePath) {
     const dbx = await createDropboxClient();
     try {
+        // Check if the file already exists on Dropbox
+        let exists = false;
+        let dropboxMetadata = null;
+
+        try {
+            const meta = await dbx.filesGetMetadata({ path: dropboxFilePath });
+            if (meta.result && meta.result['.tag'] === 'file') {
+                exists = true;
+                dropboxMetadata = meta.result;
+            }
+        } catch (err) {
+            if (err.status !== 409) throw err; // ignore "not found" errors
+        }
+
+        // Compare file sizes — if same, skip upload
+        const localStat = await fs.stat(localFilePath);
+        if (exists && dropboxMetadata.size === localStat.size) {
+            console.log(`[${new Date().toISOString()}] SKIP: '${localFilePath}' already exists with same size.`);
+            return; // skip upload
+        }
+
+        // Otherwise, upload file
         const fileContents = await fs.readFile(localFilePath);
         const response = await dbx.filesUpload({
             path: dropboxFilePath,
             contents: fileContents,
             mode: 'overwrite',
         });
+
         console.log(`[${new Date().toISOString()}] SUCCESS: Uploaded '${localFilePath}' → '${response.result.path_display}'`);
     } catch (error) {
         console.error(`[${new Date().toISOString()}] ERROR uploading file '${localFilePath}':`, error);
@@ -87,7 +110,7 @@ async function createDropboxFolder(dropboxFolderPath) {
     }
 }
 
-// --- Recursive folder backup ---
+// --- Recursive folder backup (skip same files) ---
 async function backupFolderRecursive(localFolderPath, dropboxBaseFolder) {
     console.log(`[${new Date().toISOString()}] Scanning: ${localFolderPath}`);
     const items = await fs.readdir(localFolderPath, { withFileTypes: true });
