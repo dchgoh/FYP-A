@@ -96,6 +96,7 @@ export const annotateAllVisiblePoints = (setIsAnnotating, setAnnotationDialogOpe
       // Update colors for the target geometry
       const colors = targetGeometry.attributes.color.array;
       const customColors = targetGeometry.attributes.customColor.array;
+      const classificationColors = targetGeometry.attributes.classificationColor?.array;
       
       // Apply the annotation color to all points in the target geometry
       for (let i = 0; i < colors.length; i += 3) {
@@ -105,17 +106,28 @@ export const annotateAllVisiblePoints = (setIsAnnotating, setAnnotationDialogOpe
         customColors[i] = annotationColor[0];
         customColors[i + 1] = annotationColor[1];
         customColors[i + 2] = annotationColor[2];
+        
+        // Also update classificationColor if it exists
+        if (classificationColors) {
+          classificationColors[i] = annotationColor[0];
+          classificationColors[i + 1] = annotationColor[1];
+          classificationColors[i + 2] = annotationColor[2];
+        }
       }
       
       // Mark attributes as needing update
       targetGeometry.attributes.color.needsUpdate = true;
       targetGeometry.attributes.customColor.needsUpdate = true;
+      if (classificationColors) {
+        targetGeometry.attributes.classificationColor.needsUpdate = true;
+      }
       
       // If we're annotating parts, also update the original geometry for persistence
       if (parts.length > 0 && selectedParts.length > 0) {
         const originalPositions = originalGeometry.attributes.position.array;
         const originalColors = originalGeometry.attributes.color.array;
         const originalCustomColors = originalGeometry.attributes.customColor.array;
+        const originalClassificationColors = originalGeometry.attributes.classificationColor?.array;
         const targetPositions = targetGeometry.attributes.position.array;
         
         // Create a Map for faster lookup
@@ -137,11 +149,21 @@ export const annotateAllVisiblePoints = (setIsAnnotating, setAnnotationDialogOpe
             originalCustomColors[colorIndex] = annotationColor[0];
             originalCustomColors[colorIndex + 1] = annotationColor[1];
             originalCustomColors[colorIndex + 2] = annotationColor[2];
+            
+            // Also update classificationColor if it exists
+            if (originalClassificationColors) {
+              originalClassificationColors[colorIndex] = annotationColor[0];
+              originalClassificationColors[colorIndex + 1] = annotationColor[1];
+              originalClassificationColors[colorIndex + 2] = annotationColor[2];
+            }
           }
         }
         
         originalGeometry.attributes.color.needsUpdate = true;
         originalGeometry.attributes.customColor.needsUpdate = true;
+        if (originalClassificationColors) {
+          originalGeometry.attributes.classificationColor.needsUpdate = true;
+        }
       }
       
       setIsAnnotating(false);

@@ -214,7 +214,7 @@ function isPointInPolygon(point, polygon) {
 
 
 // --- NEW FILTERING FUNCTION ---
-export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasRect) => {
+export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasRect, treeIDData = null) => {
   const originalGeometry = pointCloud.geometry;
   if (!originalGeometry || !lassoPoints || lassoPoints.length === 0) {
     return null;
@@ -226,11 +226,18 @@ export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasR
   const customColors = originalGeometry.attributes.customColor.array;
   const sizes = originalGeometry.attributes.size.array;
   
+  // Get treeID data if available (use passed parameter or try geometry attribute)
+  const treeIDs = treeIDData || originalGeometry.attributes.treeID?.array || null;
+  console.log('Lasso Filter: treeIDData parameter:', treeIDData ? `${treeIDData.length} values` : 'null');
+  console.log('Lasso Filter: geometry treeID attribute:', originalGeometry.attributes.treeID ? 'exists' : 'missing');
+  console.log('Lasso Filter: final treeIDs:', treeIDs ? `${treeIDs.length} values` : 'null');
+  
   // Create arrays for ALL new attributes
   const newPositions = [];
   const newColors = [];
   const newCustomColors = [];
   const newSizes = [];
+  const newTreeIDs = [];
   
   const point = new THREE.Vector3();
   const worldMatrix = pointCloud.matrixWorld;
@@ -251,6 +258,11 @@ export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasR
         newColors.push(colors[i], colors[i+1], colors[i+2]);
         newCustomColors.push(customColors[i], customColors[i+1], customColors[i+2]);
         newSizes.push(sizes[pointIndex]);
+        
+        // Copy treeID data if available
+        if (treeIDs) {
+          newTreeIDs.push(treeIDs[pointIndex] || 0);
+        }
       }
     }
   }
@@ -260,9 +272,17 @@ export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasR
   const finalGeometry = new THREE.BufferGeometry();
   finalGeometry.setAttribute('position', new THREE.Float32BufferAttribute(newPositions, 3));
   finalGeometry.setAttribute('color', new THREE.Float32BufferAttribute(newColors, 3));
-  // --- ADD THESE TWO LINES ---
   finalGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(newCustomColors, 3));
   finalGeometry.setAttribute('size', new THREE.Float32BufferAttribute(newSizes, 1));
+  
+  // Store treeID data as a custom attribute if available
+  if (newTreeIDs.length > 0) {
+    finalGeometry.setAttribute('treeID', new THREE.Float32BufferAttribute(newTreeIDs, 1));
+    console.log('Lasso Filter: Stored treeID data with', newTreeIDs.length, 'values');
+    console.log('Lasso Filter: Sample treeID values:', newTreeIDs.slice(0, 10));
+  } else {
+    console.log('Lasso Filter: No treeID data to store');
+  }
   
   return finalGeometry;
 };

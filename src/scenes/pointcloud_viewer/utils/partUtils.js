@@ -26,6 +26,8 @@ export const combineVisibleParts = (parts, originalGeometry) => {
   const allColors = [];
   const allCustomColors = [];
   const allSizes = [];
+  const allTreeIDs = [];
+  const allOriginalClassifications = [];
   
   visibleParts.forEach(part => {
     const positions = part.geometry.attributes.position.array;
@@ -33,10 +35,28 @@ export const combineVisibleParts = (parts, originalGeometry) => {
     const customColors = part.geometry.attributes.customColor.array;
     const sizes = part.geometry.attributes.size.array;
     
+    // Handle treeID attribute if it exists
+    const treeIDs = part.geometry.attributes.treeID?.array || [];
+    const originalClassifications = part.geometry.attributes.originalClassification?.array || [];
+    
     for (let i = 0; i < positions.length; i += 3) {
       allPositions.push(positions[i], positions[i+1], positions[i+2]);
       allColors.push(colors[i], colors[i+1], colors[i+2]);
       allCustomColors.push(customColors[i], customColors[i+1], customColors[i+2]);
+      
+      // Preserve treeID data
+      if (treeIDs.length > 0) {
+        allTreeIDs.push(treeIDs[i/3] || 0);
+      }
+      
+      // Preserve original classification data
+      if (originalClassifications.length > 0) {
+        allOriginalClassifications.push(
+          originalClassifications[i], 
+          originalClassifications[i+1], 
+          originalClassifications[i+2]
+        );
+      }
     }
     
     for (let i = 0; i < sizes.length; i++) {
@@ -50,6 +70,16 @@ export const combineVisibleParts = (parts, originalGeometry) => {
   combinedGeometry.setAttribute('color', new THREE.Float32BufferAttribute(allColors, 3));
   combinedGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(allCustomColors, 3));
   combinedGeometry.setAttribute('size', new THREE.Float32BufferAttribute(allSizes, 1));
+  
+  // Preserve treeID attribute if any treeID data exists
+  if (allTreeIDs.length > 0) {
+    combinedGeometry.setAttribute('treeID', new THREE.Float32BufferAttribute(allTreeIDs, 1));
+  }
+  
+  // Preserve original classification attribute if any classification data exists
+  if (allOriginalClassifications.length > 0) {
+    combinedGeometry.setAttribute('originalClassification', new THREE.Float32BufferAttribute(allOriginalClassifications, 3));
+  }
   
   return combinedGeometry;
 };
@@ -118,6 +148,8 @@ export const mergeParts = (setParts, setSelectedParts) => (partIds) => {
     const allColors = [];
     const allCustomColors = [];
     const allSizes = [];
+    const allTreeIDs = [];
+    const allOriginalClassifications = [];
     
     partsToMerge.forEach(part => {
       const positions = part.geometry.attributes.position.array;
@@ -125,10 +157,41 @@ export const mergeParts = (setParts, setSelectedParts) => (partIds) => {
       const customColors = part.geometry.attributes.customColor.array;
       const sizes = part.geometry.attributes.size.array;
       
+      // Handle treeID attribute if it exists
+      const treeIDs = part.geometry.attributes.treeID?.array || [];
+      const originalClassifications = part.geometry.attributes.originalClassification?.array || [];
+      
+      // Debug: Check treeID data for this part
+      if (treeIDs.length > 0) {
+      } else {
+      }
+      
       for (let i = 0; i < positions.length; i += 3) {
         allPositions.push(positions[i], positions[i+1], positions[i+2]);
         allColors.push(colors[i], colors[i+1], colors[i+2]);
         allCustomColors.push(customColors[i], customColors[i+1], customColors[i+2]);
+        
+        // Preserve treeID data
+        if (treeIDs.length > 0) {
+          const pointIndex = i / 3;
+          const treeIDValue = treeIDs[pointIndex] || 0;
+          allTreeIDs.push(treeIDValue);
+          
+          // Debug: Log first few treeID values for each part
+          if (pointIndex < 5) {
+          }
+        } else {
+          allTreeIDs.push(0); // Default value when no treeID data
+        }
+        
+        // Preserve original classification data
+        if (originalClassifications.length > 0) {
+          allOriginalClassifications.push(
+            originalClassifications[i], 
+            originalClassifications[i+1], 
+            originalClassifications[i+2]
+          );
+        }
       }
       
       for (let i = 0; i < sizes.length; i++) {
@@ -142,6 +205,16 @@ export const mergeParts = (setParts, setSelectedParts) => (partIds) => {
     mergedGeometry.setAttribute('color', new THREE.Float32BufferAttribute(allColors, 3));
     mergedGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(allCustomColors, 3));
     mergedGeometry.setAttribute('size', new THREE.Float32BufferAttribute(allSizes, 1));
+    
+    // Preserve treeID attribute if any treeID data exists
+    if (allTreeIDs.length > 0) {
+      mergedGeometry.setAttribute('treeID', new THREE.Float32BufferAttribute(allTreeIDs, 1));
+    }
+    
+    // Preserve original classification attribute if any classification data exists
+    if (allOriginalClassifications.length > 0) {
+      mergedGeometry.setAttribute('originalClassification', new THREE.Float32BufferAttribute(allOriginalClassifications, 3));
+    }
     
     // Create merged part
     const mergedPart = {
@@ -161,35 +234,24 @@ export const mergeParts = (setParts, setSelectedParts) => (partIds) => {
 
 // Handle multi-selection with Ctrl+click
 export const handlePartMultiSelect = (setSelectedParts, selectedParts) => (partId, event) => {
-  console.log('handlePartMultiSelect called:', {
-    partId,
-    ctrlKey: event.ctrlKey,
-    metaKey: event.metaKey,
-    currentSelectedParts: selectedParts
-  });
   
   if (event.ctrlKey || event.metaKey) {
     // Multi-select mode
     if (selectedParts.includes(partId)) {
       // Remove from selection
-      console.log('Removing from selection:', partId);
       setSelectedParts(prev => {
         const newSelection = prev.filter(id => id !== partId);
-        console.log('New selection after removal:', newSelection);
         return newSelection;
       });
     } else {
       // Add to selection
-      console.log('Adding to selection:', partId);
       setSelectedParts(prev => {
         const newSelection = [...prev, partId];
-        console.log('New selection after addition:', newSelection);
         return newSelection;
       });
     }
   } else {
     // Single select mode
-    console.log('Single select mode, setting selection to:', [partId]);
     setSelectedParts([partId]);
   }
 };

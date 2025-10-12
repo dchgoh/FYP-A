@@ -27,13 +27,6 @@ export const parseLASFile = async (file, onProgress = null) => {
         const pointDataRecordLength = dataView.getUint16(105, true);
         const numberOfPointRecords = dataView.getUint32(107, true);
         
-        // Debug logging
-        console.log('LAS File Info:');
-        console.log('Version:', versionMajor + '.' + versionMinor);
-        console.log('Point Format:', pointDataRecordFormat);
-        console.log('Point Record Length:', pointDataRecordLength);
-        console.log('Number of Points:', numberOfPointRecords);
-        console.log('File Size:', arrayBuffer.byteLength, 'bytes');
         
         // Validate point format
         if (pointDataRecordFormat > 15) {
@@ -59,7 +52,6 @@ export const parseLASFile = async (file, onProgress = null) => {
         if (numberOfPointRecords === 0 && pointDataOffset < arrayBuffer.byteLength) {
           const availableData = arrayBuffer.byteLength - pointDataOffset;
           estimatedNumberOfPoints = Math.floor(availableData / pointDataRecordLength);
-          console.log(`Header says 0 points, but estimating ${estimatedNumberOfPoints} points from available data`);
         }
 
         // --- START OF NEW RANDOM SAMPLING LOGIC ---
@@ -67,7 +59,6 @@ export const parseLASFile = async (file, onProgress = null) => {
         // Determine the number of points to sample. Up to 2 million is a good balance of density and performance.
         const maxPoints = Math.min(estimatedNumberOfPoints, 2000000);
 
-        console.log(`Total points in file: ${estimatedNumberOfPoints}. Randomly sampling up to: ${maxPoints} points.`);
         
         if (estimatedNumberOfPoints === 0) {
           throw new Error('LAS file appears to contain 0 points.');
@@ -86,7 +77,6 @@ export const parseLASFile = async (file, onProgress = null) => {
         // Sort the indices to read the file in a more sequential (and thus faster) order.
         randomIndices.sort((a, b) => a - b);
         
-        console.log(`Processing ${randomIndices.length} random points...`);
         
         // Function to find treeID in extra bytes
         const findTreeIDInExtraBytes = (offset, pointFormat, recordLength) => {
@@ -109,7 +99,6 @@ export const parseLASFile = async (file, onProgress = null) => {
           const extraBytesStart = standardLength;
           const extraBytesLength = recordLength - standardLength;
           
-          console.log(`Point format ${pointFormat}: Standard length ${standardLength}, Extra bytes: ${extraBytesLength} bytes starting at offset ${extraBytesStart}`);
           
           // Try to find treeID in extra bytes
           if (extraBytesLength >= 4) { // Need at least 4 bytes for float32
@@ -123,7 +112,7 @@ export const parseLASFile = async (file, onProgress = null) => {
             ];
             
             for (const pos of positionsToTry) {
-              // Try float32 first (4 bytes)
+              // Only try float32 (4 bytes)
               if (pos + 4 <= offset + recordLength) {
                 try {
                   const float32TreeID = dataView.getFloat32(offset + pos, true);
@@ -131,23 +120,6 @@ export const parseLASFile = async (file, onProgress = null) => {
                   
                   // Check if this looks like a valid treeID (positive integer, not too large)
                   if (roundedTreeID > 0 && roundedTreeID < 1000000) {
-                    console.log(`Found treeID (float32) at position ${pos}: ${roundedTreeID}`);
-                    return Math.abs(roundedTreeID);
-                  }
-                } catch (e) {
-                  // Continue to next position
-                }
-              }
-              
-              // Try float64 (8 bytes)
-              if (pos + 8 <= offset + recordLength) {
-                try {
-                  const float64TreeID = dataView.getFloat64(offset + pos, true);
-                  const roundedTreeID = Math.round(float64TreeID);
-                  
-                  // Check if this looks like a valid treeID (positive integer, not too large)
-                  if (roundedTreeID > 0 && roundedTreeID < 1000000) {
-                    console.log(`Found treeID (float64) at position ${pos}: ${roundedTreeID}`);
                     return Math.abs(roundedTreeID);
                   }
                 } catch (e) {
@@ -168,7 +140,6 @@ export const parseLASFile = async (file, onProgress = null) => {
             // Update the progress indicator every 100,000 points.
             if (i > 0 && i % 100000 === 0) {
               const progress = Math.round((i / randomIndices.length) * 100);
-              console.log(`Parsing progress: ${i} / ${randomIndices.length} points (${progress}%)`);
               if (onProgress) {
                 onProgress(progress);
               }
@@ -209,8 +180,6 @@ export const parseLASFile = async (file, onProgress = null) => {
 
         // --- END OF NEW RANDOM SAMPLING LOGIC ---
         
-        console.log(`Finished parsing ${points.length / 3} randomly sampled points.`);
-        console.log(`Found treeIDs:`, [...new Set(treeIDs)].sort((a, b) => a - b));
         resolve({ points, colors, treeIDs, numberOfPointRecords });
       } catch (error) {
         console.error("Fatal error during LAS file parsing:", error);
