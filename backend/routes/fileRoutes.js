@@ -44,6 +44,9 @@ router.get('/statistics/all-tree-volumes-m3-data', fileController.getAllTreeVolu
 
 router.get('/stats/sum-carbon-tonnes', fileController.getSumTreeCarbonTonnes);
 
+// Get detailed tree data for Excel export
+router.get('/export/tree-data', fileController.getDetailedTreeDataForExport);
+
 // Delete: Admin/Assigned DM (checkProjectAssignment applied *after* checkRole)
 router.delete('/:id', checkRole([ROLES.ADMIN, ROLES.DATA_MANAGER]), checkProjectAssignment, fileController.deleteFile);
 
@@ -58,7 +61,5 @@ router.patch(
     fileController.reassignFileDetails // <-- Use the new controller
 );
 
-// Test endpoint for setting progress data (for debugging)
-router.post('/:id/test-progress', fileController.setTestProgress);
 
 module.exports = router;

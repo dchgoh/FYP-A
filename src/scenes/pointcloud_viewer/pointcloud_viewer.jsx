@@ -1,18 +1,57 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Box, Button, Typography, Paper, Alert, CircularProgress, useTheme, FormControlLabel, Checkbox, FormControl, InputLabel, Select, MenuItem, IconButton } from '@mui/material';
+import { Box, Button, Typography, Paper, Alert, CircularProgress, useTheme, FormControlLabel, Checkbox, FormControl, InputLabel, Select, MenuItem, IconButton, Slider, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Menu, ListItemIcon, ListItemText} from '@mui/material';
 import { tokens } from '../../theme';
-import { CloudUpload, Map, Close } from '@mui/icons-material';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { CloudUpload, Map, Close, Gesture, HistoryEdu, DeleteSweep, Edit, Save, Delete, Merge, CloudDownload } from '@mui/icons-material';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import * as THREE from 'three';
+import { createLassoHelper } from './LassoHelper';
 import { createSceneManager } from './scene_manager';
 import { createBoundingBox, updateBoundingBoxVisibility, disposeBoundingBox } from './pointcloud_boundingbox';
 import { createStyles, getResponsiveMarginLeft } from './pointcloud_viewer.styles';
 import { createInitialClassifications, toggleClassification } from './classificationUtils';
 import { createInitialTreeIDs, toggleTreeID } from './treeIDUtils';
 import { parseLASFile } from './lasParser';
-import { createPointCloudGeometry, createPointCloudMaterial, filterPointCloudByClassifications, filterPointCloudByTreeIDs, updatePointCloudGeometry } from './pointCloudManager';
+import { exportGeometryToLAS } from './lasExporter';
+import {
+  createPointCloudGeometry,
+  createPointCloudMaterial,
+  filterPointCloudByClassifications,
+  filterPointCloudByTreeIDs,
+  updatePointCloudGeometry,
+  filterPointCloudByLasso
+} from './pointCloudManager';
 import MiniMap from './MiniMap';
+
+// Import utility functions
+import {
+  handlePartClick,
+  handleTogglePartVisibility,
+  combineVisibleParts,
+  createRemainingGeometry,
+  deletePart,
+  mergeParts,
+  handlePartMultiSelect
+} from './utils/partUtils';
+
+import {
+  handleAnnotationTypeChange,
+  handleAnnotationValueSelect,
+  generateRandomColor,
+  addNewAnnotation,
+  annotateAllVisiblePoints,
+  handleAnnotationDialogClose
+} from './utils/annotationUtils';
+
+import {
+  handleToolSelect,
+  handleFileUpload,
+  toggleBoundingBox,
+  handleToggleClassification,
+  handleToggleAllClassifications,
+  handleToggleTreeID,
+  handleToggleAllTreeIDs
+} from './utils/toolUtils';
 
 const PointCloudViewer = ({ isCollapsed }) => {
   const theme = useTheme();
@@ -20,26 +59,62 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const styles = createStyles(theme, colors);
   const canvasRef = useRef(null);
   const sceneManagerRef = useRef(null);
-  const minDistanceRef = useRef(1);
-  const maxDistanceRef = useRef(1000);
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
 
-  const [selectedFile, setSelectedFile] = useState(null);
+  // --- CORRECTED AND COMPLETE STATE ---
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [pointCloud, setPointCloud] = useState(null);
-  const [showBoundingBox, setShowBoundingBox] = useState(true);
-  const [boundingBox, setBoundingBox] = useState(null);
+  const [originalGeometry, setOriginalGeometry] = useState(null);
+  const [fileInfo, setFileInfo] = useState(null);
   const [classifications, setClassifications] = useState(createInitialClassifications());
   const [treeIDs, setTreeIDs] = useState({});
   const [treeIDData, setTreeIDData] = useState([]);
-  const [originalGeometry, setOriginalGeometry] = useState(null);
-  const [filterMode, setFilterMode] = useState('classification'); // 'classification' or 'treeID'
+  const [filterMode, setFilterMode] = useState('classification');
+  const [showBoundingBox, setShowBoundingBox] = useState(true);
+  const [boundingBox, setBoundingBox] = useState(null);
   const [fileId, setFileId] = useState(null);
-  const [fileInfo, setFileInfo] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const minDistanceRef = useRef(1);
+  const maxDistanceRef = useRef(1000);
 
-  // MiniMap state
+  // --- State for Point Cloud Parts ---
+  const [activeTool, setActiveTool] = useState(null);
+  const lassoHelperRef = useRef(null);
+  const [isProcessingLasso, setIsProcessingLasso] = useState(false);
+  const [parts, setParts] = useState([]);
+  const [activePartId, setActivePartId] = useState(null);
+  const [pointSize, setPointSize] = useState(5.0); // State for the slider value
+  
+  // --- Multi-selection and Context Menu State ---
+  const [selectedParts, setSelectedParts] = useState([]);
+  const [contextMenu, setContextMenu] = useState(null);
+  
+  // --- Annotation State ---
+  const [selectedAnnotationType, setSelectedAnnotationType] = useState('classification');
+  const [selectedAnnotationValue, setSelectedAnnotationValue] = useState(null);
+  const [isAnnotating, setIsAnnotating] = useState(false);
+  const [annotationDialogOpen, setAnnotationDialogOpen] = useState(false);
+  const [newAnnotationName, setNewAnnotationName] = useState('');
+  const [newAnnotationColor, setNewAnnotationColor] = useState([1, 0, 0]); // Default red
+  
+  // --- Save Selected Part State ---
+  const [isSavingPart, setIsSavingPart] = useState(false);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [savePartName, setSavePartName] = useState('');
+  const [saveToProjectId, setSaveToProjectId] = useState(fileInfo?.project_id || null);
+  const [savePlotName, setSavePlotName] = useState(fileInfo?.plot_name || '');
+  const [availableProjects, setAvailableProjects] = useState([]);
+  const [enableSegmentation, setEnableSegmentation] = useState(true);
+
+  // This effect updates the shader when the slider value changes
+  useEffect(() => {
+    if (pointCloud && pointCloud.material) {
+      pointCloud.material.uniforms.u_pointSize.value = pointSize;
+    }
+  }, [pointSize, pointCloud]);
+
+  // --- MiniMap State ---
   const [showMiniMap, setShowMiniMap] = useState(true);
   const [miniMapFiles, setMiniMapFiles] = useState([]);
   const [isLoadingMiniMapFiles, setIsLoadingMiniMapFiles] = useState(false);
@@ -66,7 +141,179 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const BUTTON_FIXED_SIZE = 40;
   const MINIMAP_BUTTON_GAP = 10;
 
+  const handleToolSelect = (toolName) => {
+    setActiveTool(prev => (prev === toolName ? null : toolName));
+  };
 
+  // Create function instances with state setters
+  const handlePartClickInstance = handlePartClick(setActivePartId, activePartId);
+  const handleTogglePartVisibilityInstance = handleTogglePartVisibility(setParts);
+  const combineVisiblePartsInstance = () => combineVisibleParts(parts, originalGeometry);
+  const deletePartInstance = deletePart(setParts, setActivePartId);
+  const mergePartsInstance = mergeParts(setParts, setSelectedParts);
+  const handlePartMultiSelectInstance = handlePartMultiSelect(setSelectedParts, selectedParts);
+
+  // Context menu handlers
+  const handleContextMenu = (event, partId) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({
+      mouseX: event.clientX + 2,
+      mouseY: event.clientY - 6,
+      partId: partId
+    });
+  };
+
+  const handleCloseContextMenu = () => {
+    setContextMenu(null);
+  };
+
+  const handleDeletePart = (partId) => {
+    deletePartInstance(partId);
+    setSelectedParts(prev => prev.filter(id => id !== partId));
+    handleCloseContextMenu();
+  };
+
+  const handleDeleteSelectedParts = () => {
+    selectedParts.forEach(partId => {
+      deletePartInstance(partId);
+    });
+    setSelectedParts([]);
+    handleCloseContextMenu();
+  };
+
+  const handleMergeSelectedParts = () => {
+    if (selectedParts.length >= 2) {
+      mergePartsInstance(selectedParts);
+      setSelectedParts([]);
+    }
+    handleCloseContextMenu();
+  };
+
+  
+  const updatePointCloudColors = () => {
+    // Don't update if we have parts - let the parts visibility effect handle it
+    if (!pointCloud || !originalGeometry || parts.length > 0) return;
+    
+    // The rest of the function stays the same
+    if (filterMode === 'classification') {
+      const filteredGeometry = filterPointCloudByClassifications(originalGeometry, classifications);
+      updatePointCloudGeometry(pointCloud, filteredGeometry);
+    } else if (filterMode === 'treeID' && treeIDData) {
+      const filteredGeometry = filterPointCloudByTreeIDs(originalGeometry, treeIDData, treeIDs);
+      updatePointCloudGeometry(pointCloud, filteredGeometry);
+    }
+  };
+
+
+
+  // --- ADD THIS NEW EFFECT ---  // Visually updates the point cloud based on visibility
+  useEffect(() => {
+   if (!pointCloud || !originalGeometry) return;
+   
+   // If no parts exist, show the full point cloud
+   if (parts.length === 0) {
+     updatePointCloudColors();
+     return;
+   }
+   
+   // If we have parts, combine visible ones
+   const combinedGeometry = combineVisiblePartsInstance();
+   if (combinedGeometry) {
+     updatePointCloudGeometry(pointCloud, combinedGeometry);
+   } else {
+     // No visible parts, show empty
+     const emptyGeometry = new THREE.BufferGeometry();
+     emptyGeometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+     emptyGeometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
+     emptyGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute([], 3));
+     emptyGeometry.setAttribute('size', new THREE.Float32BufferAttribute([], 1));
+     updatePointCloudGeometry(pointCloud, emptyGeometry);
+   }
+  }, [parts, pointCloud, originalGeometry, updatePointCloudColors]);
+
+   useEffect(() => {
+    const canvasContainerElement = canvasRef.current?.parentElement;
+    if (!canvasContainerElement || !sceneManagerRef.current || !pointCloud) return;
+
+    if (activeTool) {
+      if(sceneManagerRef.current.controls) sceneManagerRef.current.controls.enabled = false;
+    } else {
+      if(sceneManagerRef.current.controls) sceneManagerRef.current.controls.enabled = true;
+    }
+
+    if (activeTool === 'lasso') {
+      const onSelectionFinish = (lassoPoints) => {
+        setIsProcessingLasso(true);
+        setActiveTool(null);
+         setTimeout(() => {
+           const canvasRect = canvasContainerElement.getBoundingClientRect();
+           const sourceGeometry = selectedParts.length === 0
+             ? originalGeometry
+             : parts.find(h => selectedParts.includes(h.id))?.geometry;
+           if (sourceGeometry) {
+             const sourcePointCloud = new THREE.Points(sourceGeometry, pointCloud.material);
+             sourcePointCloud.matrixWorld = pointCloud.matrixWorld;
+             const selectedGeometry = filterPointCloudByLasso(sourcePointCloud, lassoPoints, sceneManagerRef.current.camera, canvasRect);
+             if (selectedGeometry && selectedGeometry.attributes && selectedGeometry.attributes.position && selectedGeometry.attributes.position.count > 0) {
+               // Create two parts: selected and remaining
+               const remainingGeometry = createRemainingGeometry(sourceGeometry, selectedGeometry);
+               
+               const newPart = { 
+                 id: Date.now(), 
+                 name: `Part ${parts.length + 1}`, 
+                 geometry: selectedGeometry,
+                 visible: true,
+                 type: 'selected'
+               };
+               
+               const remainingPart = {
+                 id: Date.now() + 1,
+                 name: `Remaining ${parts.length + 1}`,
+                 geometry: remainingGeometry,
+                 visible: false,
+                 type: 'remaining'
+               };
+               
+               // If we're cutting from an existing part (not the full point cloud), replace it
+               if (selectedParts.length > 0) {
+                 setParts(prev => {
+                   const otherParts = prev.filter(part => !selectedParts.includes(part.id));
+                   return [...otherParts, newPart, remainingPart];
+                 });
+                 // Clear selected parts and select the new part
+                 setSelectedParts([newPart.id]);
+               } else {
+                 // If cutting from full point cloud, just add the new parts
+                 setParts(prev => [...prev, newPart, remainingPart]);
+                 setSelectedParts([newPart.id]);
+               }
+             } else {
+               // No points selected (empty space), just clear the canvas
+               console.log('No points selected in the lasso area');
+             }
+           }
+           if(lassoHelperRef.current) lassoHelperRef.current.clearCanvas();
+           setIsProcessingLasso(false);
+         }, 50);
+      };
+      lassoHelperRef.current = createLassoHelper(canvasContainerElement, onSelectionFinish);
+    }
+
+    return () => {
+      if (lassoHelperRef.current) {
+        lassoHelperRef.current.dispose();
+        lassoHelperRef.current = null;
+      }
+      if (sceneManagerRef.current?.controls) {
+        sceneManagerRef.current.controls.enabled = true;
+      }
+    };
+  }, [activeTool, pointCloud, parts, selectedParts, originalGeometry]);
+
+
+  // (All existing code from here... updateMiniMapPosition down to return statement remains the same)
+  
   const updateMiniMapPosition = useCallback(() => {
     if (!showMiniMap || !viewerWrapperRef.current) {
       if (showMiniMap) {
@@ -88,11 +335,10 @@ const PointCloudViewer = ({ isCollapsed }) => {
         ? MINIMAP_ESTIMATED_HEIGHT_XS
         : MINIMAP_ESTIMATED_HEIGHT_SM;
     
-    // Position the minimap below the button (which is outside sidebar)
-    const buttonTop = 15; // top position of button
+    const buttonTop = 15;
     const buttonHeight = BUTTON_FIXED_SIZE;
     const idealTop = buttonTop + buttonHeight + MINIMAP_BUTTON_GAP;
-    const idealLeft = 315; // Same left position as button (outside sidebar)
+    const idealLeft = 315;
 
     const finalTop = Math.max(MINIMAP_BUTTON_GAP, Math.min(idealTop, parentHeight - currentMapEffectiveHeight - MINIMAP_BUTTON_GAP));
     const finalLeft = Math.max(MINIMAP_BUTTON_GAP, Math.min(idealLeft, parentWidth - currentMapEffectiveWidth - MINIMAP_BUTTON_GAP));
@@ -120,7 +366,6 @@ const PointCloudViewer = ({ isCollapsed }) => {
     });
   };
 
-  // Fetch files for the mini-map
   useEffect(() => {
     const fetchAllFilesForMap = async () => {
       const storedToken = localStorage.getItem('authToken');
@@ -133,7 +378,7 @@ const PointCloudViewer = ({ isCollapsed }) => {
       setIsLoadingMiniMapFiles(true);
       setErrorMiniMapFiles(null);
       try {
-        const response = await fetch(`http://localhost:5000/api/files`, {
+        const response = await fetch(`/api/files`, {
           headers: { 'Authorization': `Bearer ${storedToken}` }
         });
         if (!response.ok) {
@@ -162,22 +407,17 @@ const PointCloudViewer = ({ isCollapsed }) => {
     fetchAllFilesForMap();
   }, []);
 
-  // Effect to update MiniMap position on relevant changes
   useEffect(() => {
     updateMiniMapPosition(); 
-
     const handleResizeOrCollapse = () => {
       updateMiniMapPosition();
     };
-    
     window.addEventListener('resize', handleResizeOrCollapse);
-    
     return () => {
       window.removeEventListener('resize', handleResizeOrCollapse);
     };
   }, [showMiniMap, isCollapsed, updateMiniMapPosition]);
 
-  // Initial positioning after mount
   useEffect(() => {
     const timer = setTimeout(() => {
       updateMiniMapPosition();
@@ -185,46 +425,35 @@ const PointCloudViewer = ({ isCollapsed }) => {
     return () => clearTimeout(timer);
   }, [updateMiniMapPosition]);
 
-  // Add a resize observer to handle container size changes
   useEffect(() => {
     if (!viewerWrapperRef.current) return;
-
     const resizeObserver = new ResizeObserver(() => {
       updateMiniMapPosition();
     });
-
     resizeObserver.observe(viewerWrapperRef.current);
-
     return () => {
       resizeObserver.disconnect();
     };
   }, [updateMiniMapPosition]);
 
-  // Initialize Three.js scene
   useEffect(() => {
     if (!canvasRef.current) return;
-
     const sceneManager = createSceneManager(canvasRef.current);
     sceneManagerRef.current = sceneManager;
     sceneManager.startAnimation();
-
     return () => {
       sceneManager.dispose();
     };
   }, []);
 
-  // Load file from backend when fileId is provided
   useEffect(() => {
     const fileIdParam = searchParams.get('fileId');
-    console.log('useEffect triggered - fileIdParam:', fileIdParam, 'current fileId:', fileId);
     if (fileIdParam && fileIdParam !== fileId) {
-      console.log('Loading file from backend for fileId:', fileIdParam);
       setFileId(fileIdParam);
       loadFileFromBackend(fileIdParam);
     }
   }, [searchParams, fileId]);
 
-  // Cleanup effect to remove point cloud when component unmounts
   useEffect(() => {
     return () => {
       if (pointCloud && sceneManagerRef.current) {
@@ -234,166 +463,93 @@ const PointCloudViewer = ({ isCollapsed }) => {
     };
   }, [pointCloud, boundingBox]);
 
-  // Function to load file from backend
   const loadFileFromBackend = async (fileId) => {
-    // Prevent multiple simultaneous loads
-    if (isLoading) {
-      console.log('File load already in progress, skipping...');
-      return;
-    }
-    
+    if (isLoading) return;
     setIsLoading(true);
     setError(null);
-
     try {
       const token = localStorage.getItem('authToken');
       if (!token) {
         setError('Authentication required');
         return;
       }
-
-      console.log('Getting file info from backend...');
-      // Get file information from the files list
-      const filesResponse = await axios.get(`http://localhost:5000/api/files/`, {
+      const filesResponse = await axios.get(`/api/files/`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-
       const files = filesResponse.data;
-      console.log('All files from API:', files.map(f => ({ id: f.id, name: f.name, status: f.status })));
       const fileInfo = files.find(file => file.id === parseInt(fileId));
-      
       if (!fileInfo) {
-        console.error(`File with ID ${fileId} not found in files list. Available IDs:`, files.map(f => f.id));
         setError(`File with ID ${fileId} not found`);
         return;
       }
-      
-      console.log('File info retrieved:', fileInfo);
       setFileInfo(fileInfo);
-
-      console.log('Downloading file from backend...');
-      console.log('File status:', fileInfo.status);
-      console.log('File stored_path:', fileInfo.stored_path);
-      console.log('File size_bytes:', fileInfo.size_bytes);
-      
-      // Download the file from backend
-      const response = await axios.get(`http://localhost:5000/api/files/download/${fileId}`, {
+      const response = await axios.get(`/api/files/download/${fileId}`, {
         headers: { 'Authorization': `Bearer ${token}` },
         responseType: 'blob'
       });
-
-      console.log('File downloaded, creating File object...');
-      // Create a File object from the blob
       const blob = new Blob([response.data]);
       const file = new File([blob], `file_${fileId}.las`, { type: 'application/octet-stream' });
-
-      // Process the file using existing logic
       await processFile(file);
-
     } catch (err) {
-      console.error('Error loading file from backend:', err);
       setError(`Failed to load file: ${err.response?.data?.message || err.message}`);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Function to process file (extracted from handleFileSelect)
   const processFile = async (file) => {
-    console.log('processFile called with file:', file.name);
     if (!file.name.toLowerCase().endsWith('.las') && !file.name.toLowerCase().endsWith('.laz')) {
       setError('Please select a LAS or LAZ file');
       return;
     }
-
     setSelectedFile(file);
     setError(null);
     setIsLoading(true);
-
     try {
-      // Parse LAS file with progress indication
-      console.log('Parsing LAS file...');
-      const { points, colors, treeIDs, numberOfPointRecords } = await parseLASFile(file, (progress) => {
-        console.log(`Parsing progress: ${progress}%`);
-      });
-      console.log('LAS file parsed successfully');
-      
-      // Clear scene in a separate frame to prevent blocking
+      const { points, colors, treeIDs } = await parseLASFile(file);
       await new Promise(resolve => {
         requestAnimationFrame(() => {
           if (sceneManagerRef.current) {
-            console.log('Clearing scene, children count before:', sceneManagerRef.current.scene.children.length);
-            
-            // Remove all point clouds and dispose of them
             const childrenToRemove = [];
             sceneManagerRef.current.scene.traverse((child) => {
-              if (child instanceof THREE.Points) {
-                childrenToRemove.push(child);
-              }
+              if (child instanceof THREE.Points) childrenToRemove.push(child);
             });
-            
-            childrenToRemove.forEach((pointCloud) => {
-              sceneManagerRef.current.scene.remove(pointCloud);
-              if (pointCloud.geometry) pointCloud.geometry.dispose();
-              if (pointCloud.material) pointCloud.material.dispose();
+            childrenToRemove.forEach((pc) => {
+              sceneManagerRef.current.scene.remove(pc);
+              if (pc.geometry) pc.geometry.dispose();
+              if (pc.material) pc.material.dispose();
             });
-            
-            // Dispose of bounding box
-            if (boundingBox) {
-              disposeBoundingBox(boundingBox);
-            }
-            
+            if (boundingBox) disposeBoundingBox(boundingBox);
             setBoundingBox(null);
             setPointCloud(null);
-            console.log('Scene children count after clearing:', sceneManagerRef.current.scene.children.length);
           }
-          // Small delay to allow UI to update
           setTimeout(resolve, 10);
         });
       });
 
-      // Create geometry and material in a separate frame
       await new Promise(resolve => {
         requestAnimationFrame(() => {
-          console.log('Creating point cloud geometry...');
-          const geometry = createPointCloudGeometry(points, colors);
+          const geometry = createPointCloudGeometry(points, colors, treeIDs);
           const material = createPointCloudMaterial();
           const newPointCloud = new THREE.Points(geometry, material);
-          
           sceneManagerRef.current.scene.add(newPointCloud);
           setPointCloud(newPointCloud);
-          console.log('Added new point cloud, scene children count:', sceneManagerRef.current.scene.children.length);
-          
-          // Store original geometry for filtering
           setOriginalGeometry(geometry.clone());
-          
-          // Initialize treeID data
           const treeIDMap = createInitialTreeIDs(treeIDs);
           setTreeIDs(treeIDMap);
           setTreeIDData(treeIDs);
-
-          // Create bounding box using the module
           const box = createBoundingBox(geometry, showBoundingBox);
-          
-          // Add the box as a child of the point cloud so it moves with it
           newPointCloud.add(box);
           setBoundingBox(box);
-
-          // Set camera to top view and get distance bounds
           const distanceBounds = sceneManagerRef.current.setCameraTopView(geometry);
           minDistanceRef.current = distanceBounds.minDistance;
           maxDistanceRef.current = distanceBounds.maxDistance;
-          
-          // Update controls
           sceneManagerRef.current.controls.setDistanceBounds(minDistanceRef.current, maxDistanceRef.current);
           sceneManagerRef.current.controls.setDragObjects([newPointCloud]);
-
           setError(null);
-          // Small delay to allow UI to update
           setTimeout(resolve, 10);
         });
       });
-
     } catch (err) {
       setError(`Error parsing file: ${err.message}`);
     } finally {
@@ -401,7 +557,6 @@ const PointCloudViewer = ({ isCollapsed }) => {
     }
   };
 
-  // Handle window resize and sidebar collapse
   useEffect(() => {
     const handleResize = () => {
       if (sceneManagerRef.current && canvasRef.current) {
@@ -409,134 +564,190 @@ const PointCloudViewer = ({ isCollapsed }) => {
         const container = canvas.parentElement;
         if (container) {
           const rect = container.getBoundingClientRect();
-          // Update canvas size
-          canvas.width = rect.width;
-          canvas.height = rect.height;
-          // Update renderer size
           sceneManagerRef.current.renderer.setSize(rect.width, rect.height);
-          // Update camera aspect ratio
           sceneManagerRef.current.camera.aspect = rect.width / rect.height;
           sceneManagerRef.current.camera.updateProjectionMatrix();
         }
       }
     };
-
-    // Use a small delay to ensure the layout has updated
     const timer = setTimeout(handleResize, 100);
-    
-    return () => {
-      clearTimeout(timer);
-    };
+    return () => clearTimeout(timer);
   }, [isCollapsed]);
 
 
-  // Handle file selection
   const handleFileSelect = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
-
     await processFile(file);
   };
 
-  // Toggle bounding box visibility
   const toggleBoundingBox = () => {
     const newVisibility = !showBoundingBox;
     updateBoundingBoxVisibility(boundingBox, newVisibility);
     setShowBoundingBox(newVisibility);
   };
 
-  // Toggle classification visibility
   const handleToggleClassification = (classificationId) => {
     const newClassifications = toggleClassification(classifications, classificationId);
-    
-    // Update point cloud geometry if point cloud exists
     if (pointCloud && originalGeometry) {
       const filteredGeometry = filterPointCloudByClassifications(originalGeometry, newClassifications);
       updatePointCloudGeometry(pointCloud, filteredGeometry);
     }
-    
-    // Update state
     setClassifications(newClassifications);
   };
 
-  // Toggle treeID visibility
   const handleToggleTreeID = (treeID) => {
     const newTreeIDs = toggleTreeID(treeIDs, treeID);
-    
-    // Update point cloud geometry if point cloud exists
     if (pointCloud && originalGeometry && treeIDData) {
       const filteredGeometry = filterPointCloudByTreeIDs(originalGeometry, treeIDData, newTreeIDs);
       updatePointCloudGeometry(pointCloud, filteredGeometry);
     }
-    
-    // Update state
     setTreeIDs(newTreeIDs);
   };
 
-  // Toggle all classifications
   const handleToggleAllClassifications = () => {
     const allVisible = Object.values(classifications).every(c => c.visible);
     const newClassifications = { ...classifications };
-    
     Object.keys(newClassifications).forEach(id => {
-      newClassifications[id] = {
-        ...newClassifications[id],
-        visible: !allVisible
-      };
+      newClassifications[id].visible = !allVisible;
     });
-    
-    // Update point cloud geometry if point cloud exists
     if (pointCloud && originalGeometry) {
       const filteredGeometry = filterPointCloudByClassifications(originalGeometry, newClassifications);
       updatePointCloudGeometry(pointCloud, filteredGeometry);
     }
-    
-    // Update state
     setClassifications(newClassifications);
   };
 
-  // Toggle all treeIDs
   const handleToggleAllTreeIDs = () => {
     const allVisible = Object.values(treeIDs).every(t => t.visible);
     const newTreeIDs = { ...treeIDs };
-    
     Object.keys(newTreeIDs).forEach(id => {
-      newTreeIDs[id] = {
-        ...newTreeIDs[id],
-        visible: !allVisible
-      };
+      newTreeIDs[id].visible = !allVisible;
     });
-    
-    // Update point cloud geometry if point cloud exists
     if (pointCloud && originalGeometry && treeIDData) {
       const filteredGeometry = filterPointCloudByTreeIDs(originalGeometry, treeIDData, newTreeIDs);
       updatePointCloudGeometry(pointCloud, filteredGeometry);
     }
-    
-    // Update state
     setTreeIDs(newTreeIDs);
   };
 
-  // Update point cloud colors based on filter mode
-  const updatePointCloudColors = () => {
-    if (!pointCloud || !originalGeometry) return;
 
-    if (filterMode === 'classification') {
-      // Use classification colors
-      const filteredGeometry = filterPointCloudByClassifications(originalGeometry, classifications);
-      updatePointCloudGeometry(pointCloud, filteredGeometry);
-    } else if (filterMode === 'treeID' && treeIDData) {
-      // Use treeID colors
-      const filteredGeometry = filterPointCloudByTreeIDs(originalGeometry, treeIDData, treeIDs);
-      updatePointCloudGeometry(pointCloud, filteredGeometry);
-    }
-  };
+  // Create annotation function instances with state setters
+  const handleAnnotationTypeChangeInstance = handleAnnotationTypeChange(setSelectedAnnotationType, setSelectedAnnotationValue);
+  const handleAnnotationValueSelectInstance = handleAnnotationValueSelect(setSelectedAnnotationValue);
+  const addNewAnnotationInstance = addNewAnnotation(setClassifications, setTreeIDs, selectedAnnotationType, newAnnotationName, newAnnotationColor, setSelectedAnnotationValue, setNewAnnotationName, setNewAnnotationColor);
+  const annotateAllVisiblePointsInstance = annotateAllVisiblePoints(setIsAnnotating, setAnnotationDialogOpen, selectedAnnotationValue, selectedAnnotationType, classifications, treeIDs, pointCloud, parts, selectedParts, originalGeometry, combineVisiblePartsInstance);
+  const handleAnnotationDialogCloseInstance = handleAnnotationDialogClose(setAnnotationDialogOpen, setSelectedAnnotationValue);
 
-  // Update colors when filter mode changes
+
   useEffect(() => {
     updatePointCloudColors();
-  }, [filterMode]);
+  }, [filterMode, classifications, treeIDs]);
 
+  // Fetch available projects for save dialog
+  useEffect(() => {
+    const fetchProjects = async () => {
+      try {
+        const token = localStorage.getItem('authToken');
+        if (!token) return;
+        
+        const response = await axios.get('/api/projects', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        setAvailableProjects(response.data || []);
+      } catch (err) {
+        console.error('Failed to fetch projects:', err);
+      }
+    };
+    fetchProjects();
+  }, []);
+
+  // Handle opening save dialog
+  const handleOpenSaveDialog = () => {
+    if (selectedParts.length === 0) {
+      setError('Please select a part to save');
+      return;
+    }
+    
+    const timestamp = new Date().toISOString().split('T')[0];
+    const baseName = fileInfo?.name?.replace('.las', '').replace('.laz', '') || 'point_cloud';
+    const partName = parts.find(p => p.id === selectedParts[0])?.name || 'Part';
+    setSavePartName(`${baseName}_${partName}_${timestamp}`);
+    
+    if (fileInfo) {
+      setSaveToProjectId(fileInfo.project_id || null);
+      setSavePlotName(fileInfo.plot_name || '');
+    }
+    
+    setEnableSegmentation(true);
+    setSaveDialogOpen(true);
+  };
+
+  // Handle saving selected part as new file
+  const handleSaveSelectedPart = async () => {
+    if (selectedParts.length === 0) {
+      setError('No part selected');
+      return;
+    }
+
+    setIsSavingPart(true);
+    setError(null);
+
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        throw new Error('Authentication required');
+      }
+
+      const selectedPart = parts.find(p => p.id === selectedParts[0]);
+      if (!selectedPart || !selectedPart.geometry) {
+        throw new Error('Selected part has no geometry');
+      }
+
+      console.log('Exporting geometry to LAS format...');
+      const geometryTreeIDs = selectedPart.geometry.attributes.treeID ? 
+        Array.from(selectedPart.geometry.attributes.treeID.array) : null;
+      const lasBlob = exportGeometryToLAS(selectedPart.geometry, null, geometryTreeIDs);
+      
+      const formData = new FormData();
+      const filename = `${savePartName}.las`;
+      formData.append('file', lasBlob, filename);
+      formData.append('plot_name', savePlotName || '');
+      if (saveToProjectId) {
+        formData.append('project_id', saveToProjectId);
+      }
+      formData.append('skipSegmentation', enableSegmentation ? 'false' : 'true');
+
+      console.log('Uploading to backend...');
+      const response = await axios.post('/api/files/upload', formData, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+
+      if (response.data.success) {
+        console.log('File uploaded successfully:', response.data.file);
+        const processingMsg = enableSegmentation 
+          ? 'The file will be processed with AI segmentation and appear in File Management shortly.'
+          : 'The file will be processed (without segmentation) and appear in File Management shortly.';
+        alert(`✅ Successfully saved "${savePartName}.las"!\n\n${processingMsg}`);
+        setSaveDialogOpen(false);
+        
+        setSavePartName('');
+        setSavePlotName('');
+        setSaveToProjectId(null);
+        setEnableSegmentation(true);
+      } else {
+        throw new Error(response.data.message || 'Upload failed');
+      }
+    } catch (err) {
+      console.error('Error saving part:', err);
+      setError(`Failed to save part: ${err.response?.data?.message || err.message}`);
+    } finally {
+      setIsSavingPart(false);
+    }
+  };
 
   return (
     <Box 
@@ -551,16 +762,13 @@ const PointCloudViewer = ({ isCollapsed }) => {
           {/* Left Controls Sidebar */}
           <Box sx={styles.controlsSidebar}>
             <Paper sx={styles.controlsPaper}>
-                     <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-                       <Typography 
-                         variant="h6" 
-                         sx={styles.controlsTitle}
-                       >
-                         Point Cloud Controls
-                       </Typography>
-                     </Box>
-                    
-                    <Box sx={styles.controlsContent}>
+               <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
+                 <Typography variant="h6" sx={styles.controlsTitle}>
+                   Point Cloud Controls
+                 </Typography>
+               </Box>
+              
+              <Box sx={styles.controlsContent}>
                 {!fileId && (
                   <>
                     <input
@@ -571,14 +779,7 @@ const PointCloudViewer = ({ isCollapsed }) => {
                       onChange={handleFileSelect}
                     />
                     <label htmlFor="las-file-input">
-                      <Button
-                        variant="contained"
-                        component="span"
-                        startIcon={<CloudUpload />}
-                        disabled={isLoading}
-                        sx={styles.uploadButton}
-                        fullWidth
-                      >
+                      <Button variant="contained" component="span" startIcon={<CloudUpload />} disabled={isLoading} sx={styles.uploadButton} fullWidth>
                         Choose LAS/LAZ File
                       </Button>
                     </label>
@@ -586,64 +787,102 @@ const PointCloudViewer = ({ isCollapsed }) => {
                 )}
                 
                 {selectedFile && fileInfo && (
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="h6" sx={{ color: colors.grey[100], mb: 1, fontWeight: 'bold' }}>
-                      File Information
-                    </Typography>
-                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, fontSize: '0.875rem' }}>
-                      <Box>
-                        <Typography variant="body2" sx={{ color: colors.grey[300], fontWeight: 'bold' }}>
-                          Name:
-                        </Typography>
-                        <Typography variant="body2" sx={{ color: colors.grey[100], wordBreak: 'break-word' }}>
-                          {fileInfo.name || selectedFile.name}
-                        </Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="body2" sx={{ color: colors.grey[300], fontWeight: 'bold' }}>
-                          Plot:
-                        </Typography>
-                        <Typography variant="body2" sx={{ color: colors.grey[100] }}>
-                          {fileInfo.plot_name || 'N/A'}
-                        </Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="body2" sx={{ color: colors.grey[300], fontWeight: 'bold' }}>
-                          Division:
-                        </Typography>
-                        <Typography variant="body2" sx={{ color: colors.grey[100] }}>
-                          {fileInfo.divisionName || 'N/A'}
-                        </Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="body2" sx={{ color: colors.grey[300], fontWeight: 'bold' }}>
-                          Project:
-                        </Typography>
-                        <Typography variant="body2" sx={{ color: colors.grey[100], wordBreak: 'break-word' }}>
-                          {fileInfo.projectName || 'N/A'}
-                        </Typography>
-                      </Box>
+                    <Box sx={{ mb: 2, p:1, border: `1px solid ${colors.grey[700]}`, borderRadius: '4px' }}>
+                        <Typography variant="subtitle1" sx={{ color: colors.grey[100], mb: 1, fontWeight: 'bold' }}>File Information</Typography>
+                        <Typography variant="body2" sx={{ color: colors.grey[200] }}>Name: <span style={{color: colors.grey[300]}}>{fileInfo.name || selectedFile.name}</span></Typography>
+                        <Typography variant="body2" sx={{ color: colors.grey[200] }}>Project: <span style={{color: colors.grey[300]}}>{fileInfo.projectName || 'N/A'}</span></Typography>
                     </Box>
-                  </Box>
                 )}
 
                 {isLoading && (
                   <Box sx={styles.loadingContainer}>
-                    <CircularProgress size={18} sx={styles.loadingSpinner} />
-                    <Typography variant="body2" sx={styles.loadingText}>
-                      Loading point cloud...
-                    </Typography>
+                    <CircularProgress size={18}/>
+                    <Typography variant="body2" sx={styles.loadingText}>Loading...</Typography>
                   </Box>
                 )}
 
+                {/* --- Point Cloud Parts --- */}
+                {pointCloud && (
+                  <Box sx={styles.annotationListSection}>
+                     <Box sx={{display: 'flex', alignItems: 'center', mb:1}}>
+                       <Typography sx={{...styles.annotationTitle, flex: 1, borderBottom: 'none', textAlign: 'center'}}>Point Cloud</Typography>
+                     </Box>
+                    
+                    <Box 
+                        sx={{...styles.annotationItem, ...(selectedParts.length === 0 ? styles.activeAnnotationItem : {})}}
+                        onClick={() => setSelectedParts([])}
+                      >
+                      <Typography sx={styles.annotationName}>Full Point Cloud</Typography>
+                    </Box>
+                    
+                    {parts.map(part => {
+                      const isSelected = selectedParts.includes(part.id);
+                      console.log('Part rendering:', {
+                        partId: part.id,
+                        partName: part.name,
+                        isSelected,
+                        selectedParts
+                      });
+                      
+                      return (
+                      <Box 
+                        key={part.id}
+                        sx={{
+                          ...styles.annotationItem, 
+                          ...(isSelected ? styles.activeAnnotationItem : {})
+                        }}
+                        onClick={(e) => {
+                          console.log('Click event:', {
+                            partId: part.id,
+                            ctrlKey: e.ctrlKey,
+                            metaKey: e.metaKey,
+                            currentSelectedParts: selectedParts
+                          });
+                          
+                          if (e.ctrlKey || e.metaKey) {
+                            // Multi-select mode
+                            handlePartMultiSelectInstance(part.id, e);
+                          } else {
+                            // Single select mode
+                            if (selectedParts.includes(part.id) && selectedParts.length === 1) {
+                              // If this is the only selected part, keep it selected (don't unselect)
+                              // Do nothing - part remains selected
+                            } else {
+                              // Otherwise, select only this part
+                              setSelectedParts([part.id]);
+                            }
+                          }
+                        }}
+                        onContextMenu={(e) => handleContextMenu(e, part.id)}
+                        title={`Click to view this part. Ctrl+click for multi-selection. Right-click for options.`}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+                            <Typography sx={styles.annotationName}>
+                              {part.name}
+                            </Typography>
+                          </Box>
+                          <Checkbox 
+                            checked={part.visible}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              handleTogglePartVisibilityInstance(part.id);
+                            }}
+                            sx={{ p: 0.5 }}
+                            size="small"
+                          />
+                        </Box>
+                      </Box>
+                      );
+                    })}
+                  </Box>
+                )}
+
+                {/* --- Filter Mode --- */}
                 {pointCloud && (
                   <FormControl fullWidth size="small" sx={styles.filterModeSelect}>
-                    <InputLabel>Select Filter Mode</InputLabel>
-                    <Select
-                      value={filterMode}
-                      label="Select Filter Mode"
-                      onChange={(e) => setFilterMode(e.target.value)}
-                    >
+                    <InputLabel>Filter Mode</InputLabel>
+                    <Select value={filterMode} label="Filter Mode" onChange={(e) => setFilterMode(e.target.value)}>
                       <MenuItem value="classification">Classification</MenuItem>
                       <MenuItem value="treeID">Tree ID</MenuItem>
                     </Select>
@@ -652,36 +891,13 @@ const PointCloudViewer = ({ isCollapsed }) => {
 
                 {pointCloud && filterMode === 'classification' && (
                   <Box sx={styles.classificationSection}>
-                    <Typography variant="h6" sx={styles.classificationTitle}>
-                      Classifications
-                    </Typography>
-                    <Box sx={styles.selectAllItem}>
-                      <Typography variant="body2" sx={styles.selectAllText}>
-                        Select All
-                      </Typography>
-                      <Checkbox
-                        checked={Object.values(classifications).every(c => c.visible)}
-                        indeterminate={Object.values(classifications).some(c => c.visible) && !Object.values(classifications).every(c => c.visible)}
-                        onChange={handleToggleAllClassifications}
-                        sx={styles.checkbox}
-                      />
-                    </Box>
+                    <Typography sx={styles.classificationTitle}>Classifications</Typography>
+                    <Box sx={styles.selectAllItem}><Typography sx={styles.selectAllText}>Select All</Typography><Checkbox checked={Object.values(classifications).every(c => c.visible)} indeterminate={!Object.values(classifications).every(c => c.visible) && Object.values(classifications).some(c => c.visible)} onChange={handleToggleAllClassifications} sx={styles.checkbox}/></Box>
                     {Object.entries(classifications).map(([id, classification]) => (
                       <Box key={id} sx={styles.classificationItem}>
-                        <Box
-                          sx={{
-                            ...styles.classificationColor,
-                            backgroundColor: `rgb(${classification.color[0] * 255}, ${classification.color[1] * 255}, ${classification.color[2] * 255})`
-                          }}
-                        />
-                        <Typography variant="body2" sx={styles.classificationName}>
-                          {classification.name}
-                        </Typography>
-                        <Checkbox
-                          checked={classification.visible}
-                          onChange={() => handleToggleClassification(id)}
-                          sx={styles.checkbox}
-                        />
+                        <Box sx={{...styles.classificationColor, backgroundColor: `rgb(${classification.color.map(c=>c*255).join(',')})`}}/>
+                        <Typography sx={styles.classificationName}>{classification.name}</Typography>
+                        <Checkbox checked={classification.visible} onChange={() => handleToggleClassification(id)} sx={styles.checkbox}/>
                       </Box>
                     ))}
                   </Box>
@@ -689,59 +905,102 @@ const PointCloudViewer = ({ isCollapsed }) => {
 
                 {pointCloud && filterMode === 'treeID' && (
                   <Box sx={styles.classificationSection}>
-                    <Typography variant="h6" sx={styles.classificationTitle}>
-                      Tree IDs ({Object.keys(treeIDs).length - 1} trees)
-                    </Typography>
-                    <Box sx={styles.selectAllItem}>
-                      <Typography variant="body2" sx={styles.selectAllText}>
-                        Select All
-                      </Typography>
-                      <Checkbox
-                        checked={Object.values(treeIDs).every(t => t.visible)}
-                        indeterminate={Object.values(treeIDs).some(t => t.visible) && !Object.values(treeIDs).every(t => t.visible)}
-                        onChange={handleToggleAllTreeIDs}
-                        sx={styles.checkbox}
-                      />
-                    </Box>
-                    {Object.entries(treeIDs).map(([id, treeID]) => (
+                     <Typography sx={styles.classificationTitle}>Tree IDs ({Object.keys(treeIDs).length - 1} trees)</Typography>
+                     <Box sx={styles.selectAllItem}><Typography sx={styles.selectAllText}>Select All</Typography><Checkbox checked={Object.values(treeIDs).every(t => t.visible)} indeterminate={!Object.values(treeIDs).every(t => t.visible) && Object.values(treeIDs).some(t => t.visible)} onChange={handleToggleAllTreeIDs} sx={styles.checkbox}/></Box>
+                     {Object.entries(treeIDs).map(([id, treeID]) => (
                       <Box key={id} sx={styles.classificationItem}>
-                        <Box
-                          sx={{
-                            ...styles.classificationColor,
-                            backgroundColor: `rgb(${treeID.color[0] * 255}, ${treeID.color[1] * 255}, ${treeID.color[2] * 255})`
-                          }}
-                        />
-                        <Typography variant="body2" sx={styles.classificationName}>
-                          {treeID.name}
-                        </Typography>
-                        <Checkbox
-                          checked={treeID.visible}
-                          onChange={() => handleToggleTreeID(id)}
-                          sx={styles.checkbox}
-                        />
+                        <Box sx={{...styles.classificationColor, backgroundColor: `rgb(${treeID.color.map(c=>c*255).join(',')})`}}/>
+                        <Typography sx={styles.classificationName}>{treeID.name}</Typography>
+                        <Checkbox checked={treeID.visible} onChange={() => handleToggleTreeID(id)} sx={styles.checkbox}/>
                       </Box>
                     ))}
                   </Box>
                 )}
 
+                {/* --- Combined Tools Container --- */}
                 {pointCloud && (
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={showBoundingBox}
-                        onChange={toggleBoundingBox}
-                        sx={styles.checkbox}
+                  <Box sx={styles.annotationSection}>
+                    <Typography sx={styles.annotationTitle}>Tools & Controls</Typography>
+                    
+                    {/* Bounding Box */}
+                    <FormControlLabel 
+                      control={<Checkbox checked={showBoundingBox} onChange={toggleBoundingBox} sx={styles.checkbox}/>} 
+                      label="Show Bounding Box" 
+                      sx={styles.checkboxLabel}
+                    />
+                    
+                    {/* Point Size */}
+                    <Box sx={{ px: 1, mt: 2 }}>
+                      <Typography gutterBottom variant="body2" sx={{ color: colors.grey[300] }}>
+                        Point Size
+                      </Typography>
+                      <Slider
+                        value={pointSize}
+                        onChange={(e, newValue) => setPointSize(newValue)}
+                        aria-labelledby="point-size-slider"
+                        valueLabelDisplay="auto"
+                        step={0.1}
+                        min={1}
+                        max={10}
+                        sx={{ color: colors.greenAccent[500] }}
                       />
-                    }
-                    label="Show Bounding Box"
-                    sx={styles.checkboxLabel}
-                  />
+                    </Box>
+                    
+                    {/* Annotation Button */}
+                    <Button
+                      variant="contained"
+                      onClick={() => setAnnotationDialogOpen(true)}
+                      disabled={isAnnotating}
+                      fullWidth
+                      sx={{ mt: 2, mb: 2 }}
+                      startIcon={<Edit />}
+                    >
+                      Annotate Selected Part
+                    </Button>
+                    
+                    {/* Save Selected Part Button */}
+                    {selectedParts.length > 0 && (
+                      <Button
+                        variant="contained"
+                        color="success"
+                        onClick={handleOpenSaveDialog}
+                        disabled={isSavingPart}
+                        fullWidth
+                        sx={{ mt: 1, mb: 2 }}
+                        startIcon={<CloudDownload />}
+                      >
+                        Save Selected Part
+                      </Button>
+                    )}
+                    
+                    {/* Selection Tool */}
+                    <Box sx={{ mt: 2 }}>
+                      <Typography gutterBottom variant="body2" sx={{ color: colors.grey[300], mb: 1 }}>
+                        Selection Tool
+                      </Typography>
+                      {isProcessingLasso && (
+                        <Box sx={styles.loadingContainer}>
+                            <CircularProgress size={18}/>
+                            <Typography sx={styles.loadingText}>Processing Selection...</Typography>
+                        </Box>
+                      )}
+                      <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1}}>
+                        <IconButton
+                          sx={{...styles.toolButton, ...(activeTool === 'lasso' ? {backgroundColor: colors.primary[700], color: colors.grey[100]} : {})}}
+                          onClick={() => handleToolSelect('lasso')} 
+                          title="Lasso Selection Tool"
+                          disabled={isProcessingLasso}
+                        >
+                          <Gesture />
+                        </IconButton>
+                      </Box>
+                    </Box>
+                  </Box>
                 )}
 
+
                 {error && (
-                  <Alert severity="error" sx={styles.errorAlert}>
-                    {error}
-                  </Alert>
+                  <Alert severity="error" sx={styles.errorAlert}>{error}</Alert>
                 )}
               </Box>
             </Paper>
@@ -749,70 +1008,425 @@ const PointCloudViewer = ({ isCollapsed }) => {
 
           {/* Main Viewer Area */}
           <Box sx={styles.renderArea}>
-            <canvas
-              ref={canvasRef}
-              style={styles.canvas}
-            />
+            <canvas ref={canvasRef} style={styles.canvas}/>
           </Box>
 
-          {/* MiniMap Toggle Button */}
-          <IconButton
-            onClick={toggleMiniMap}
-            sx={{
-              position: 'absolute',
-              top: '15px',
-              left: '315px',
-              zIndex: 1002,
-              backgroundColor: 'rgba(0, 0, 0, 0.1)',
-              color: 'white',
-              borderRadius: '50%',
-              width: BUTTON_FIXED_SIZE,
-              height: BUTTON_FIXED_SIZE,
-              cursor: 'pointer',
-              '&:hover': {
-                backgroundColor: 'rgba(0, 0, 0, 0.3)',
-              },
-              boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
-            }}
-            title={showMiniMap ? "Hide Mini-map" : "Show Mini-map"}
-          >
-            {showMiniMap ? <Close fontSize="small"/> : <Map fontSize="small"/>}
+          {/* MiniMap Toggle Button & Container */}
+          <IconButton onClick={toggleMiniMap} sx={{ position: 'absolute', top: '15px', left: '315px', zIndex: 1002, backgroundColor: 'rgba(0,0,0,0.2)', color: 'white', '&:hover': {backgroundColor: 'rgba(0,0,0,0.4)'}}}>
+            {showMiniMap ? <Close /> : <Map />}
           </IconButton>
-
-          {/* Mini-map Container */}
           {showMiniMap && (
             <Box sx={miniMapContainerStyle}>
-              {isLoadingMiniMapFiles && (
-                <Box sx={{display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%'}}>
-                  <CircularProgress size={30} />
-                </Box>
-              )}
-              {errorMiniMapFiles && !isLoadingMiniMapFiles && (
-                 <Box sx={{display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100%', padding: 1, textAlign: 'center'}}>
-                    <Typography variant="caption" color="error" sx={{fontSize: '0.7rem'}}>Failed to load map data.</Typography>
-                    <Typography variant="caption" color="error" sx={{fontSize: '0.65rem', wordBreak: 'break-all'}}>{errorMiniMapFiles.substring(0,100)}</Typography>
-                 </Box>
-              )}
-              {!isLoadingMiniMapFiles && !errorMiniMapFiles && miniMapFiles.length > 0 && (
-                <MiniMap
-                  files={miniMapFiles}
-                  currentFileId={fileId ? parseInt(fileId) : null}
-                  mapHeight="100%"
-                  mapWidth="100%"
-                  colors={colors}
-                />
-              )}
-               {!isLoadingMiniMapFiles && !errorMiniMapFiles && miniMapFiles.length === 0 && (
-                 <Box sx={{display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', padding: 1}}>
-                    <Typography variant="caption" color="textSecondary" sx={{fontSize: '0.75rem'}}>No geolocated sites found.</Typography>
-                 </Box>
-              )}
+                {isLoadingMiniMapFiles && <CircularProgress/>}
+                {errorMiniMapFiles && <Typography color="error">{errorMiniMapFiles}</Typography>}
+                {!isLoadingMiniMapFiles && !errorMiniMapFiles && miniMapFiles.length > 0 && (
+                    <MiniMap files={miniMapFiles} currentFileId={fileId ? parseInt(fileId) : null} colors={colors}/>
+                )}
+                {!isLoadingMiniMapFiles && !errorMiniMapFiles && miniMapFiles.length === 0 && <Typography>No geolocated files found.</Typography>}
             </Box>
-          )}
-        </Box>
-      </Box>
-    </Box>
-  );
-};
+           )}
 
-export default PointCloudViewer;
+         </Box>
+       </Box>
+
+       {/* Annotation Dialog */}
+       <Dialog 
+         open={annotationDialogOpen} 
+         onClose={handleAnnotationDialogClose}
+         maxWidth="sm"
+         fullWidth
+       >
+         <DialogTitle>
+           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+             <Edit sx={{ color: colors.greenAccent[500] }} />
+             Annotate Selected Part
+           </Box>
+         </DialogTitle>
+         <DialogContent>
+           <Box sx={{ mt: 2 }}>
+             <Typography variant="body2" sx={{ color: colors.grey[300], mb: 2 }}>
+               {parts.length === 0 
+                 ? "This will annotate the full point cloud"
+                 : selectedParts.length === 0 
+                   ? "Please select a part to annotate"
+                   : selectedParts.length === 1
+                     ? `This will annotate: ${parts.find(p => p.id === selectedParts[0])?.name || 'Selected Part'}`
+                     : `This will annotate ${selectedParts.length} selected parts`
+               }
+             </Typography>
+             
+             <FormControl fullWidth sx={{ mb: 2 }}>
+               <InputLabel>Annotation Type</InputLabel>
+               <Select 
+                 value={selectedAnnotationType} 
+                 label="Annotation Type" 
+                 onChange={(e) => handleAnnotationTypeChangeInstance(e.target.value)}
+               >
+                 <MenuItem value="classification">Classification</MenuItem>
+                 <MenuItem value="treeID">Tree ID</MenuItem>
+               </Select>
+             </FormControl>
+             
+             {selectedAnnotationType === 'classification' && (
+               <FormControl fullWidth sx={{ mb: 2 }}>
+                 <InputLabel>Classification</InputLabel>
+                 <Select 
+                   value={selectedAnnotationValue || ''} 
+                   label="Classification" 
+                   onChange={(e) => handleAnnotationValueSelectInstance(e.target.value)}
+                 >
+                   {Object.entries(classifications).map(([id, classification]) => (
+                     <MenuItem key={id} value={id}>
+                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                         <Box sx={{
+                           width: 16, 
+                           height: 16, 
+                           backgroundColor: `rgb(${classification.color.map(c=>c*255).join(',')})`,
+                           borderRadius: '2px'
+                         }} />
+                         {classification.name}
+                       </Box>
+                     </MenuItem>
+                   ))}
+                 </Select>
+               </FormControl>
+             )}
+             
+             {selectedAnnotationType === 'treeID' && (
+               <FormControl fullWidth sx={{ mb: 2 }}>
+                 <InputLabel>Tree ID</InputLabel>
+                 <Select 
+                   value={selectedAnnotationValue || ''} 
+                   label="Tree ID" 
+                   onChange={(e) => handleAnnotationValueSelectInstance(e.target.value)}
+                 >
+                   {Object.entries(treeIDs).map(([id, treeID]) => (
+                     <MenuItem key={id} value={id}>
+                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                         <Box sx={{
+                           width: 16, 
+                           height: 16, 
+                           backgroundColor: `rgb(${treeID.color.map(c=>c*255).join(',')})`,
+                           borderRadius: '2px'
+                         }} />
+                         {treeID.name}
+                       </Box>
+                     </MenuItem>
+                   ))}
+                 </Select>
+               </FormControl>
+             )}
+             
+             {/* Add New Annotation Section */}
+             <Box sx={{ mt: 3, p: 2, backgroundColor: colors.primary[800], borderRadius: '4px' }}>
+               <Typography variant="subtitle2" sx={{ color: colors.grey[200], mb: 2 }}>
+                 Or Add New {selectedAnnotationType === 'classification' ? 'Classification' : 'Tree ID'}
+               </Typography>
+               <TextField
+                 fullWidth
+                 size="small"
+                 label={`New ${selectedAnnotationType === 'classification' ? 'Classification' : 'Tree ID'} Name`}
+                 value={newAnnotationName}
+                 onChange={(e) => setNewAnnotationName(e.target.value)}
+                 sx={{ mb: 2 }}
+               />
+               <Box sx={{ display: 'flex', gap: 1 }}>
+                 <Button
+                   variant="outlined"
+                   onClick={addNewAnnotationInstance}
+                   disabled={!newAnnotationName.trim()}
+                   sx={{ flex: 1 }}
+                 >
+                   Add New
+                 </Button>
+                 <Button
+                   variant="outlined"
+                   onClick={() => setNewAnnotationColor(generateRandomColor())}
+                   sx={{ minWidth: 'auto', px: 2 }}
+                 >
+                   Random Color
+                 </Button>
+               </Box>
+             </Box>
+           </Box>
+         </DialogContent>
+         <DialogActions>
+           <Button onClick={handleAnnotationDialogCloseInstance}>
+             Cancel
+           </Button>
+           <Button 
+             onClick={annotateAllVisiblePointsInstance}
+             variant="contained"
+             disabled={!selectedAnnotationValue || isAnnotating || (parts.length > 0 && selectedParts.length === 0)}
+             startIcon={<Save />}
+           >
+             {isAnnotating ? 'Applying...' : 'Apply Annotation'}
+           </Button>
+         </DialogActions>
+       </Dialog>
+
+      {/* Save Selected Part Dialog */}
+      <Dialog 
+        open={saveDialogOpen} 
+        onClose={() => !isSavingPart && setSaveDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            backgroundColor: colors.primary[400],
+            backgroundImage: 'none',
+          }
+        }}
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CloudDownload sx={{ color: colors.greenAccent[500], fontSize: 32 }} />
+              <Box>
+                <Typography variant="h5" sx={{ fontWeight: 600, color: colors.grey[100] }}>
+                  Save Selected Part as New File
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.grey[300] }}>
+                  Export and process the selected point cloud region
+                </Typography>
+              </Box>
+            </Box>
+            <IconButton 
+              onClick={() => setSaveDialogOpen(false)} 
+              disabled={isSavingPart}
+              sx={{ color: colors.grey[300] }}
+            >
+              <Close />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ pt: 2 }}>
+            <Alert 
+              severity="info" 
+              sx={{ 
+                mb: 3,
+                backgroundColor: colors.primary[700],
+                '& .MuiAlert-icon': { color: colors.blueAccent[500] }
+              }}
+            >
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                This will export the selected region as a new .las file and automatically process it through the analysis pipeline.
+              </Typography>
+            </Alert>
+
+            <Paper sx={{ p: 2, mb: 3, backgroundColor: colors.primary[700], boxShadow: 'none' }}>
+              <Typography variant="subtitle2" sx={{ color: colors.grey[100], mb: 2, fontWeight: 600 }}>
+                📁 File Information
+              </Typography>
+              
+              <TextField
+                fullWidth
+                label="File Name *"
+                value={savePartName}
+                onChange={(e) => setSavePartName(e.target.value)}
+                sx={{ mb: 2 }}
+                helperText="Enter a descriptive name (without .las extension)"
+                required
+                error={!savePartName.trim() && savePartName.length > 0}
+                InputProps={{
+                  endAdornment: <Typography sx={{ color: colors.grey[400] }}>.las</Typography>
+                }}
+              />
+              
+              <TextField
+                fullWidth
+                label="Plot Name"
+                value={savePlotName}
+                onChange={(e) => setSavePlotName(e.target.value)}
+                sx={{ mb: 2 }}
+                helperText="Optional: Assign this file to a specific plot"
+                placeholder="e.g., Plot A, Section 1"
+              />
+              
+              <FormControl fullWidth>
+                <InputLabel>Project Assignment</InputLabel>
+                <Select 
+                  value={saveToProjectId || ''} 
+                  label="Project Assignment" 
+                  onChange={(e) => setSaveToProjectId(e.target.value || null)}
+                >
+                  <MenuItem value="">
+                    <em>None (Unassigned)</em>
+                  </MenuItem>
+                  {availableProjects.map(project => (
+                    <MenuItem key={project.id} value={project.id}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ 
+                          width: 8, 
+                          height: 8, 
+                          borderRadius: '50%', 
+                          backgroundColor: colors.greenAccent[500] 
+                        }} />
+                        {project.name}
+                        {project.division_name && (
+                          <Typography variant="caption" sx={{ color: colors.grey[400], ml: 1 }}>
+                            ({project.division_name})
+                          </Typography>
+                        )}
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Paper>
+
+            <Paper sx={{ p: 2, mb: 2, backgroundColor: colors.primary[700], boxShadow: 'none' }}>
+              <Typography variant="subtitle2" sx={{ color: colors.grey[100], mb: 2, fontWeight: 600 }}>
+                ⚙️ Processing Options
+              </Typography>
+              
+              <FormControlLabel
+                control={
+                  <Checkbox 
+                    checked={enableSegmentation}
+                    onChange={(e) => setEnableSegmentation(e.target.checked)}
+                    sx={{ 
+                      color: colors.greenAccent[600],
+                      '&.Mui-checked': {
+                        color: colors.greenAccent[500],
+                      }
+                    }}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 500, color: colors.grey[100] }}>
+                      Enable AI Segmentation
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: colors.grey[400], display: 'block', mt: 0.5 }}>
+                      {enableSegmentation 
+                        ? '✓ AI will classify points into terrain, vegetation, stems, and branches'
+                        : '✗ Only basic metrics will be extracted (faster processing)'
+                      }
+                    </Typography>
+                  </Box>
+                }
+              />
+
+              <Box sx={{ 
+                mt: 2, 
+                p: 1.5, 
+                backgroundColor: colors.primary[800], 
+                borderRadius: 1,
+                borderLeft: `4px solid ${enableSegmentation ? colors.greenAccent[500] : colors.blueAccent[500]}`
+              }}>
+                <Typography variant="caption" sx={{ color: colors.grey[300], display: 'flex', alignItems: 'center', gap: 1 }}>
+                  ⏱️ Estimated processing time: 
+                  <strong style={{ color: colors.grey[100] }}>
+                    {enableSegmentation ? '5-15 minutes' : '1-3 minutes'}
+                  </strong>
+                  {enableSegmentation && ' (includes AI segmentation)'}
+                </Typography>
+              </Box>
+            </Paper>
+
+            <Paper sx={{ p: 2, backgroundColor: colors.primary[700], boxShadow: 'none' }}>
+              <Typography variant="subtitle2" sx={{ color: colors.grey[100], mb: 1.5, fontWeight: 600 }}>
+                📊 Metrics to be Calculated
+              </Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 1 }}>
+                <Typography variant="caption" sx={{ color: colors.grey[300] }}>
+                  ✓ Tree count & positions
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.grey[300] }}>
+                  ✓ Tree heights
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.grey[300] }}>
+                  ✓ DBH (diameter at breast height)
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.grey[300] }}>
+                  ✓ Volume calculations
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.grey[300] }}>
+                  ✓ Biomass estimates
+                </Typography>
+                <Typography variant="caption" sx={{ color: colors.grey[300] }}>
+                  ✓ Carbon sequestration
+                </Typography>
+              </Box>
+            </Paper>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button 
+            onClick={() => setSaveDialogOpen(false)} 
+            disabled={isSavingPart}
+            sx={{ color: colors.grey[300] }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSaveSelectedPart}
+            variant="contained"
+            color="success"
+            disabled={!savePartName.trim() || isSavingPart}
+            startIcon={isSavingPart ? <CircularProgress size={20} /> : <Save />}
+            sx={{
+              px: 3,
+              backgroundColor: colors.greenAccent[600],
+              '&:hover': {
+                backgroundColor: colors.greenAccent[700],
+              }
+            }}
+          >
+            {isSavingPart ? 'Saving and Processing...' : 'Save and Process'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+        {/* Context Menu */}
+        <Menu
+         open={contextMenu !== null}
+         onClose={handleCloseContextMenu}
+         anchorReference="anchorPosition"
+         anchorPosition={
+           contextMenu !== null
+             ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
+             : undefined
+         }
+       >
+         {selectedParts.length > 1 ? (
+           <>
+             <MenuItem onClick={handleDeleteSelectedParts}>
+               <ListItemIcon>
+                 <Delete fontSize="small" />
+               </ListItemIcon>
+               <ListItemText>Delete Selected Parts ({selectedParts.length})</ListItemText>
+             </MenuItem>
+             <MenuItem onClick={handleMergeSelectedParts}>
+               <ListItemIcon>
+                 <Merge fontSize="small" />
+               </ListItemIcon>
+               <ListItemText>Merge Selected Parts ({selectedParts.length})</ListItemText>
+             </MenuItem>
+           </>
+         ) : (
+           <>
+             <MenuItem onClick={() => handleDeletePart(contextMenu?.partId)}>
+               <ListItemIcon>
+                 <Delete fontSize="small" />
+               </ListItemIcon>
+               <ListItemText>Delete Part</ListItemText>
+             </MenuItem>
+             {selectedParts.length >= 2 && (
+               <MenuItem onClick={handleMergeSelectedParts}>
+                 <ListItemIcon>
+                   <Merge fontSize="small" />
+                 </ListItemIcon>
+                 <ListItemText>Merge Selected Parts ({selectedParts.length})</ListItemText>
+               </MenuItem>
+             )}
+           </>
+         )}
+       </Menu>
+     </Box>
+   );
+ };
+ 
+ export default PointCloudViewer;

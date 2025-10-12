@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-const API_BASE_URL = "http://localhost:5000/api/auth";
+// Use relative URL so CRA dev proxy (package.json "proxy") forwards to backend
+// This makes it work from other PCs on the LAN because the browser will
+// call the host's dev server origin instead of the client's localhost.
+const API_BASE_URL = "/api/auth";
 
 /**
  * Handles the initial login request.

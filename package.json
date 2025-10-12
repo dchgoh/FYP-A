@@ -49,10 +49,11 @@
     "recharts": "^2.15.1",
     "socket.io": "^4.8.1",
     "three": "^0.175.0",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^2.1.4",
+    "xlsx": "^0.18.5"
   },
   "scripts": {
-    "prestart": "cd backend && python -m venv venv && .\\venv\\Scripts\\python.exe -m pip install laspy pyproj torch numpy argparse tqdm scipy",
+    "prestart": "cd backend && python -m venv venv && .\\venv\\Scripts\\python.exe -m pip install --upgrade pip && .\\venv\\Scripts\\python.exe -m pip install --upgrade laspy pyproj torch numpy argparse tqdm scipy",
     "start": "concurrently \"npm run server\" \"npm run client\" \"npm run backup\"",
     "server": "cd backend && CALL .\\venv\\Scripts\\activate.bat && node server.js",
     "client": "set PORT=3000&& set DANGEROUSLY_DISABLE_HOST_CHECK=true&& react-scripts start",

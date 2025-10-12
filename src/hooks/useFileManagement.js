@@ -2,9 +2,11 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from 'axios';
 import { jwtDecode } from 'jwt-decode';
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
 
 // --- CONSTANTS ---
-const API_BASE_URL = "http://localhost:5000/api";
+const API_BASE_URL = "/api";
 const ROLES = {
   ADMIN: 'Administrator',
   DATA_MANAGER: 'Data Manager',
@@ -75,9 +77,10 @@ export const useFileManagement = () => {
     const [filesBeingProcessed, setFilesBeingProcessed] = useState(new Set());
     const [isPolling, setIsPolling] = useState(false);
     const [skipSegmentation, setSkipSegmentation] = useState(false);
-    const [processingModalOpen, setProcessingModalOpen] = useState(false);
     const [selectedFileIds, setSelectedFileIds] = useState(new Set());
     const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+    const [exportSelectedFiles, setExportSelectedFiles] = useState(new Set());
+    const [exportModalOpen, setExportModalOpen] = useState(false);
 
     // --- UTILITY FUNCTIONS ---
     const showSnackbar = useCallback((message, severity = "success") => {
@@ -98,24 +101,12 @@ export const useFileManagement = () => {
         return files.filter(file => processingStatuses.includes(file.status));
       }, [files]);
     
-      // Handle processing modal open/close
-      const handleOpenProcessingModal = () => {
-        setProcessingModalOpen(true);
-      };
-    
-      const handleCloseProcessingModal = () => {
-        setProcessingModalOpen(false);
-      };
-    
-      const handleToggleProcessingModal = () => {
-        fetchFiles(); // Refresh data when toggling
-      };
     
       // --- PERMISSION CHECK FUNCTION ---
       const canPerformAction = useCallback((action, file = null) => {
         if (isLoadingPermissions || !userRole) return false;
     
-        const requiresFileContext = ['download', 'delete', 'convert', 'assignProject', 'view', 'reassign']; // Added reassign
+        const requiresFileContext = ['download', 'delete', 'assignProject', 'view', 'reassign']; // Added reassign
         if (requiresFileContext.includes(action) && !file) {
              if (action !== 'upload' && action !== 'manageAssignments' && action !== 'createProject' && action !== 'createDivision') { // Added createProject, createDivision
                  console.warn(`canPerformAction denied - missing file object for action: ${action}`);
@@ -393,7 +384,14 @@ export const useFileManagement = () => {
     
       // --- ACTION HANDLERS ---
       const handleMenuClick = (event, file) => { setAnchorEl(event.currentTarget); setSelectedFile(file); };
-      const handleMenuClose = () => { setAnchorEl(null); /* setSelectedFile(null) potentially later if needed */ };
+      const handleMenuClose = (event) => {
+        // It's good practice to check if the event object exists
+        if (event && typeof event.stopPropagation === 'function') {
+            event.stopPropagation();
+        }
+        setAnchorEl(null);
+        /* setSelectedFile(null) potentially later if needed */
+        };
     
       const handleDownload = async (fileToDownload) => {
         if (!canPerformAction('download', fileToDownload)) { showSnackbar("Permission denied.", "error"); handleMenuClose(); return; }
@@ -428,7 +426,7 @@ export const useFileManagement = () => {
         if (!fileId) { handleMenuClose(); return; }
         handleMenuClose(); // Close menu before confirmation
         
-        const conf = window.confirm(`Delete "${fileToRemove.name}" and associated Potree data?`);
+        const conf = window.confirm(`Delete "${fileToRemove.name}" and associated data?`);
         if (!conf) return;
     
         const token = localStorage.getItem('authToken');
@@ -960,19 +958,27 @@ export const useFileManagement = () => {
         return projectsList.filter(p => p.division_id === numericDivisionId);
       }, [projectsList, filterDivisionId]); 
     
-      const handleOpenReassignModal = (file) => {
-        if (!canPerformAction('reassign', file)) {
-            showSnackbar("Permission denied.", "error");
-            handleMenuClose();
-            return;
-        }
-        if (!file) return;
-        setFileToReassign(file);
-        setSelectedProjectIdForReassign(file.project_id ?? ''); 
-        setNewPlotNameForReassign(file.plot_name || ''); 
-        setReassignModalOpen(true);
-        handleMenuClose(); 
-    };
+      // In useFileManagement.js
+
+        const handleOpenReassignModal = (file) => {
+            // It's good practice to close the menu first in case of an early return.
+            handleMenuClose(); 
+
+            if (!canPerformAction('reassign', file)) {
+                showSnackbar("Permission denied.", "error");
+                // We already closed the menu, so no need to call it again here.
+                return;
+            }
+
+            if (!file) return;
+
+            setFileToReassign(file);
+            setSelectedProjectIdForReassign(file.project_id ?? '');
+            setNewPlotNameForReassign(file.plot_name || '');
+            setReassignModalOpen(true);
+            
+            // The menu is already closed. The call was here and should be removed.
+        };
     
     const handleCloseReassignModal = () => {
         if (isReassigning) return; 
@@ -1170,6 +1176,169 @@ export const useFileManagement = () => {
         fetchFiles(); // Refresh the file list
     };
 
+    // --- EXPORT MODAL HANDLERS ---
+    const handleOpenExportModal = useCallback(() => {
+        const readyFiles = files.filter(file => file.status === 'ready');
+        if (readyFiles.length === 0) {
+            showSnackbar("No ready files available for export.", "warning");
+            return;
+        }
+        setExportModalOpen(true);
+        // Pre-select all ready files by default
+        setExportSelectedFiles(new Set(readyFiles.map(file => file.id)));
+    }, [files, showSnackbar]);
+
+    const handleCloseExportModal = useCallback(() => {
+        setExportModalOpen(false);
+        setExportSelectedFiles(new Set());
+    }, []);
+
+    const handleExportFileSelection = useCallback((fileId, isSelected) => {
+        setExportSelectedFiles(prev => {
+            const newSet = new Set(prev);
+            if (isSelected) {
+                newSet.add(fileId);
+            } else {
+                newSet.delete(fileId);
+            }
+            return newSet;
+        });
+    }, []);
+
+    const handleSelectAllForExport = useCallback((isSelected) => {
+        const readyFiles = files.filter(file => file.status === 'ready');
+        if (isSelected) {
+            setExportSelectedFiles(new Set(readyFiles.map(file => file.id)));
+        } else {
+            setExportSelectedFiles(new Set());
+        }
+    }, [files]);
+
+    // --- EXPORT FUNCTIONALITY ---
+    const handleExportToExcel = useCallback(async (selectedFileIds = null) => {
+        const filesToExport = selectedFileIds ? 
+            files.filter(file => selectedFileIds.has(file.id) && file.status === 'ready') :
+            files.filter(file => file.status === 'ready');
+
+        if (filesToExport.length === 0) {
+            showSnackbar("No ready files to export.", "warning");
+            return;
+        }
+
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            showSnackbar("Authentication required for export.", "error");
+            return;
+        }
+
+        try {
+            showSnackbar("Preparing tree data export...", "info");
+
+            // Fetch detailed tree data from the API for selected files
+            const fileIds = filesToExport.map(file => file.id);
+            const params = { fileIds: fileIds.join(',') };
+
+            const response = await axios.get(`${API_BASE_URL}/files/export/tree-data`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                params: params
+            });
+
+            if (!response.data.success || !response.data.data) {
+                showSnackbar("No tree data available for export.", "warning");
+                return;
+            }
+
+            const treeData = response.data.data;
+            const totalTrees = response.data.total_trees;
+            const totalFiles = response.data.total_files;
+
+            if (treeData.length === 0) {
+                showSnackbar("No tree measurements found in the selected files.", "warning");
+                return;
+            }
+
+            // Prepare data for Excel export with tree measurements
+            const exportData = treeData.map(tree => ({
+                'File ID': tree.file_id,
+                'File Name': tree.file_name,
+                'Plot Name': tree.plot_name,
+                'Division': tree.division_name,
+                'Project': tree.project_name,
+                'Upload Date': tree.upload_date,
+                'Tree ID': tree.tree_id,
+                'Tree Latitude': tree.tree_latitude,
+                'Tree Longitude': tree.tree_longitude,
+                'Tree Height (m)': tree.tree_height_m,
+                'Tree DBH (cm)': tree.tree_dbh_cm,
+                'Stem Volume (m³)': tree.tree_stem_volume_m3,
+                'Above Ground Volume (m³)': tree.tree_above_ground_volume_m3,
+                'Total Volume (m³)': tree.tree_total_volume_m3,
+                'Biomass (tonnes)': tree.tree_biomass_tonnes,
+                'Carbon (tonnes)': tree.tree_carbon_tonnes,
+                'CO2 Equivalent (tonnes)': tree.tree_co2_equivalent_tonnes,
+                'File Latitude': tree.file_latitude,
+                'File Longitude': tree.file_longitude,
+                'Trees in File': tree.tree_count_in_file,
+                'Assumed D2 (cm)': tree.assumed_d2_cm_for_volume
+            }));
+
+            // Create workbook and worksheet
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.json_to_sheet(exportData);
+
+            // Set column widths for better readability
+            const colWidths = [
+                { wch: 8 },  // File ID
+                { wch: 30 }, // File Name
+                { wch: 20 }, // Plot Name
+                { wch: 20 }, // Division
+                { wch: 25 }, // Project
+                { wch: 15 }, // Upload Date
+                { wch: 10 }, // Tree ID
+                { wch: 15 }, // Tree Latitude
+                { wch: 15 }, // Tree Longitude
+                { wch: 15 }, // Tree Height
+                { wch: 15 }, // Tree DBH
+                { wch: 18 }, // Stem Volume
+                { wch: 20 }, // Above Ground Volume
+                { wch: 18 }, // Total Volume
+                { wch: 15 }, // Biomass
+                { wch: 15 }, // Carbon
+                { wch: 20 }, // CO2 Equivalent
+                { wch: 15 }, // File Latitude
+                { wch: 15 }, // File Longitude
+                { wch: 15 }, // Trees in File
+                { wch: 15 }  // Assumed D2
+            ];
+            ws['!cols'] = colWidths;
+
+            // Add worksheet to workbook
+            XLSX.utils.book_append_sheet(wb, ws, 'Tree Measurements');
+
+            // Generate Excel file
+            const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+            const data = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+            // Generate filename with timestamp
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+            const filename = `tree_measurements_export_${timestamp}.xlsx`;
+
+            // Download the file
+            saveAs(data, filename);
+            showSnackbar(`Tree measurements exported successfully! ${totalTrees} trees from ${filesToExport.length} selected files saved as ${filename}`, "success");
+
+        } catch (error) {
+            console.error("Error exporting tree data to Excel:", error);
+            if (error.response?.status === 401 || error.response?.status === 403) {
+                showSnackbar("Permission denied for export.", "error");
+            } else if (error.response?.data?.message) {
+                showSnackbar(`Export failed: ${error.response.data.message}`, "error");
+            } else {
+                showSnackbar("Failed to export tree measurements to Excel.", "error");
+            }
+        }
+    }, [files, showSnackbar]);
+
     return {
         // Constants
         ROLES, CREATE_NEW_DIVISION_VALUE, CREATE_NEW_PROJECT_VALUE,
@@ -1186,21 +1355,22 @@ export const useFileManagement = () => {
         deletingProjectId, plotName, selectedProjectId, selectedDivisionIdForCreation, isDivisionProjectSettingsModalOpen,
         deletingDivisionId, reassignModalOpen, fileToReassign, selectedProjectIdForReassign,
         newPlotNameForReassign, isReassigning, filesBeingProcessed, isPolling, skipSegmentation,
-        processingModalOpen, selectedFileIds, isDeletingBulk, fileInputRef, isLoadingPermissions,
+        selectedFileIds, isDeletingBulk, fileInputRef, isLoadingPermissions,
+        exportSelectedFiles, exportModalOpen,
 
         // State Setters (for controlled components in modals/forms)
         setOpenUploadModal, setNewFile, setUploadProgress, setIsUploading, setPlotName, setSelectedProjectId,
         setSkipSegmentation, setAssignProjectModalOpen, setFileToAssignProject, setSelectedProjectIdForAssignment,
         setCreateProjectModalOpen, setNewProjectName, setSelectedDivisionIdForCreation, setCreateDivisionModalOpen,
         setNewDivisionName, setIsProjectSettingsModalOpen, setIsDivisionProjectSettingsModalOpen, setReassignModalOpen,
-        setFileToReassign, setSelectedProjectIdForReassign, setNewPlotNameForReassign, setProcessingModalOpen,
+        setFileToReassign, setSelectedProjectIdForReassign, setNewPlotNameForReassign,
         setSelectedManagerToAddInModal,
 
         // Handlers
         handleMenuClick, handleMenuClose, handleDownload, handleRemove,
         handleViewPointCloud, handleFileUpload, handleAssignProject, handleReassignFile,
         handleBulkDelete, handleSelectAllClick, handleRowCheckboxClick, 
-        handleSnackbarClose, showSnackbar,
+        handleSnackbarClose, showSnackbar, handleExportToExcel,
         handleProjectFilterChange, handleDivisionFilterChange, handleOpenUploadModal, handleCloseUploadModal,
         handleFileChange, triggerFileInput, handleCancelUpload, handleCloseAssignProjectModal,
         handleDeleteProject, handleOpenCreateProjectModal, handleOpenCreateDivisionModal,
@@ -1208,8 +1378,8 @@ export const useFileManagement = () => {
         handleOpenDivisionProjectSettingsModal, handleCloseDivisionProjectSettingsModal, handleDeleteDivision,
         handleOpenProjectSettingsModal, handleCloseProjectSettingsModal, handleModalAccordionChange,
         handleSelectManagerChangeInModal, handleAssignManagerInModal, handleRemoveManagerInModal,
-        handleOpenReassignModal, handleCloseReassignModal, handleOpenProcessingModal,
-        handleCloseProcessingModal, handleToggleProcessingModal,
+        handleOpenReassignModal, handleCloseReassignModal,
+        handleOpenExportModal, handleCloseExportModal, handleExportFileSelection, handleSelectAllForExport,
         
         // Derived State & Utils
         canPerformAction, filteredProjectsForDropdown, getProcessingFiles, numTotalSelectableForDelete,

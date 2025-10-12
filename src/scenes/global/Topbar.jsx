@@ -16,8 +16,8 @@ const Topbar = ({ isCollapsed, handleLogout }) => {
         if (currentRoute) {
             setPageTitle(currentRoute.title);
         } else {
-             // Handle dynamic paths like /potree/some-id if needed
-            if (location.pathname.startsWith("/potree")) {
+             // Handle dynamic paths like /pointcloud/some-id if needed
+            if (location.pathname.startsWith("/pointcloud")) {
                 setPageTitle("Point Cloud Viewer");
             } else {
                 setPageTitle("Dashboard"); // Default fallback

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Typography, IconButton, Menu, MenuItem, CircularProgress, ListItemIcon, ListItemText, Checkbox } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import TransformIcon from '@mui/icons-material/Transform';
 import DownloadIcon from '@mui/icons-material/Download';
 import DeleteIcon from '@mui/icons-material/Delete';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
@@ -73,6 +74,19 @@ const FilesTable = ({
 
                         const hasAnyAction = canPerformAction('reassign', file) || canPerformAction('download', file) || (canPerformAction('view', file) && isReady) || canDeleteThisFile;
 
+                        const progressPercent = (() => {
+                            const candidates = [
+                                file?.segmentation_progress,
+                                file?.processing_progress,
+                                file?.progress_percent,
+                                file?.progress
+                            ];
+                            for (const val of candidates) {
+                                if (typeof val === 'number' && !isNaN(val)) return Math.round(val);
+                            }
+                            return null;
+                        })();
+
                         return (
                             <TableRow key={file.id} hover selected={isSelected} onClick={() => { if (!isEffectivelyConverting && canDeleteThisFile && !isGlobalDeleteActive) { handleRowCheckboxClick({ target: { checked: !isSelected } }, file.id); } }} sx={{ opacity: isEffectivelyConverting || isGlobalDeleteActive ? 0.6 : 1, cursor: (!isEffectivelyConverting && canDeleteThisFile && !isGlobalDeleteActive) ? 'pointer' : 'default', backgroundColor: isSelected ? `${colors.blueAccent[800]} !important` : 'transparent' }}>
                                 <TableCell padding="checkbox"><Checkbox checked={isSelected} onChange={(event) => handleRowCheckboxClick(event, file.id)} onClick={(e) => e.stopPropagation()} disabled={isEffectivelyConverting || !canDeleteThisFile || isGlobalDeleteActive} /></TableCell>
@@ -83,17 +97,50 @@ const FilesTable = ({
                                 <TableCell sx={styles.bodyCell}>{file.size}</TableCell>
                                 <TableCell sx={styles.bodyCell}>{file.uploadDate}</TableCell>
                                 <TableCell sx={{ ...styles.bodyCell, textAlign: 'center' }}>
-                                    {isEffectivelyConverting ? (<Box sx={styles.statusText}><CircularProgress size={16} sx={{ color: statusColor }} /><Typography variant="caption" sx={{ color: statusColor, ml: 0.5, display: { xs: 'none', sm: 'inline' } }}>{statusText}</Typography></Box>) : (<Typography variant="caption" sx={{ color: statusColor }}>{statusText}</Typography>)}
+                                    {isEffectivelyConverting ? (
+                                        <Box sx={styles.statusText}>
+                                            <CircularProgress size={16} sx={{ color: statusColor }} />
+                                            <Typography variant="caption" sx={{ color: statusColor, ml: 0.5 }}>
+                                                {statusText}{progressPercent !== null ? ` ${progressPercent}%` : ''}
+                                            </Typography>
+                                        </Box>
+                                    ) : (
+                                        <Typography variant="caption" sx={{ color: statusColor }}>{statusText}</Typography>
+                                    )}
                                 </TableCell>
                                 <TableCell sx={{ ...styles.bodyCell, textAlign: 'center' }}>
                                     <IconButton aria-label={`actions for ${file.name}`} onClick={(e) => handleMenuClick(e, file)} sx={styles.actionButton} size="small" disabled={isEffectivelyConverting || !hasAnyAction || isGlobalDeleteActive} title="More Actions">
                                         <MoreVertIcon fontSize="small" />
                                     </IconButton>
                                     <Menu anchorEl={anchorEl} open={Boolean(anchorEl) && selectedFile?.id === file.id} onClose={handleMenuClose} PaperProps={{ sx: { backgroundColor: colors.primary[800], color: colors.grey[100] } }}>
-                                        {canPerformAction('reassign', file) && (<MenuItem onClick={() => { handleMenuClose(); handleOpenReassignModal(selectedFile); }}><ListItemIcon sx={styles.menuItemIcon}><AssignmentIcon fontSize="small" /></ListItemIcon><ListItemText>Edit / Reassign</ListItemText></MenuItem>)}
-                                        {canPerformAction('download', file) && (<MenuItem onClick={() => handleDownload(selectedFile)}><ListItemIcon sx={styles.menuItemIcon}><DownloadIcon fontSize="small" /></ListItemIcon><ListItemText>Download</ListItemText></MenuItem>)}
-                                        {canPerformAction('view', file) && isReady && (<MenuItem onClick={() => handleViewPointCloud(selectedFile)}><ListItemIcon sx={styles.menuItemIcon}><VisibilityIcon fontSize="small" /></ListItemIcon><ListItemText>View Point Cloud</ListItemText></MenuItem>)}
-                                        {canDeleteThisFile && (<MenuItem onClick={() => handleRemove(selectedFile)} sx={{ color: colors.redAccent[400] }}><ListItemIcon sx={styles.menuItemIcon}><DeleteIcon fontSize="small" /></ListItemIcon><ListItemText>Remove File</ListItemText></MenuItem>)}
+                                        {canPerformAction('reassign', file) && (
+                                            <MenuItem onClick={(event) => { handleMenuClose(event); handleOpenReassignModal(selectedFile); }}>
+                                                <ListItemIcon sx={styles.menuItemIcon}><AssignmentIcon fontSize="small" /></ListItemIcon>
+                                                <ListItemText>Edit / Reassign</ListItemText>
+                                            </MenuItem>
+                                        )}
+
+                                        {canPerformAction('download', file) && (
+                                            <MenuItem onClick={(event) => { handleMenuClose(event); handleDownload(selectedFile); }}>
+                                                <ListItemIcon sx={styles.menuItemIcon}><DownloadIcon fontSize="small" /></ListItemIcon>
+                                                <ListItemText>Download</ListItemText>
+                                            </MenuItem>
+                                        )}
+
+                                        {canPerformAction('view', file) && isReady && (
+                                            <MenuItem onClick={(event) => { handleMenuClose(event); handleViewPointCloud(selectedFile); }}>
+                                                <ListItemIcon sx={styles.menuItemIcon}><VisibilityIcon fontSize="small" /></ListItemIcon>
+                                                <ListItemText>View Point Cloud</ListItemText>
+                                            </MenuItem>
+                                        )}
+
+                                        {canDeleteThisFile && (
+                                            <MenuItem onClick={(event) => { handleMenuClose(event); handleRemove(selectedFile); }} sx={{ color: colors.redAccent[400] }}>
+                                                <ListItemIcon sx={styles.menuItemIcon}><DeleteIcon fontSize="small" /></ListItemIcon>
+                                                <ListItemText>Remove File</ListItemText>
+                                            </MenuItem>
+                                        )}
+                                        
                                     </Menu>
                                 </TableCell>
                             </TableRow>
@@ -104,5 +151,4 @@ const FilesTable = ({
         </TableContainer>
     );
 };
-
 export default FilesTable;

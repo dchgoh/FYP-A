@@ -51,46 +51,42 @@ export const parseLASFile = async (file, onProgress = null) => {
         // Calculate point data offset
         const pointDataOffset = dataView.getUint32(96, true);
         
-        // Parse point data with uniform sampling
         const points = [];
         const colors = [];
         const treeIDs = [];
         
-        // If header says 0 points but we have data, try to estimate from available data
         let estimatedNumberOfPoints = numberOfPointRecords;
         if (numberOfPointRecords === 0 && pointDataOffset < arrayBuffer.byteLength) {
           const availableData = arrayBuffer.byteLength - pointDataOffset;
           estimatedNumberOfPoints = Math.floor(availableData / pointDataRecordLength);
           console.log(`Header says 0 points, but estimating ${estimatedNumberOfPoints} points from available data`);
         }
-        
-        const maxPoints = Math.min(estimatedNumberOfPoints, 1000000);
-        
-        // Calculate sampling interval for uniform distribution
-        const samplingInterval = Math.max(1, Math.floor(estimatedNumberOfPoints / maxPoints));
-        const actualPointsToLoad = Math.min(estimatedNumberOfPoints, maxPoints * samplingInterval);
-        
-        console.log(`Total points: ${estimatedNumberOfPoints}, Sampling every ${samplingInterval} points, Loading: ${actualPointsToLoad} points`);
-        console.log(`Point format: ${pointDataRecordFormat}, Record length: ${pointDataRecordLength} bytes`);
+
+        // --- START OF NEW RANDOM SAMPLING LOGIC ---
+
+        // Determine the number of points to sample. Up to 2 million is a good balance of density and performance.
+        const maxPoints = Math.min(estimatedNumberOfPoints, 2000000);
+
+        console.log(`Total points in file: ${estimatedNumberOfPoints}. Randomly sampling up to: ${maxPoints} points.`);
         
         if (estimatedNumberOfPoints === 0) {
-          console.error('ERROR: LAS file has 0 points! This might be a corrupted or empty file.');
-          console.log('File size:', arrayBuffer.byteLength, 'bytes');
-          console.log('Point data offset:', pointDataOffset);
-          console.log('Expected data size:', estimatedNumberOfPoints * pointDataRecordLength);
-          console.log('Available data after offset:', arrayBuffer.byteLength - pointDataOffset);
-          
-          // Debug the LAS header more thoroughly
-          console.log('=== LAS HEADER DEBUG ===');
-          console.log('Signature:', signature);
-          console.log('Version:', versionMajor + '.' + versionMinor);
-          console.log('Point Data Record Format:', pointDataRecordFormat);
-          console.log('Point Data Record Length:', pointDataRecordLength);
-          console.log('Number of Point Records (from header):', numberOfPointRecords);
-          console.log('X Scale:', xScale, 'Y Scale:', yScale, 'Z Scale:', zScale);
-          console.log('X Offset:', xOffset, 'Y Offset:', yOffset, 'Z Offset:', zOffset);
-          console.log('=== END LAS HEADER DEBUG ===');
+          throw new Error('LAS file appears to contain 0 points.');
         }
+
+        // Create an array of random, unique indices to read from the file.
+        // This method is memory-intensive for huge point counts, but robust.
+        const allIndices = new Uint32Array(estimatedNumberOfPoints).map((_, i) => i);
+        // Shuffle the array to randomize it (Fisher-Yates shuffle algorithm).
+        for (let i = allIndices.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [allIndices[i], allIndices[j]] = [allIndices[j], allIndices[i]]; // Swap elements
+        }
+        // Take the first 'maxPoints' from the now-randomized list.
+        const randomIndices = allIndices.slice(0, maxPoints);
+        // Sort the indices to read the file in a more sequential (and thus faster) order.
+        randomIndices.sort((a, b) => a - b);
+        
+        console.log(`Processing ${randomIndices.length} random points...`);
         
         // Function to find treeID in extra bytes
         const findTreeIDInExtraBytes = (offset, pointFormat, recordLength) => {
@@ -164,72 +160,64 @@ export const parseLASFile = async (file, onProgress = null) => {
           return 0; // No valid treeID found
         };
         
-        // Process points in chunks to prevent UI blocking
+        // Process the randomly selected points in chunks to keep the UI responsive.
         const processPointsChunked = async () => {
-          const chunkSize = 5000; // Process 5k points at a time for better responsiveness
-          let processedPoints = 0;
-          
-          for (let i = 0; i < actualPointsToLoad; i += samplingInterval) {
-            if (i % (samplingInterval * 100000) === 0 && i > 0) {
-              const progress = Math.round(i/actualPointsToLoad*100);
-              console.log(`Parsing progress: ${Math.floor(i/samplingInterval)}/${maxPoints} points (${progress}%)`);
+          const chunkSize = 5000; // Yield to browser every 5000 points.
+
+          for (let i = 0; i < randomIndices.length; i++) {
+            // Update the progress indicator every 100,000 points.
+            if (i > 0 && i % 100000 === 0) {
+              const progress = Math.round((i / randomIndices.length) * 100);
+              console.log(`Parsing progress: ${i} / ${randomIndices.length} points (${progress}%)`);
               if (onProgress) {
                 onProgress(progress);
               }
+              // A brief pause allows the UI thread to process updates.
+              await new Promise(resolve => setTimeout(resolve, 0)); 
             }
             
-            const offset = pointDataOffset + (i * pointDataRecordLength);
+            const pointIndex = randomIndices[i];
+            const offset = pointDataOffset + (pointIndex * pointDataRecordLength);
             
-            // Check if we have enough data
+            // Safety check to ensure we don't read past the end of the file.
             if (offset + pointDataRecordLength > arrayBuffer.byteLength) {
-              console.warn(`Stopping at point ${i}: not enough data in file`);
-              break;
+                console.warn(`Attempted to read past end of file at point index ${pointIndex}. Stopping.`);
+                break;
             }
-            
-            // Read X, Y, Z coordinates
+
+            // Read X, Y, Z coordinates.
             const xInt = dataView.getInt32(offset, true);
             const yInt = dataView.getInt32(offset + 4, true);
             const zInt = dataView.getInt32(offset + 8, true);
-            
-            // Convert to real coordinates
             const x = xInt * xScale + xOffset;
             const y = yInt * yScale + yOffset;
             const z = zInt * zScale + zOffset;
-            
             points.push(x, y, z);
             
-            // Read classification (byte 15 in LAS format)
+            // Read classification (standard location at byte 15).
             const classification = dataView.getUint8(offset + 15);
-            
-            // Read treeID from extra bytes using flexible detection
-            const treeID = findTreeIDInExtraBytes(offset, pointDataRecordFormat, pointDataRecordLength);
-            
-            treeIDs.push(treeID);
-            
-            // Get color based on classification
             const classificationData = getClassificationColor(classification);
             colors.push(classificationData.color[0], classificationData.color[1], classificationData.color[2]);
             
-            processedPoints++;
-            
-            // Yield control to browser every chunkSize points
-            if (processedPoints % chunkSize === 0) {
-              await new Promise(resolve => setTimeout(resolve, 0));
-            }
+            // Read treeID from extra bytes using flexible detection
+            const treeID = findTreeIDInExtraBytes(offset, pointDataRecordFormat, pointDataRecordLength);
+            treeIDs.push(treeID);
           }
         };
         
         await processPointsChunked();
+
+        // --- END OF NEW RANDOM SAMPLING LOGIC ---
         
-        console.log(`Parsed ${points.length / 3} uniformly sampled points out of ${estimatedNumberOfPoints} total points in file`);
-        console.log(`Sampling ratio: 1:${samplingInterval} (every ${samplingInterval} points)`);
+        console.log(`Finished parsing ${points.length / 3} randomly sampled points.`);
         console.log(`Found treeIDs:`, [...new Set(treeIDs)].sort((a, b) => a - b));
         resolve({ points, colors, treeIDs, numberOfPointRecords });
       } catch (error) {
+        console.error("Fatal error during LAS file parsing:", error);
         reject(error);
       }
     };
-    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.onerror = (e) => reject(new Error('FileReader failed to read file: ' + e.target.error.code));
     reader.readAsArrayBuffer(file);
   });
 };

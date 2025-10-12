@@ -17,21 +17,22 @@ import ReplayIcon from '@mui/icons-material/Replay';
 const DashboardFilters = ({
     colors,
     loadingFilters,
-    isDataLoading, // This prop represents the overall loading state of all data
+    isDataLoading,
     filterDivisionId,
     handleDivisionFilterChange,
     divisionsList,
     filterProjectId,
     handleProjectFilterChange,
     filteredProjectsForDropdown,
-    projectsList,
     filterPlotName,
     handlePlotFilterChange,
     canFetchPlots,
     loadingPlots,
     plotsList,
     handleResetFilters,
-    areFiltersDefault
+    areFiltersDefault,
+    filterDateRange, // NEW: Prop for date filter value
+    handleDateFilterChange, // NEW: Prop for date filter handler
 }) => {
     const styles = {
         filterRow: {
@@ -67,11 +68,10 @@ const DashboardFilters = ({
         }
     };
 
-    // --- DROPDOWN MENU STYLES ---
     const commonMenuProps = {
         PaperProps: {
             sx: {
-                backgroundColor: colors.grey[800], // Background of the dropdown panel
+                backgroundColor: colors.grey[800],
                 color: colors.grey[100],
                 '& .MuiMenuItem-root:hover': {
                     backgroundColor: colors.blueAccent[700],
@@ -87,10 +87,8 @@ const DashboardFilters = ({
         }
     };
 
-    // --- LOGIC ---
-    // This logic for the tooltip is specific to the plot filter's disabled state.
     const plotFilterDisabledReason = useMemo(() => {
-        if (isDataLoading) return ""; // General loading state overrides specific messages
+        if (isDataLoading) return "";
         if (!canFetchPlots) {
             if (filterDivisionId === 'all') {
                 return "Select a Division to enable Project and Plot filters.";
@@ -99,7 +97,7 @@ const DashboardFilters = ({
                 return "Select a specific Project to enable Plot filter.";
             }
         }
-        return ""; // No reason to disable if it's active
+        return "";
     }, [canFetchPlots, filterDivisionId, filterProjectId, isDataLoading]);
 
 
@@ -108,9 +106,10 @@ const DashboardFilters = ({
             <Typography variant="h6" gutterBottom sx={{ color: colors.grey[100], mb: 2 }}>
                 Filter Dashboard Data
             </Typography>
-            <Grid container spacing={2} alignItems="flex-end">
+            {/* MODIFIED: Adjusted grid item sizing to fit the new filter */}
+            <Grid container spacing={2} alignItems="center">
                 {/* --- DIVISION FILTER --- */}
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={6} md={2.5}>
                     <FormControl fullWidth variant="outlined" size="small" sx={styles.filterFormControl}>
                         <InputLabel id="division-filter-label-dash">Filter Division</InputLabel>
                         <Select
@@ -131,7 +130,7 @@ const DashboardFilters = ({
                 </Grid>
 
                 {/* --- PROJECT FILTER --- */}
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={6} md={2.5}>
                     <FormControl fullWidth variant="outlined" size="small" sx={styles.filterFormControl}>
                         <InputLabel id="project-filter-label-dash">Filter Project</InputLabel>
                         <Select
@@ -156,9 +155,9 @@ const DashboardFilters = ({
                 </Grid>
 
                 {/* --- PLOT FILTER --- */}
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={6} md={2.5}>
                     <MuiTooltip title={plotFilterDisabledReason} arrow placement="top">
-                        <span> {/* Span is required for Tooltip to work on a disabled element */}
+                        <span>
                             <FormControl
                                 fullWidth
                                 variant="outlined"
@@ -185,17 +184,38 @@ const DashboardFilters = ({
                     </MuiTooltip>
                 </Grid>
 
+                {/* --- NEW: DATE RANGE FILTER --- */}
+                <Grid item xs={12} sm={6} md={2.5}>
+                    <FormControl fullWidth variant="outlined" size="small" sx={styles.filterFormControl}>
+                        <InputLabel id="date-filter-label-dash">Filter by Date</InputLabel>
+                        <Select
+                            labelId="date-filter-label-dash"
+                            value={filterDateRange}
+                            label="Filter by Date"
+                            onChange={handleDateFilterChange}
+                            disabled={isDataLoading}
+                            MenuProps={commonMenuProps}
+                        >
+                            <MenuItem value="all"><em>All Time</em></MenuItem>
+                            <MenuItem value="7d">Last 7 Days</MenuItem>
+                            <MenuItem value="30d">Last 30 Days</MenuItem>
+                            <MenuItem value="6m">Last 6 Months</MenuItem>
+                            <MenuItem value="1y">Last 1 Year</MenuItem>
+                        </Select>
+                    </FormControl>
+                </Grid>
+
                 {/* --- RESET BUTTON --- */}
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={12} md={2}>
                     <Button
                         fullWidth
                         variant="outlined"
                         onClick={handleResetFilters}
                         disabled={isDataLoading || areFiltersDefault}
                         startIcon={<ReplayIcon />}
-                        sx={styles.resetButton}
+                        sx={{...styles.resetButton, height: '40px'}}
                     >
-                        Reset Filters
+                        Reset
                     </Button>
                 </Grid>
             </Grid>

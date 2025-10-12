@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 
-const API_BASE_URL = "http://localhost:5000/api";
+const API_BASE_URL = "/api";
 
 export const useDashboardData = () => {
     // --- State Variables ---
@@ -100,12 +100,14 @@ export const useDashboardData = () => {
         // Helper to run fetch and set state
         const fetchAndSet = async (url, params, setLoading, setData, dataKey, errorVal) => {
             setLoading(true);
-            setData(null);
+            setData(null); // Setting to null is fine, but you could also keep the old data
             try {
                 const res = await axios.get(url, { headers, params });
-                setData(res.data[dataKey]);
+                // If a dataKey is provided, use it. Otherwise, use the entire res.data.
+                const responseData = dataKey ? res.data[dataKey] : res.data;
+                setData(responseData);
             } catch (error) {
-                console.error(`Failed to fetch ${dataKey}:`, error.response?.data?.message || error.message);
+                console.error(`Failed to fetch data from ${url}:`, error.response?.data?.message || error.message);
                 setData(errorVal);
             } finally {
                 setLoading(false);
@@ -116,7 +118,7 @@ export const useDashboardData = () => {
         fetchAndSet(`${API_BASE_URL}/files/count`, baseParams, setIsFetchingFileCount, setFilesUploadedCount, 'count', 'Error');
         fetchAndSet(`${API_BASE_URL}/files/count/trees`, baseParams, setIsFetchingTreeCount, setTotalTreesCount, 'count', 'Error');
         fetchAndSet(`${API_BASE_URL}/files/stats/sum-carbon-tonnes`, baseParams, setIsFetchingSumCarbon, setTotalSumCarbonTonnes, 'sum_carbon_tonnes', 'Error');
-        fetchAndSet(`${API_BASE_URL}/files/recent`, { ...baseParams, limit: 5 }, setLoadingTimeline, setRecentUploads, 'data', []); // Assuming recent returns just data
+        fetchAndSet(`${API_BASE_URL}/files/recent`, { ...baseParams, limit: 5 }, setLoadingTimeline, setRecentUploads, 'data', []); 
         fetchAndSet(`${API_BASE_URL}/files/all-tree-heights-adjusted`, baseParams, setLoadingHeightsChart, setAllTreeHeightsData, 'heights', []);
         fetchAndSet(`${API_BASE_URL}/files/statistics/all-tree-dbhs-cm`, baseParams, setLoadingDbhsChart, setAllTreeDbhsData, 'dbhs_cm', []);
         fetchAndSet(`${API_BASE_URL}/files/statistics/all-tree-volumes-m3-data`, baseParams, setLoadingVolumesChart, setAllTreeVolumesData, 'volumes_m3', []);
