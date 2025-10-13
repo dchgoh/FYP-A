@@ -4,10 +4,15 @@ const path = require('path');
 const { spawn } = require("child_process");
 const { pool } = require('../config/db'); // Assuming shared DB config
 const { setProgress, clearProgress } = require('./progressStore');
+const gpuManager = require('./gpuResourceManager');
 
 async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
     console.log(`[SegmentationService] (FileID ${fileId}): Starting for ${inputFileAbsolutePath}`);
     await pool.query("UPDATE uploaded_files SET status = 'segmenting', processing_error = NULL WHERE id = $1", [fileId]);
+
+    // Allocate GPU for this job
+    const allocatedGpuId = await gpuManager.allocateGPU(fileId, 2000); // Request 2GB GPU memory
+    const gpuArg = allocatedGpuId !== null ? allocatedGpuId.toString() : 'cpu';
 
     return new Promise((resolve, reject) => {
         const pythonVenvExecutable = process.platform === "win32"
@@ -39,7 +44,7 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
             pythonSegmentScriptToExecute, '--model', modelNameForScript, '--checkpoint_path', checkpointRelativePath,
             '--input_file', inputFileAbsolutePath, '--output_dir', path.dirname(inputFileAbsolutePath),
             '--num_point_model', '1024', '--num_features', '6', '--batch_size_inference', '16',
-            '--stride_ratio', '0.5', '--output_format', 'las',
+            '--stride_ratio', '0.5', '--output_format', 'las', '--gpu', gpuArg,
         ];
 
         console.log(`[SegmentationService] (FileID ${fileId}): Spawning: "${pythonVenvExecutable}" CWD "${projectRootDir}" args: ${segmentArgs.join(' ')}`);
@@ -76,6 +81,8 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
             console.error(`[SegmentationService] Error (FileID ${fileId}): Failed to start. Err: ${error.message}`);
             if (originalFileBackupPath && fs.existsSync(originalFileBackupPath)) { /* restore backup */ try { fs.renameSync(originalFileBackupPath, inputFileAbsolutePath); } catch (e) {console.error('Backup restore failed', e)} }
             try { await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2", [`Seg Spawn Err: ${error.message.substring(0,200)}`, fileId]); } catch (dbErr) {/* log */}
+            // Release GPU allocation on process error
+            gpuManager.releaseGPU(fileId);
             reject(new Error(`[SegmentationService] Spawn error: ${error.message}. Stderr: ${segStderr.substring(0, 100)}`));
         });
 
@@ -120,6 +127,8 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
                     await pool.query("UPDATE uploaded_files SET status = 'segmented_ready_for_las', processing_error = NULL WHERE id = $1", [fileId]);
                     try { setProgress(fileId, 100); } catch (_) { /* noop */ }
                     console.log(`[SegmentationService] (FileID ${fileId}): Success. Status 'segmented_ready_for_las'.`);
+                    // Release GPU allocation
+                    gpuManager.releaseGPU(fileId);
                     resolve({ success: true, message: "Segmentation successful.", stdout: segStdout });
                 }
             } else {
@@ -127,6 +136,8 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
                 if (originalFileBackupPath && fs.existsSync(originalFileBackupPath)) { /* restore backup */ try { fs.renameSync(originalFileBackupPath, inputFileAbsolutePath); } catch (e) {console.error('Backup restore failed', e)}}
                 try { await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2", [errMsg, fileId]); } catch (dbErr) {/* log */}
                 try { clearProgress(fileId); } catch (_) { /* noop */ }
+                // Release GPU allocation on failure
+                gpuManager.releaseGPU(fileId);
                 reject(new Error(errMsg));
             }
         });

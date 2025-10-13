@@ -32,6 +32,20 @@ ASSUMED_SMALL_END_DIAMETER_D2_CM = 0.0 # In centimeters
 def log_stderr(module_name, msg):
     print(f"Python ({module_name}): {msg}", file=sys.stderr)
 
+def extract_tree_ids_from_extra_bytes(las_file_obj, id_field_name, ignore_values, min_id_value):
+    """Extract tree IDs directly from extra bytes data"""
+    try:
+        if hasattr(las_file_obj, 'points') and hasattr(las_file_obj.points, 'ExtraBytes'):
+            extra_bytes_data = las_file_obj.points.ExtraBytes
+            if extra_bytes_data.size > 0:
+                # Convert uint8 array to float32 values (first 4 bytes = treeID)
+                tree_ids_raw = extra_bytes_data[:, 0:4].view(np.float32).flatten()
+                return tree_ids_raw
+        return None
+    except Exception as e:
+        log_stderr("ExtraBytes", f"Failed to extract tree IDs from extra bytes: {e}")
+        return None
+
 def extract_tree_ids_from_lidar(
     las_file_obj,
     id_field_name,
@@ -40,10 +54,107 @@ def extract_tree_ids_from_lidar(
 ):
     potential_tree_ids = set()
     log_stderr("TreeID", f"Attempting to use field: '{id_field_name}' for Tree IDs.")
+    
+    # Debug: Check VLRs
     try:
-        if not hasattr(las_file_obj, id_field_name) and \
-           (not hasattr(las_file_obj, 'points') or id_field_name not in las_file_obj.points.dtype.names):
-            log_stderr("TreeID", f"Error: Field '{id_field_name}' NOT FOUND. Header Standard: {list(las_file_obj.header.point_format.dimension_names)}, Header Extra: {list(getattr(las_file_obj.header.point_format, 'extra_dimension_names', []))}, Points DType: {list(getattr(las_file_obj.points, 'dtype', {}).names or [])}")
+        log_stderr("TreeID", f"Number of VLRs: {len(las_file_obj.header.vlrs)}")
+        for i, vlr in enumerate(las_file_obj.header.vlrs):
+            log_stderr("TreeID", f"VLR {i}: user_id='{vlr.user_id}', record_id={vlr.record_id}")
+            if hasattr(vlr, 'record_length_after_header'):
+                log_stderr("TreeID", f"VLR {i} length: {vlr.record_length_after_header}")
+            elif hasattr(vlr, 'length_after_header'):
+                log_stderr("TreeID", f"VLR {i} length: {vlr.length_after_header}")
+            else:
+                log_stderr("TreeID", f"VLR {i} length: {len(vlr.string)}")
+    except Exception as e:
+        log_stderr("TreeID", f"VLR debug failed: {e}")
+        import traceback
+        log_stderr("TreeID", f"VLR traceback: {traceback.format_exc()}")
+    
+    try:
+        # Check if treeID field exists using safer methods
+        has_tree_id_direct = hasattr(las_file_obj, id_field_name)
+        has_tree_id_in_points = False
+        has_tree_id_in_extra_bytes = False
+        
+        # Try to access points structure safely
+        try:
+            if hasattr(las_file_obj, 'points'):
+                # Try to access the field directly from points
+                try:
+                    test_access = las_file_obj.points[id_field_name]
+                    has_tree_id_in_points = True
+                except (KeyError, AttributeError):
+                    has_tree_id_in_points = False
+        except Exception:
+            has_tree_id_in_points = False
+        
+        # Try to access from extra bytes if available
+        if not has_tree_id_direct and not has_tree_id_in_points:
+            try:
+                log_stderr("TreeID", f"Checking extra_bytes attribute...")
+                if hasattr(las_file_obj, 'extra_bytes'):
+                    log_stderr("TreeID", f"extra_bytes exists: {type(las_file_obj.extra_bytes)}")
+                    log_stderr("TreeID", f"extra_bytes dir: {dir(las_file_obj.extra_bytes)}")
+                    if hasattr(las_file_obj.extra_bytes, id_field_name):
+                        test_access = las_file_obj.extra_bytes[id_field_name]
+                        has_tree_id_in_extra_bytes = True
+                        log_stderr("TreeID", f"Found '{id_field_name}' in extra_bytes.")
+                    else:
+                        log_stderr("TreeID", f"'{id_field_name}' not found in extra_bytes.")
+                else:
+                    log_stderr("TreeID", f"extra_bytes attribute does not exist.")
+            except Exception as e:
+                log_stderr("TreeID", f"Extra bytes access failed: {e}")
+                import traceback
+                log_stderr("TreeID", f"Traceback: {traceback.format_exc()}")
+        
+        # Try to access extra bytes data directly from point records
+        if not has_tree_id_direct and not has_tree_id_in_points and not has_tree_id_in_extra_bytes:
+            try:
+                log_stderr("TreeID", f"Trying to access extra bytes data directly...")
+                # Check if we can access the raw extra bytes data
+                if hasattr(las_file_obj, 'points') and hasattr(las_file_obj.points, 'ExtraBytes'):
+                    extra_bytes_data = las_file_obj.points.ExtraBytes
+                    log_stderr("TreeID", f"ExtraBytes shape: {extra_bytes_data.shape}")
+                    log_stderr("TreeID", f"ExtraBytes dtype: {extra_bytes_data.dtype}")
+                    log_stderr("TreeID", f"ExtraBytes first few values: {extra_bytes_data[:5]}")
+                    
+                    # Try to interpret the extra bytes as treeID (assuming it's the first 4 bytes)
+                    if extra_bytes_data.size > 0:
+                        # For LAS format 3 with 2 extra bytes (8 bytes total), treeID should be first 4 bytes
+                        # Convert uint8 array to float32 values
+                        tree_ids_raw = extra_bytes_data[:, 0:4].view(np.float32).flatten()
+                        log_stderr("TreeID", f"Raw treeID values (first 10): {tree_ids_raw[:10]}")
+                        
+                        # Convert to numpy array and find unique values
+                        ids_per_point_np = np.array(tree_ids_raw)
+                        unique_ids_all = np.unique(ids_per_point_np)
+                        processed_ignore_values = set(ignore_values) if ignore_values is not None else set()
+
+                        for uid_val in unique_ids_all:
+                            try: uid = int(uid_val)
+                            except ValueError: continue
+                            if uid in processed_ignore_values: continue
+                            if min_id_value is not None and uid < min_id_value: continue
+                            potential_tree_ids.add(uid)
+
+                        if potential_tree_ids:
+                            log_stderr("TreeID", f"Found {len(potential_tree_ids)} tree IDs from raw extra bytes data")
+                            return potential_tree_ids
+                        else:
+                            log_stderr("TreeID", f"No valid tree IDs found in raw extra bytes data")
+                            log_stderr("TreeID", f"Unique values found: {unique_ids_all[:20]}")
+                else:
+                    log_stderr("TreeID", f"No ExtraBytes field found in points")
+            except Exception as e:
+                log_stderr("TreeID", f"Direct extra bytes access failed: {e}")
+                import traceback
+                log_stderr("TreeID", f"Direct access traceback: {traceback.format_exc()}")
+        
+        # Final fallback - return empty set if all methods failed
+        if not has_tree_id_direct and not has_tree_id_in_points and not has_tree_id_in_extra_bytes:
+            log_stderr("TreeID", f"Error: Field '{id_field_name}' NOT FOUND. Header Standard: {list(las_file_obj.header.point_format.dimension_names)}, Header Extra: {list(getattr(las_file_obj.header.point_format, 'extra_dimension_names', []))}")
             return set()
 
         ids_per_point_view = None
@@ -51,9 +162,12 @@ def extract_tree_ids_from_lidar(
             ids_per_point_view = getattr(las_file_obj, id_field_name)
             log_stderr("TreeID", f"Accessed '{id_field_name}' as direct dimension.")
         except AttributeError:
-            if hasattr(las_file_obj, 'points') and id_field_name in las_file_obj.points.dtype.names:
+            if has_tree_id_in_points:
                 ids_per_point_view = las_file_obj.points[id_field_name]
                 log_stderr("TreeID", f"Accessed '{id_field_name}' from las.points structure.")
+            elif has_tree_id_in_extra_bytes:
+                ids_per_point_view = las_file_obj.extra_bytes[id_field_name]
+                log_stderr("TreeID", f"Accessed '{id_field_name}' from extra_bytes.")
             else:
                 log_stderr("TreeID", f"Critical Error: Field '{id_field_name}' still not accessible.")
                 return set()
@@ -96,11 +210,20 @@ def calculate_tree_midpoints(
         try:
             ids_for_calc_np = np.array(getattr(las_file_obj, id_field_name))
         except AttributeError:
-            if hasattr(las_file_obj, 'points') and id_field_name in las_file_obj.points.dtype.names:
-                 ids_for_calc_np = np.array(las_file_obj.points[id_field_name])
-            else:
-                log_stderr("Midpoint", f"Error: ID field '{id_field_name}' not accessible for midpoints.")
-                return {str(tid): None for tid in target_tree_ids} # Return None for all if field fails
+            # Try to get tree IDs from extra bytes
+            ids_for_calc_np = extract_tree_ids_from_extra_bytes(las_file_obj, id_field_name, None, None)
+            if ids_for_calc_np is None:
+                try:
+                    if hasattr(las_file_obj, 'points'):
+                        ids_for_calc_np = np.array(las_file_obj.points[id_field_name])
+                    elif hasattr(las_file_obj, 'extra_bytes') and hasattr(las_file_obj.extra_bytes, id_field_name):
+                        ids_for_calc_np = np.array(las_file_obj.extra_bytes[id_field_name])
+                    else:
+                        log_stderr("Midpoint", f"Error: ID field '{id_field_name}' not accessible for midpoints.")
+                        return {str(tid): None for tid in target_tree_ids}
+                except (KeyError, AttributeError):
+                    log_stderr("Midpoint", f"Error: ID field '{id_field_name}' not accessible for midpoints.")
+                    return {str(tid): None for tid in target_tree_ids}
 
         ids_for_calc_np = ids_for_calc_np.astype(int)
 
@@ -136,11 +259,20 @@ def calculate_tree_heights_adjusted(
         try:
             ids_all_np = np.array(getattr(las_file_obj, id_field_name))
         except AttributeError:
-            if hasattr(las_file_obj, 'points') and id_field_name in las_file_obj.points.dtype.names:
-                 ids_all_np = np.array(las_file_obj.points[id_field_name])
-            else:
-                log_stderr("LengthL", f"Error: ID field '{id_field_name}' not accessible for Length (L).")
-                return {str(tid): None for tid in target_tree_ids}
+            # Try to get tree IDs from extra bytes
+            ids_all_np = extract_tree_ids_from_extra_bytes(las_file_obj, id_field_name, None, None)
+            if ids_all_np is None:
+                try:
+                    if hasattr(las_file_obj, 'points'):
+                        ids_all_np = np.array(las_file_obj.points[id_field_name])
+                    elif hasattr(las_file_obj, 'extra_bytes') and hasattr(las_file_obj.extra_bytes, id_field_name):
+                        ids_all_np = np.array(las_file_obj.extra_bytes[id_field_name])
+                    else:
+                        log_stderr("LengthL", f"Error: ID field '{id_field_name}' not accessible for Length (L).")
+                        return {str(tid): None for tid in target_tree_ids}
+                except (KeyError, AttributeError):
+                    log_stderr("LengthL", f"Error: ID field '{id_field_name}' not accessible for Length (L).")
+                    return {str(tid): None for tid in target_tree_ids}
 
         ids_all_np = ids_all_np.astype(int)
         log_stderr("LengthL_Debug", f"Shape of ids_all_np in LengthL: {ids_all_np.shape if ids_all_np is not None else 'None'}, First 5: {ids_all_np[:5] if ids_all_np is not None and ids_all_np.size > 0 else 'N/A'}")
@@ -192,11 +324,20 @@ def calculate_tree_dbh(
         try:
             ids_all = np.array(getattr(las_file_obj, id_field_name))
         except AttributeError:
-            if hasattr(las_file_obj, 'points') and id_field_name in las_file_obj.points.dtype.names:
-                 ids_all = np.array(las_file_obj.points[id_field_name])
-            else:
-                log_stderr("DBH_D1", f"Error: ID field '{id_field_name}' not accessible for DBH (D1).")
-                return {str(tid): None for tid in target_tree_ids}
+            # Try to get tree IDs from extra bytes
+            ids_all = extract_tree_ids_from_extra_bytes(las_file_obj, id_field_name, None, None)
+            if ids_all is None:
+                try:
+                    if hasattr(las_file_obj, 'points'):
+                        ids_all = np.array(las_file_obj.points[id_field_name])
+                    elif hasattr(las_file_obj, 'extra_bytes') and hasattr(las_file_obj.extra_bytes, id_field_name):
+                        ids_all = np.array(las_file_obj.extra_bytes[id_field_name])
+                    else:
+                        log_stderr("DBH_D1", f"Error: ID field '{id_field_name}' not accessible for DBH (D1).")
+                        return {str(tid): None for tid in target_tree_ids}
+                except (KeyError, AttributeError):
+                    log_stderr("DBH_D1", f"Error: ID field '{id_field_name}' not accessible for DBH (D1).")
+                    return {str(tid): None for tid in target_tree_ids}
 
         ids_all = ids_all.astype(int)
         log_stderr("DBH_D1_Debug", f"Shape of ids_all in DBH: {ids_all.shape if ids_all is not None else 'None'}, First 5: {ids_all[:5] if ids_all is not None and ids_all.size > 0 else 'N/A'}")
