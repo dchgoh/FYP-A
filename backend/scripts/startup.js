@@ -2,6 +2,7 @@
 const { processingQueue, redis } = require('../services/queueService');
 const systemMonitor = require('../services/systemMonitor');
 const gpuManager = require('../services/gpuResourceManager');
+const { setupISBNet } = require('./setup_isbnet');
 
 async function initializeSystem() {
     console.log('[Startup] Initializing system components...');
@@ -19,6 +20,10 @@ async function initializeSystem() {
 
         // Initialize system monitor
         console.log('[Startup] System monitor initialized');
+
+        // Check ISBNet setup
+        console.log('[Startup] Checking ISBNet setup...');
+        await setupISBNet();
 
         // Clean up any stuck jobs from previous runs
         await cleanupStuckJobs();

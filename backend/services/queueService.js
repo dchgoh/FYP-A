@@ -4,6 +4,7 @@ const Redis = require('ioredis');
 const { pool } = require('../config/db');
 const lasProcessingService = require('./lasProcessingService');
 const segmentationService = require('./segmentationService');
+const isbnetInstanceSegmentationService = require('./isbnetInstanceSegmentationService');
 const { setProgress, clearProgress } = require('./progressStore');
 const fs = require('fs');
 const path = require('path');
@@ -54,7 +55,7 @@ let resourceUsage = {
 
 // Job processor
 processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, async (job) => {
-    const { fileId, filePath, projectRootDir, skipSegmentation } = job.data;
+    const { fileId, filePath, projectRootDir, skipSegmentation, useInstanceSegmentation } = job.data;
     
     console.log(`[Queue] Starting job ${job.id} for file ${fileId}`);
     
@@ -88,16 +89,32 @@ processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, asy
             // Encrypt file
             await encryptProcessedFile(fileId, filePath);
             
+        } else if (useInstanceSegmentation) {
+            // Instance segmentation pipeline using ISBNet
+            console.log(`[Queue] Job ${job.id}: Starting instance segmentation for file ${fileId}`);
+            await updateJobStatus(fileId, 'instance_segmenting', 'Running ISBNet instance segmentation');
+            await isbnetInstanceSegmentationService.runInstanceSegmentation(fileId, filePath, projectRootDir);
+            
+            // Verify instance segmentation success
+            const instanceSegStatusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
+            if (instanceSegStatusCheck.rows.length === 0 || instanceSegStatusCheck.rows[0].status !== 'instance_segmented_ready') {
+                throw new Error('Instance segmentation failed');
+            }
+
+            // Final processing steps
+            await updateJobStatus(fileId, 'ready', 'Processing complete - ready for viewer');
+            await encryptProcessedFile(fileId, filePath);
+            
         } else {
-            // Full pipeline with segmentation
-            console.log(`[Queue] Job ${job.id}: Starting segmentation for file ${fileId}`);
-            await updateJobStatus(fileId, 'segmenting', 'Running AI segmentation');
+            // Full pipeline with semantic segmentation
+            console.log(`[Queue] Job ${job.id}: Starting semantic segmentation for file ${fileId}`);
+            await updateJobStatus(fileId, 'segmenting', 'Running AI semantic segmentation');
             await segmentationService.runSegmentation(fileId, filePath, projectRootDir);
             
             // Verify segmentation success
             const segStatusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
             if (segStatusCheck.rows.length === 0 || segStatusCheck.rows[0].status !== 'segmented_ready_for_las') {
-                throw new Error('Segmentation failed');
+                throw new Error('Semantic segmentation failed');
             }
 
             // Final processing steps
@@ -213,19 +230,20 @@ processingQueue.on('stalled', (job) => {
 });
 
 // Queue management functions
-async function addFileProcessingJob(fileId, filePath, projectRootDir, skipSegmentation = false) {
+async function addFileProcessingJob(fileId, filePath, projectRootDir, skipSegmentation = false, useInstanceSegmentation = false) {
     try {
         const job = await processingQueue.add('process-file', {
             fileId,
             filePath,
             projectRootDir,
             skipSegmentation,
+            useInstanceSegmentation,
         }, {
-            priority: skipSegmentation ? 1 : 0, // Higher priority for files without segmentation
+            priority: skipSegmentation ? 2 : (useInstanceSegmentation ? 0 : 1), // Priority: skip > semantic > instance
             delay: 1000, // Small delay to allow for proper status updates
         });
 
-        console.log(`[Queue] Added job ${job.id} for file ${fileId}`);
+        console.log(`[Queue] Added job ${job.id} for file ${fileId} (${useInstanceSegmentation ? 'instance' : 'semantic'} segmentation)`);
         return job;
     } catch (error) {
         console.error(`[Queue] Failed to add job for file ${fileId}:`, error);

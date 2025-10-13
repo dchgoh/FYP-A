@@ -56,7 +56,7 @@
     "xlsx": "^0.18.5"
   },
   "scripts": {
-    "prestart": "cd backend && python -m venv venv && .\\venv\\Scripts\\python.exe -m pip install --upgrade pip && .\\venv\\Scripts\\python.exe -m pip install --upgrade laspy pyproj torch numpy argparse tqdm scipy",
+    "prestart": "cd backend && python -m venv venv && .\\venv\\Scripts\\python.exe -m pip install --upgrade pip && .\\venv\\Scripts\\python.exe -m pip install --upgrade laspy pyproj torch numpy argparse tqdm scipy pyyaml munch",
     "start": "concurrently \"npm run server\" \"npm run client\" \"npm run backup\"",
     "server": "cd backend && CALL .\\venv\\Scripts\\activate.bat && node server.js",
     "client": "set PORT=3000&& set DANGEROUSLY_DISABLE_HOST_CHECK=true&& react-scripts start",
@@ -82,6 +82,6 @@
     ]
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.2.1"
   }
 }
