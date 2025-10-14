@@ -40,15 +40,6 @@ import {
   handleAnnotationDialogClose
 } from './utils/annotationUtils';
 
-import {
-  handleToolSelect,
-  toggleBoundingBox,
-  handleToggleClassification,
-  handleToggleAllClassifications,
-  handleToggleTreeID,
-  handleToggleAllTreeIDs
-} from './utils/toolUtils';
-
 const PointCloudViewer = ({ isCollapsed }) => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
@@ -390,15 +381,15 @@ end_header
     const useExtraBytes = hasTreeID;
     
     // Offset to point data (375 + VLR size)
-    const vlrSize = useExtraBytes ? 384 : 0; // Extra bytes VLR is 384 bytes for two extra bytes
+    const vlrSize = useExtraBytes ? 192 : 0; // Extra bytes VLR is 192 bytes for one extra byte
     headerView.setUint32(96, 375 + vlrSize, true);
     
     // Point Data Format ID - Use format 3 to match original (supports RGB and extra bytes)
     const pointFormat = 3; // Format 3 supports RGB
     headerView.setUint8(104, pointFormat);
     
-    // Point Data Record Length (42 bytes for format 3 with two extra bytes)
-    const pointDataRecordLength = useExtraBytes ? 42 : 34; // Format 3 base (34) + extra bytes (8 for two float32)
+    // Point Data Record Length (38 bytes for format 3 with one extra byte)
+    const pointDataRecordLength = useExtraBytes ? 38 : 34; // Format 3 base (34) + extra bytes (4 for one float32)
     headerView.setUint16(105, pointDataRecordLength, true);
     
     // Number of point records
@@ -453,12 +444,12 @@ end_header
     // Create VLR for extra bytes description (if needed)
     let vlrData = null;
     if (useExtraBytes) {
-      // Create VLR that matches the original file structure exactly
-      vlrData = new ArrayBuffer(384); // Match original size
+      // Create VLR for one extra byte (treeID only)
+      vlrData = new ArrayBuffer(192); // 192 bytes for one extra byte description
       const vlrView = new DataView(vlrData);
       
       // Initialize with zeros
-      for (let i = 0; i < 384; i++) {
+      for (let i = 0; i < 192; i++) {
         vlrView.setUint8(i, 0);
       }
       
@@ -472,14 +463,14 @@ end_header
       }
       
       vlrView.setUint16(18, 4, true); // Record ID
-      vlrView.setUint16(20, 330, true); // Length after header (384 - 54 = 330)
+      vlrView.setUint16(20, 138, true); // Length after header (192 - 54 = 138)
       
       // Description (32 bytes) - already zeroed
       
-      // Extra Bytes Description (384 bytes for two extra bytes)
+      // Extra Bytes Description (192 bytes for one extra byte)
       // Note: Each extra byte description is 192 bytes, starting immediately after VLR header
       
-      // First extra byte: treeID (192 bytes starting at offset 54)
+      // Extra byte: treeID (192 bytes starting at offset 54)
       let offset = 54;
       
       // Reserved (2 bytes)
@@ -498,49 +489,6 @@ end_header
       const name1 = 'treeID';
       for (let i = 0; i < name1.length; i++) {
         vlrView.setUint8(offset + i, name1.charCodeAt(i));
-      }
-      offset += 32;
-      
-      // Unused (32 bytes) - already zeroed
-      offset += 32;
-      
-      // No data (3 double values, 24 bytes) - already zeroed
-      offset += 24;
-      
-      // Min (8 bytes double) - already zeroed
-      offset += 8;
-      
-      // Max (8 bytes double) - already zeroed
-      offset += 8;
-      
-      // Scale (8 bytes double)
-      vlrView.setFloat64(offset, 1.0, true);
-      offset += 8;
-      
-      // Offset (8 bytes double)
-      vlrView.setFloat64(offset, 0.0, true);
-      offset += 8;
-      
-      // Description (32 bytes) - already zeroed
-      offset += 32;
-      
-      // Second extra byte: Original cloud index (192 bytes starting at offset 246)
-      // Reserved (2 bytes)
-      vlrView.setUint16(offset, 0, true);
-      offset += 2;
-      
-      // Data type (1 byte) - 9 = float
-      vlrView.setUint8(offset, 9);
-      offset += 1;
-      
-      // Options (1 byte)
-      vlrView.setUint8(offset, 0);
-      offset += 1;
-      
-      // Name (32 bytes)
-      const name2 = 'Original cloud index';
-      for (let i = 0; i < name2.length; i++) {
-        vlrView.setUint8(offset + i, name2.charCodeAt(i));
       }
       offset += 32;
       
@@ -653,12 +601,10 @@ end_header
            pointDataView.setUint16(offset + 30, green, true);
            pointDataView.setUint16(offset + 32, blue, true);
            
-           // Store treeID and Original cloud index in extra bytes as Float32 (starting at offset 34)
+           // Store treeID in extra bytes as Float32 (starting at offset 34)
            if (useExtraBytes && hasTreeID && treeIDAttribute) {
              const treeIDValue = treeIDAttribute[i] || 0;
              pointDataView.setFloat32(offset + 34, treeIDValue, true);
-             // Original cloud index (use point index as original cloud index)
-             pointDataView.setFloat32(offset + 38, i, true);
            }
          } catch (error) {
            console.error(`LAS Conversion Error at point ${i}:`, {
@@ -972,6 +918,9 @@ end_header
       if (pointCloud && sceneManagerRef.current) {
         disposeBoundingBox(boundingBox);
         sceneManagerRef.current.scene.remove(pointCloud);
+        // Dispose of geometry and material to prevent memory leaks
+        if (pointCloud.geometry) pointCloud.geometry.dispose();
+        if (pointCloud.material) pointCloud.material.dispose();
       }
     };
   }, [pointCloud, boundingBox]);
@@ -1023,6 +972,7 @@ end_header
       await new Promise(resolve => {
         requestAnimationFrame(() => {
           if (sceneManagerRef.current) {
+            // Remove all existing point clouds from the scene
             const childrenToRemove = [];
             sceneManagerRef.current.scene.traverse((child) => {
               if (child instanceof THREE.Points) childrenToRemove.push(child);
@@ -1032,11 +982,18 @@ end_header
               if (pc.geometry) pc.geometry.dispose();
               if (pc.material) pc.material.dispose();
             });
+            
+            // Clean up bounding box
             if (boundingBox) disposeBoundingBox(boundingBox);
             setBoundingBox(null);
             setPointCloud(null);
+            
+            // Clear parts state to prevent conflicts
+            setParts([]);
+            setSelectedParts([]);
+            setActivePartId(null);
           }
-          setTimeout(resolve, 10);
+          resolve();
         });
       });
 
@@ -1065,6 +1022,20 @@ end_header
           
           const material = createPointCloudMaterial();
           const newPointCloud = new THREE.Points(geometry, material);
+          
+          // Double-check that no point clouds exist before adding the new one
+          const existingPointClouds = [];
+          sceneManagerRef.current.scene.traverse((child) => {
+            if (child instanceof THREE.Points) existingPointClouds.push(child);
+          });
+          
+          // Remove any remaining point clouds (safety check)
+          existingPointClouds.forEach((pc) => {
+            sceneManagerRef.current.scene.remove(pc);
+            if (pc.geometry) pc.geometry.dispose();
+            if (pc.material) pc.material.dispose();
+          });
+          
           sceneManagerRef.current.scene.add(newPointCloud);
           setPointCloud(newPointCloud);
           setOriginalGeometry(geometry.clone());
@@ -1113,50 +1084,6 @@ end_header
     const newVisibility = !showBoundingBox;
     updateBoundingBoxVisibility(boundingBox, newVisibility);
     setShowBoundingBox(newVisibility);
-  };
-
-  const handleToggleClassification = (classificationId) => {
-    const newClassifications = toggleClassification(classifications, classificationId);
-    if (pointCloud && originalGeometry) {
-      const filteredGeometry = filterPointCloudByClassifications(originalGeometry, newClassifications);
-      updatePointCloudGeometry(pointCloud, filteredGeometry);
-    }
-    setClassifications(newClassifications);
-  };
-
-  const handleToggleTreeID = (treeID) => {
-    const newTreeIDs = toggleTreeID(treeIDs, treeID);
-    if (pointCloud && originalGeometry && treeIDData) {
-      const filteredGeometry = filterPointCloudByTreeIDs(originalGeometry, treeIDData, newTreeIDs);
-      updatePointCloudGeometry(pointCloud, filteredGeometry);
-    }
-    setTreeIDs(newTreeIDs);
-  };
-
-  const handleToggleAllClassifications = () => {
-    const allVisible = Object.values(classifications).every(c => c.visible);
-    const newClassifications = { ...classifications };
-    Object.keys(newClassifications).forEach(id => {
-      newClassifications[id].visible = !allVisible;
-    });
-    if (pointCloud && originalGeometry) {
-      const filteredGeometry = filterPointCloudByClassifications(originalGeometry, newClassifications);
-      updatePointCloudGeometry(pointCloud, filteredGeometry);
-    }
-    setClassifications(newClassifications);
-  };
-
-  const handleToggleAllTreeIDs = () => {
-    const allVisible = Object.values(treeIDs).every(t => t.visible);
-    const newTreeIDs = { ...treeIDs };
-    Object.keys(newTreeIDs).forEach(id => {
-      newTreeIDs[id].visible = !allVisible;
-    });
-    if (pointCloud && originalGeometry && treeIDData) {
-      const filteredGeometry = filterPointCloudByTreeIDs(originalGeometry, treeIDData, newTreeIDs);
-      updatePointCloudGeometry(pointCloud, filteredGeometry);
-    }
-    setTreeIDs(newTreeIDs);
   };
 
   const handleSplitPointCloud = () => {
