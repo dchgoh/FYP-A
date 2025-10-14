@@ -8,46 +8,6 @@ export const handleAnnotationValueSelect = (setSelectedAnnotationValue) => (valu
   setSelectedAnnotationValue(value);
 };
 
-export const generateRandomColor = () => {
-  return [
-    Math.random(),
-    Math.random(),
-    Math.random()
-  ];
-};
-
-export const addNewAnnotation = (setClassifications, setTreeIDs, selectedAnnotationType, newAnnotationName, newAnnotationColor, setSelectedAnnotationValue, setNewAnnotationName, setNewAnnotationColor) => () => {
-  if (!newAnnotationName.trim()) return;
-
-  const newId = Date.now().toString();
-  const color = newAnnotationColor;
-
-  if (selectedAnnotationType === 'classification') {
-    setClassifications(prev => ({
-      ...prev,
-      [newId]: {
-        name: newAnnotationName,
-        color: color,
-        visible: true
-      }
-    }));
-    setSelectedAnnotationValue(newId);
-  } else if (selectedAnnotationType === 'treeID') {
-    setTreeIDs(prev => ({
-      ...prev,
-      [newId]: {
-        name: newAnnotationName,
-        color: color,
-        visible: true
-      }
-    }));
-    setSelectedAnnotationValue(newId);
-  }
-
-  setNewAnnotationName('');
-  setNewAnnotationColor(generateRandomColor());
-};
-
 export const annotateAllVisiblePoints = (setIsAnnotating, setAnnotationDialogOpen, selectedAnnotationValue, selectedAnnotationType, classifications, treeIDs, pointCloud, parts, selectedParts, originalGeometry, combineVisibleParts) => () => {
   if (!selectedAnnotationValue || !pointCloud) return;
 

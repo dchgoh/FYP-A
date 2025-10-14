@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Box, Button, Typography, Paper, Alert, CircularProgress, useTheme, FormControlLabel, Checkbox, FormControl, InputLabel, Select, MenuItem, IconButton, Slider, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Menu, ListItemIcon, ListItemText} from '@mui/material';
 import { tokens } from '../../theme';
-import { CloudUpload, Map, Close, Gesture, HistoryEdu, DeleteSweep, Edit, Save, Delete, Merge } from '@mui/icons-material';
+import { Map, Close, Gesture, HistoryEdu, DeleteSweep, Edit, Save, Delete, Merge } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import * as THREE from 'three';
@@ -36,15 +36,12 @@ import {
 import {
   handleAnnotationTypeChange,
   handleAnnotationValueSelect,
-  generateRandomColor,
-  addNewAnnotation,
   annotateAllVisiblePoints,
   handleAnnotationDialogClose
 } from './utils/annotationUtils';
 
 import {
   handleToolSelect,
-  handleFileUpload,
   toggleBoundingBox,
   handleToggleClassification,
   handleToggleAllClassifications,
@@ -94,8 +91,16 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const [selectedAnnotationValue, setSelectedAnnotationValue] = useState(null);
   const [isAnnotating, setIsAnnotating] = useState(false);
   const [annotationDialogOpen, setAnnotationDialogOpen] = useState(false);
-  const [newAnnotationName, setNewAnnotationName] = useState('');
-  const [newAnnotationColor, setNewAnnotationColor] = useState([1, 0, 0]); // Default red
+  
+  // --- Rename State ---
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [renamePartId, setRenamePartId] = useState(null);
+  const [newPartName, setNewPartName] = useState('');
+  
+  // --- Save Dialog State ---
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [savePartId, setSavePartId] = useState(null);
+  const [saveFileName, setSaveFileName] = useState('');
 
   // This effect updates the shader when the slider value changes
   useEffect(() => {
@@ -105,7 +110,7 @@ const PointCloudViewer = ({ isCollapsed }) => {
   }, [pointSize, pointCloud]);
 
   // --- MiniMap State ---
-  const [showMiniMap, setShowMiniMap] = useState(true);
+  const [showMiniMap, setShowMiniMap] = useState(false);
   const [miniMapFiles, setMiniMapFiles] = useState([]);
   const [isLoadingMiniMapFiles, setIsLoadingMiniMapFiles] = useState(false);
   const [errorMiniMapFiles, setErrorMiniMapFiles] = useState(null);
@@ -180,23 +185,75 @@ const PointCloudViewer = ({ isCollapsed }) => {
     handleCloseContextMenu();
   };
 
-  const handleSavePart = async (partId) => {
+  const handleRenamePart = (partId) => {
     const part = parts.find(p => p.id === partId);
+    if (part) {
+      setRenamePartId(partId);
+      setNewPartName(part.name);
+      setRenameDialogOpen(true);
+    }
+    handleCloseContextMenu();
+  };
+
+  const handleRenameConfirm = () => {
+    if (renamePartId && newPartName.trim()) {
+      setParts(prev => prev.map(part => 
+        part.id === renamePartId 
+          ? { ...part, name: newPartName.trim() }
+          : part
+      ));
+    }
+    setRenameDialogOpen(false);
+    setRenamePartId(null);
+    setNewPartName('');
+  };
+
+  const handleRenameCancel = () => {
+    setRenameDialogOpen(false);
+    setRenamePartId(null);
+    setNewPartName('');
+  };
+
+  const handleSavePart = (partId) => {
+    const part = parts.find(p => p.id === partId);
+    if (!part || !part.geometry) return;
+    
+    // Set up the save dialog with default filename (without .las extension)
+    const defaultFileName = part.name.replace(/[^a-zA-Z0-9]/g, '_');
+    setSavePartId(partId);
+    setSaveFileName(defaultFileName);
+    setSaveDialogOpen(true);
+    handleCloseContextMenu();
+  };
+
+  const handleSaveConfirm = async () => {
+    if (!savePartId || !saveFileName.trim()) return;
+    
+    const part = parts.find(p => p.id === savePartId);
     if (!part || !part.geometry) return;
 
     try {
       setIsLoading(true);
-      
       
       // Convert geometry to LAS format
       const lasData = await convertGeometryToLAS(part.geometry, part.name, part.type, part.id);
       
       // Create FormData for file upload
       const formData = new FormData();
-      const fileName = `${part.name.replace(/[^a-zA-Z0-9]/g, '_')}.las`;
+      const fileName = `${saveFileName.trim()}.las`;
       const blob = new Blob([lasData], { type: 'application/octet-stream' });
       formData.append('file', blob, fileName);
       formData.append('skipSegmentation', 'true'); // Skip segmentation for saved parts
+      
+      // Set plot/division/project information to match the current file
+      if (fileInfo) {
+        if (fileInfo.plot_name) {
+          formData.append('plot_name', fileInfo.plot_name);
+        }
+        if (fileInfo.project_id) {
+          formData.append('project_id', fileInfo.project_id);
+        }
+      }
       
       // Upload to backend
       const token = localStorage.getItem('authToken');
@@ -217,9 +274,10 @@ const PointCloudViewer = ({ isCollapsed }) => {
         setError(null);
         console.log('Part saved successfully:', response.data);
         
-        // You could add a success notification here
-        // For now, we'll just close the context menu
-        handleCloseContextMenu();
+        // Close the save dialog
+        setSaveDialogOpen(false);
+        setSavePartId(null);
+        setSaveFileName('');
       } else {
         throw new Error(`Upload failed with status: ${response.status}`);
       }
@@ -230,6 +288,12 @@ const PointCloudViewer = ({ isCollapsed }) => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSaveCancel = () => {
+    setSaveDialogOpen(false);
+    setSavePartId(null);
+    setSaveFileName('');
   };
 
   // Convert Three.js geometry to PLY format (more reliable)
@@ -692,14 +756,25 @@ end_header
            if (sourceGeometry) {
              const sourcePointCloud = new THREE.Points(sourceGeometry, pointCloud.material);
              sourcePointCloud.matrixWorld = pointCloud.matrixWorld;
-             const selectedGeometry = filterPointCloudByLasso(sourcePointCloud, lassoPoints, sceneManagerRef.current.camera, canvasRect, treeIDData);
+             
+             // Use treeIDData when cutting from originalGeometry, otherwise use the geometry's treeID attribute
+             const treeIDDataToUse = selectedParts.length === 0 
+               ? treeIDData 
+               : (sourceGeometry.attributes.treeID?.array || null);
+             
+             const selectedGeometry = filterPointCloudByLasso(sourcePointCloud, lassoPoints, sceneManagerRef.current.camera, canvasRect, treeIDDataToUse);
              if (selectedGeometry && selectedGeometry.attributes && selectedGeometry.attributes.position && selectedGeometry.attributes.position.count > 0) {
                // Create two parts: selected and remaining
-               const remainingGeometry = createRemainingGeometry(sourceGeometry, selectedGeometry);
+               const remainingGeometry = createRemainingGeometry(sourceGeometry, selectedGeometry, treeIDDataToUse);
+               
+               // Get the source part name for naming
+               const sourcePartName = selectedParts.length === 0 
+                 ? 'Full Point Cloud'
+                 : parts.find(h => selectedParts.includes(h.id))?.name || 'Part';
                
                const newPart = { 
                  id: Date.now(), 
-                 name: `Part ${parts.length + 1}`, 
+                 name: sourcePartName, 
                  geometry: selectedGeometry,
                  visible: true,
                  type: 'selected'
@@ -707,7 +782,7 @@ end_header
                
                const remainingPart = {
                  id: Date.now() + 1,
-                 name: `Remaining ${parts.length + 1}`,
+                 name: `${sourcePartName} (remaining)`,
                  geometry: remainingGeometry,
                  visible: false,
                  type: 'remaining'
@@ -1033,11 +1108,6 @@ end_header
   }, [isCollapsed]);
 
 
-  const handleFileSelect = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    await processFile(file);
-  };
 
   const toggleBoundingBox = () => {
     const newVisibility = !showBoundingBox;
@@ -1278,7 +1348,6 @@ end_header
   // Create annotation function instances with state setters
   const handleAnnotationTypeChangeInstance = handleAnnotationTypeChange(setSelectedAnnotationType, setSelectedAnnotationValue);
   const handleAnnotationValueSelectInstance = handleAnnotationValueSelect(setSelectedAnnotationValue);
-  const addNewAnnotationInstance = addNewAnnotation(setClassifications, setTreeIDs, selectedAnnotationType, newAnnotationName, newAnnotationColor, setSelectedAnnotationValue, setNewAnnotationName, setNewAnnotationColor);
   const annotateAllVisiblePointsInstance = annotateAllVisiblePoints(setIsAnnotating, setAnnotationDialogOpen, selectedAnnotationValue, selectedAnnotationType, classifications, treeIDs, pointCloud, parts, selectedParts, originalGeometry, combineVisiblePartsInstance);
   const handleAnnotationDialogCloseInstance = handleAnnotationDialogClose(setAnnotationDialogOpen, setSelectedAnnotationValue);
 
@@ -1307,22 +1376,6 @@ end_header
                </Box>
               
               <Box sx={styles.controlsContent}>
-                {!fileId && (
-                  <>
-                    <input
-                      accept=".las,.laz"
-                      style={styles.fileInput}
-                      id="las-file-input"
-                      type="file"
-                      onChange={handleFileSelect}
-                    />
-                    <label htmlFor="las-file-input">
-                      <Button variant="contained" component="span" startIcon={<CloudUpload />} disabled={isLoading} sx={styles.uploadButton} fullWidth>
-                        Choose LAS/LAZ File
-                      </Button>
-                    </label>
-                  </>
-                )}
                 
                 {selectedFile && fileInfo && (
                     <Box sx={{ mb: 2, p:1, border: `1px solid ${colors.grey[700]}`, borderRadius: '4px' }}>
@@ -1473,9 +1526,9 @@ end_header
                         onChange={(e, newValue) => setPointSize(newValue)}
                         aria-labelledby="point-size-slider"
                         valueLabelDisplay="auto"
-                        step={0.1}
+                        step={0.5}
                         min={1}
-                        max={10}
+                        max={20}
                         sx={{ color: colors.greenAccent[500] }}
                       />
                     </Box>
@@ -1636,37 +1689,6 @@ end_header
                </FormControl>
              )}
              
-             {/* Add New Annotation Section */}
-             <Box sx={{ mt: 3, p: 2, backgroundColor: colors.primary[800], borderRadius: '4px' }}>
-               <Typography variant="subtitle2" sx={{ color: colors.grey[200], mb: 2 }}>
-                 Or Add New {selectedAnnotationType === 'classification' ? 'Classification' : 'Tree ID'}
-               </Typography>
-               <TextField
-                 fullWidth
-                 size="small"
-                 label={`New ${selectedAnnotationType === 'classification' ? 'Classification' : 'Tree ID'} Name`}
-                 value={newAnnotationName}
-                 onChange={(e) => setNewAnnotationName(e.target.value)}
-                 sx={{ mb: 2 }}
-               />
-               <Box sx={{ display: 'flex', gap: 1 }}>
-                 <Button
-                   variant="outlined"
-                   onClick={addNewAnnotationInstance}
-                   disabled={!newAnnotationName.trim()}
-                   sx={{ flex: 1 }}
-                 >
-                   Add New
-                 </Button>
-                 <Button
-                   variant="outlined"
-                   onClick={() => setNewAnnotationColor(generateRandomColor())}
-                   sx={{ minWidth: 'auto', px: 2 }}
-                 >
-                   Random Color
-                 </Button>
-               </Box>
-             </Box>
            </Box>
          </DialogContent>
          <DialogActions>
@@ -1680,6 +1702,99 @@ end_header
              startIcon={<Save />}
            >
              {isAnnotating ? 'Applying...' : 'Apply Annotation'}
+           </Button>
+         </DialogActions>
+       </Dialog>
+
+       {/* Rename Dialog */}
+       <Dialog 
+         open={renameDialogOpen} 
+         onClose={handleRenameCancel}
+         maxWidth="sm"
+         fullWidth
+       >
+         <DialogTitle>
+           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+             <Edit sx={{ color: colors.greenAccent[500] }} />
+             Rename Part
+           </Box>
+         </DialogTitle>
+         <DialogContent>
+           <Box sx={{ mt: 2 }}>
+             <TextField
+               fullWidth
+               label="Part Name"
+               value={newPartName}
+               onChange={(e) => setNewPartName(e.target.value)}
+               variant="outlined"
+               autoFocus
+               onKeyPress={(e) => {
+                 if (e.key === 'Enter') {
+                   handleRenameConfirm();
+                 }
+               }}
+             />
+           </Box>
+         </DialogContent>
+         <DialogActions>
+           <Button onClick={handleRenameCancel}>
+             Cancel
+           </Button>
+           <Button 
+             onClick={handleRenameConfirm}
+             variant="contained"
+             disabled={!newPartName.trim()}
+           >
+             Rename
+           </Button>
+         </DialogActions>
+       </Dialog>
+
+       {/* Save Dialog */}
+       <Dialog 
+         open={saveDialogOpen} 
+         onClose={handleSaveCancel}
+         maxWidth="sm"
+         fullWidth
+       >
+         <DialogTitle>
+           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+             <Save sx={{ color: colors.greenAccent[500] }} />
+             Save Part
+           </Box>
+         </DialogTitle>
+         <DialogContent>
+           <Box sx={{ mt: 2 }}>
+             <Typography variant="body2" sx={{ color: colors.grey[300], mb: 2 }}>
+               Enter a filename for the saved part:
+             </Typography>
+             <TextField
+               fullWidth
+               label="File Name"
+               value={saveFileName}
+               onChange={(e) => setSaveFileName(e.target.value)}
+               variant="outlined"
+               autoFocus
+               placeholder="part_name"
+               onKeyPress={(e) => {
+                 if (e.key === 'Enter') {
+                   handleSaveConfirm();
+                 }
+               }}
+             />
+           </Box>
+         </DialogContent>
+         <DialogActions>
+           <Button onClick={handleSaveCancel} disabled={isLoading}>
+             Cancel
+           </Button>
+           <Button 
+             onClick={handleSaveConfirm}
+             variant="contained"
+             disabled={!saveFileName.trim() || isLoading}
+             startIcon={isLoading ? <CircularProgress size={16} /> : <Save />}
+           >
+             {isLoading ? 'Saving...' : 'Save Part'}
            </Button>
          </DialogActions>
        </Dialog>
@@ -1709,11 +1824,17 @@ end_header
               <ListItemText>Merge Selected Parts ({selectedParts.length})</ListItemText>
             </MenuItem>
           ] : [
+            <MenuItem key="rename-part" onClick={() => handleRenamePart(contextMenu?.partId)}>
+              <ListItemIcon>
+                <Edit fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Rename Part</ListItemText>
+            </MenuItem>,
             <MenuItem key="save-part" onClick={() => handleSavePart(contextMenu?.partId)} disabled={isLoading}>
               <ListItemIcon>
                 <Save fontSize="small" />
               </ListItemIcon>
-              <ListItemText>{isLoading ? 'Saving...' : 'Save Part to Files'}</ListItemText>
+              <ListItemText>{isLoading ? 'Saving...' : 'Save Part'}</ListItemText>
             </MenuItem>,
             <MenuItem key="delete-part" onClick={() => handleDeletePart(contextMenu?.partId)}>
               <ListItemIcon>

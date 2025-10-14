@@ -25,9 +25,4 @@ export const routes = [
         to: '/map',
         icon: <span className="material-symbols-outlined">map</span>,
     },
-    {
-        title: 'Point Cloud Viewer',
-        to: '/pointcloud',
-        icon: <span className="material-symbols-outlined">view_in_ar</span>,
-    },
 ];
