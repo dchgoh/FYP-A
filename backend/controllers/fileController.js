@@ -7,6 +7,8 @@ const segmentationService = require('../services/segmentationService');
 const { getProgress, clearProgress } = require('../services/progressStore');
 const lasProcessingService = require('../services/lasProcessingService');
 const { encryptFileTo, decryptToStream } = require('../utils/fileCrypto');
+const { addFileProcessingJob, getQueueStatus } = require('../services/queueService');
+const systemMonitor = require('../services/systemMonitor');
 
 
 const formatFileRecord = (dbRecord) => {
@@ -186,125 +188,26 @@ exports.uploadFile = async (req, res) => {
 
         res.status(201).json({
             success: true,
-            message: "File upload accepted. Processing initiated in background.",
+            message: "File upload accepted. Processing queued for background execution.",
             file: formatFileRecord(savedFileRecordData) // Use formatted record
         });
 
-        (async () => {
-            let currentFileId = fileIdToUpdate;
+        // Add file to processing queue instead of immediate background processing
+        try {
+            await addFileProcessingJob(fileIdToUpdate, stored_path_absolute, projectRootDir, shouldSkipSegmentation);
+            console.log(`[Controller] File ${fileIdToUpdate} (${originalname}) added to processing queue`);
+        } catch (queueError) {
+            console.error(`[Controller] Failed to add file ${fileIdToUpdate} to processing queue:`, queueError);
+            // Update file status to failed if queue addition fails
             try {
-                console.log(`[Controller BG] (FileID ${currentFileId}): Initiating LAS processing for ${originalname}.`);
-                await lasProcessingService.processLasData(currentFileId, stored_path_absolute);
-                console.log(`[Controller BG] (FileID ${currentFileId}): LAS processing service call completed.`);
-
-                // Define the expected status after successful LAS processing
-                const statusAfterLasProcessing = 'processed_ready_for_potree';
-
-                // Verify that LAS processing was successful before proceeding
-                let statusCheckAfterLas = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [currentFileId]);
-
-                if (statusCheckAfterLas.rows.length > 0 && statusCheckAfterLas.rows[0].status === statusAfterLasProcessing) {
-                    
-                    // --- The crucial check is here ---
-                    // Now that we have the base data, we check if the user wanted to skip the heavy AI part.
-                    if (shouldSkipSegmentation) {
-                        // --- PATH A: SKIP SEGMENTATION ---
-                        console.log(`[Controller BG] (FileID ${currentFileId}): LAS processing successful. Skipping segmentation as requested.`);
-                        console.log(`[Controller BG] (FileID ${currentFileId}): Setting status to ready for point cloud viewer.`);
-
-                        // Set status to ready for point cloud viewer instead of Potree conversion
-                        await pool.query("UPDATE uploaded_files SET status = 'ready' WHERE id = $1", [currentFileId]);
-                        try { clearProgress(currentFileId); } catch (_) {}
-
-                        // Encrypt file at rest now that processing is complete
-                        try {
-                            const encPathAbsolute = `${stored_path_absolute}.enc`;
-                            await encryptFileTo(stored_path_absolute, encPathAbsolute);
-                            // Update DB to point to encrypted file and remove plaintext
-                            const encPathRelative = `${path.join('uploads', filename)}.enc`;
-                            await pool.query("UPDATE uploaded_files SET stored_path = $1 WHERE id = $2", [encPathRelative, currentFileId]);
-                            fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error(`[Controller BG] (FileID ${currentFileId}) error deleting plaintext after encryption:`, err); });
-                            console.log(`[Controller BG] (FileID ${currentFileId}): File encrypted and plaintext removed.`);
-                        } catch (encErr) {
-                            console.error(`[Controller BG] (FileID ${currentFileId}) Encryption error:`, encErr);
-                            // Do not fail the pipeline; file remains plaintext if encryption fails
-                        }
-
-                        console.log(`[Controller BG] (FileID ${currentFileId}): File ready for point cloud viewer.`);
-
-                    } else {
-                        // --- PATH B: FULL PIPELINE WITH SEGMENTATION ---
-                        console.log(`[Controller BG] (FileID ${currentFileId}): LAS processing successful. Proceeding with segmentation.`);
-                        
-                        const statusAfterSegmentationReadyForPotree = 'segmented_ready_for_las';
-
-                        // --- 2. Segmentation ---
-                        await segmentationService.runSegmentation(currentFileId, stored_path_absolute, projectRootDir);
-                        console.log(`[Controller BG] (FileID ${currentFileId}): Segmentation completed.`);
-
-                        // Check status after segmentation to ensure it's ready for point cloud viewer
-                        let statusCheckAfterSegmentation = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [currentFileId]);
-
-                        if (statusCheckAfterSegmentation.rows.length > 0 && statusCheckAfterSegmentation.rows[0].status === statusAfterSegmentationReadyForPotree) {
-                            // --- 3. Set ready for point cloud viewer ---
-                            console.log(`[Controller BG] (FileID ${currentFileId}): Setting status to ready for point cloud viewer.`);
-                            await pool.query("UPDATE uploaded_files SET status = 'ready' WHERE id = $1", [currentFileId]);
-                            try { clearProgress(currentFileId); } catch (_) {}
-
-                            // Encrypt file at rest now that processing is complete
-                            try {
-                                const encPathAbsolute = `${stored_path_absolute}.enc`;
-                                await encryptFileTo(stored_path_absolute, encPathAbsolute);
-                                const encPathRelative = `${path.join('uploads', filename)}.enc`;
-                                await pool.query("UPDATE uploaded_files SET stored_path = $1 WHERE id = $2", [encPathRelative, currentFileId]);
-                                fs.unlink(stored_path_absolute, (err) => { if (err && err.code !== 'ENOENT') console.error(`[Controller BG] (FileID ${currentFileId}) error deleting plaintext after encryption:`, err); });
-                                console.log(`[Controller BG] (FileID ${currentFileId}): File encrypted and plaintext removed.`);
-                            } catch (encErr) {
-                                console.error(`[Controller BG] (FileID ${currentFileId}) Encryption error:`, encErr);
-                            }
-
-                            console.log(`[Controller BG] (FileID ${currentFileId}): File ready for point cloud viewer.`);
-                        } else {
-                            const currentStatus = statusCheckAfterSegmentation.rows.length > 0 ? statusCheckAfterSegmentation.rows[0].status : 'unknown';
-                            console.warn(`[Controller BG] (FileID ${currentFileId}): Skipping point cloud viewer setup for ${originalname}. Status after Segmentation: ${currentStatus}. Expected '${statusAfterSegmentationReadyForPotree}'.`);
-                        }
-                    }
-                } else {
-                    // This 'else' catches cases where the initial LAS processing failed.
-                    const currentStatus = statusCheckAfterLas.rows.length > 0 ? statusCheckAfterLas.rows[0].status : 'unknown';
-                    console.warn(`[Controller BG] (FileID ${currentFileId}): Skipping all subsequent steps for ${originalname}. Status after LAS Processing: ${currentStatus}. Expected '${statusAfterLasProcessing}'.`);
-                }
-
-            } catch (pipelineError) {
-                // This single catch block will correctly handle errors from any stage in either path (short or full).
-                console.error(`[Controller BG] Error (FileID ${currentFileId}): Background processing pipeline for ${originalname} failed: ${pipelineError.message}`);
-                try {
-                    const { rows } = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [currentFileId]);
-                    if (rows.length > 0 && !['failed', 'error_segmentation', 'error_las_processing'].includes(rows[0].status)) {
-                        const errMsgForDb = (pipelineError.message || "Unknown background pipeline error").substring(0, 250);
-
-                        let failureStatus = 'failed';
-                        if (pipelineError.message.toLowerCase().includes('las processing') || pipelineError.message.toLowerCase().includes('lasdata')) {
-                            failureStatus = 'error_las_processing';
-                        } else if (pipelineError.message.toLowerCase().includes('segmentation')) {
-                            failureStatus = 'error_segmentation';
-                        }
-
-                        await pool.query(
-                            "UPDATE uploaded_files SET status = $1, processing_error = $2 WHERE id = $3",
-                            [failureStatus, errMsgForDb, currentFileId]
-                        );
-                        console.log(`[Controller BG] (FileID ${currentFileId}): Set status to '${failureStatus}' due to pipeline error for ${originalname}.`);
-                    } else if (rows.length > 0) {
-                        console.log(`[Controller BG] (FileID ${currentFileId}): Status already '${rows[0].status}'. Error occurred: ${pipelineError.message}. No generic 'failed' status update by controller.`);
-                    } else {
-                        console.log(`[Controller BG] (FileID ${currentFileId}): File record not found during error handling. Error occurred: ${pipelineError.message}.`);
-                    }
-                } catch (dbErr) {
-                    console.error(`[Controller BG] DB Error (FileID ${currentFileId}): Failed to update status after pipeline error for ${originalname}:`, dbErr);
-                }
+                await pool.query(
+                    "UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2",
+                    ['Failed to add file to processing queue', fileIdToUpdate]
+                );
+            } catch (dbErr) {
+                console.error(`[Controller] Failed to update error status for file ${fileIdToUpdate}:`, dbErr);
             }
-        })(); 
+        } 
 
     } catch (initialError) {
         console.error("[Controller] Initial file upload/DB error:", initialError);
@@ -1507,5 +1410,90 @@ exports.getDetailedTreeDataForExport = async (req, res) => {
         console.error("Query:", query);
         console.error("Params:", queryParams);
         res.status(500).json({ message: "Server error fetching detailed tree data for export." });
+    }
+};
+
+// Queue Management Functions
+exports.getQueueStatus = async (req, res) => {
+    try {
+        const status = await getQueueStatus();
+        res.json({
+            success: true,
+            queue: status
+        });
+    } catch (error) {
+        console.error("Error getting queue status:", error);
+        res.status(500).json({ 
+            success: false, 
+            message: "Failed to get queue status" 
+        });
+    }
+};
+
+exports.pauseQueue = async (req, res) => {
+    try {
+        const { pauseQueue } = require('../services/queueService');
+        await pauseQueue();
+        res.json({
+            success: true,
+            message: "Processing queue paused"
+        });
+    } catch (error) {
+        console.error("Error pausing queue:", error);
+        res.status(500).json({ 
+            success: false, 
+            message: "Failed to pause queue" 
+        });
+    }
+};
+
+exports.resumeQueue = async (req, res) => {
+    try {
+        const { resumeQueue } = require('../services/queueService');
+        await resumeQueue();
+        res.json({
+            success: true,
+            message: "Processing queue resumed"
+        });
+    } catch (error) {
+        console.error("Error resuming queue:", error);
+        res.status(500).json({ 
+            success: false, 
+            message: "Failed to resume queue" 
+        });
+    }
+};
+
+exports.clearQueue = async (req, res) => {
+    try {
+        const { clearQueue } = require('../services/queueService');
+        await clearQueue();
+        res.json({
+            success: true,
+            message: "Processing queue cleared"
+        });
+    } catch (error) {
+        console.error("Error clearing queue:", error);
+        res.status(500).json({ 
+            success: false, 
+            message: "Failed to clear queue" 
+        });
+    }
+};
+
+// System Health Functions
+exports.getSystemHealth = async (req, res) => {
+    try {
+        const health = await systemMonitor.getSystemHealth();
+        res.json({
+            success: true,
+            health
+        });
+    } catch (error) {
+        console.error("Error getting system health:", error);
+        res.status(500).json({ 
+            success: false, 
+            message: "Failed to get system health" 
+        });
     }
 };;

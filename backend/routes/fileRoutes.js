@@ -61,5 +61,13 @@ router.patch(
     fileController.reassignFileDetails // <-- Use the new controller
 );
 
+// Queue Management Routes (Admin only)
+router.get('/queue/status', checkRole([ROLES.ADMIN]), fileController.getQueueStatus);
+router.post('/queue/pause', checkRole([ROLES.ADMIN]), fileController.pauseQueue);
+router.post('/queue/resume', checkRole([ROLES.ADMIN]), fileController.resumeQueue);
+router.post('/queue/clear', checkRole([ROLES.ADMIN]), fileController.clearQueue);
+
+// System Health Routes (Admin only)
+router.get('/system/health', checkRole([ROLES.ADMIN]), fileController.getSystemHealth);
 
 module.exports = router;

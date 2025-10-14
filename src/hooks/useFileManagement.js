@@ -530,7 +530,7 @@ export const useFileManagement = () => {
             });
     
             if (uploadRes.data.success && uploadRes.data.file && uploadRes.data.file.id) {
-                showSnackbar(`File "${newFile.name}" uploaded. Backend processing pipeline initiated.`, "success");
+                showSnackbar(`File "${newFile.name}" uploaded. Processing queued for background execution.`, "success");
                 handleCloseUploadModal();
                 await fetchFiles(); // This will refresh and potentially show the new file in "processing" state
             } else {

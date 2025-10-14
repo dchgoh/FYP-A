@@ -17,6 +17,7 @@
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.8.4",
     "bcrypt": "^5.1.1",
+    "bull": "^4.16.5",
     "chart.js": "^4.4.8",
     "chartjs-plugin-datalabels": "^2.2.0",
     "cors": "^2.8.5",
@@ -25,6 +26,7 @@
     "dropbox": "^10.34.0",
     "file-saver": "^2.0.5",
     "file-server": "^2.2.1",
+    "ioredis": "^5.8.1",
     "jsonwebtoken": "^9.0.2",
     "jwt-decode": "^4.0.0",
     "leaflet": "^1.9.4",
@@ -47,17 +49,19 @@
     "react-router-dom": "^6.30.0",
     "react-scripts": "5.0.1",
     "recharts": "^2.15.1",
+    "redis": "^5.8.3",
     "socket.io": "^4.8.1",
     "three": "^0.175.0",
     "web-vitals": "^2.1.4",
     "xlsx": "^0.18.5"
   },
   "scripts": {
-    "prestart": "cd backend && python -m venv venv && .\\venv\\Scripts\\python.exe -m pip install --upgrade pip && .\\venv\\Scripts\\python.exe -m pip install --upgrade laspy pyproj torch numpy argparse tqdm scipy",
+    "prestart": "cd backend && python -m venv venv && .\\venv\\Scripts\\python.exe -m pip install --upgrade pip && .\\venv\\Scripts\\python.exe -m pip install --upgrade laspy pyproj torch numpy argparse tqdm scipy && node ..\\backend\\scripts\\check_redis_container.js",
     "start": "concurrently \"npm run server\" \"npm run client\" \"npm run backup\"",
     "server": "cd backend && CALL .\\venv\\Scripts\\activate.bat && node server.js",
     "client": "set PORT=3000&& set DANGEROUSLY_DISABLE_HOST_CHECK=true&& react-scripts start",
-    "backup": "cd backend && node backup.js"
+    "backup": "cd backend && node backup.js",
+    "check-redis": "node backend/scripts/check_redis_container.js"
   },
   "proxy": "http://localhost:5000",
   "eslintConfig": {
