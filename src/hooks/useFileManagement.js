@@ -14,7 +14,6 @@ const ROLES = {
 };
 const ACTIVE_PIPELINE_PROCESSING_STATUSES = [
     'segmenting',
-    'instance_segmenting',
     'processing_las_data',
     'processing'
 ];
@@ -78,7 +77,6 @@ export const useFileManagement = () => {
     const [filesBeingProcessed, setFilesBeingProcessed] = useState(new Set());
     const [isPolling, setIsPolling] = useState(false);
     const [skipSegmentation, setSkipSegmentation] = useState(false);
-    const [useInstanceSegmentation, setUseInstanceSegmentation] = useState(false);
     const [selectedFileIds, setSelectedFileIds] = useState(new Set());
     const [isDeletingBulk, setIsDeletingBulk] = useState(false);
     const [exportSelectedFiles, setExportSelectedFiles] = useState(new Set());
@@ -517,8 +515,7 @@ export const useFileManagement = () => {
         const abortController = new AbortController();
         setUploadAbortController(abortController);
     
-        fd.append('skipSegmentation', skipSegmentation);
-        fd.append('useInstanceSegmentation', useInstanceSegmentation); 
+        fd.append('skipSegmentation', skipSegmentation); 
         
         setIsUploading(true);
         setUploadProgress(0);
@@ -1357,13 +1354,13 @@ export const useFileManagement = () => {
         snackbar,
         deletingProjectId, plotName, selectedProjectId, selectedDivisionIdForCreation, isDivisionProjectSettingsModalOpen,
         deletingDivisionId, reassignModalOpen, fileToReassign, selectedProjectIdForReassign,
-        newPlotNameForReassign, isReassigning, filesBeingProcessed, isPolling, skipSegmentation, useInstanceSegmentation,
+        newPlotNameForReassign, isReassigning, filesBeingProcessed, isPolling, skipSegmentation,
         selectedFileIds, isDeletingBulk, fileInputRef, isLoadingPermissions,
         exportSelectedFiles, exportModalOpen,
 
         // State Setters (for controlled components in modals/forms)
         setOpenUploadModal, setNewFile, setUploadProgress, setIsUploading, setPlotName, setSelectedProjectId,
-        setSkipSegmentation, setUseInstanceSegmentation, setAssignProjectModalOpen, setFileToAssignProject, setSelectedProjectIdForAssignment,
+        setSkipSegmentation, setAssignProjectModalOpen, setFileToAssignProject, setSelectedProjectIdForAssignment,
         setCreateProjectModalOpen, setNewProjectName, setSelectedDivisionIdForCreation, setCreateDivisionModalOpen,
         setNewDivisionName, setIsProjectSettingsModalOpen, setIsDivisionProjectSettingsModalOpen, setReassignModalOpen,
         setFileToReassign, setSelectedProjectIdForReassign, setNewPlotNameForReassign,

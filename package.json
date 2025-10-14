@@ -56,11 +56,12 @@
     "xlsx": "^0.18.5"
   },
   "scripts": {
-    "prestart": "cd backend && python -m venv venv && .\\venv\\Scripts\\python.exe -m pip install --upgrade pip && .\\venv\\Scripts\\python.exe -m pip install --upgrade laspy pyproj torch numpy argparse tqdm scipy pyyaml munch",
+    "prestart": "cd backend && python -m venv venv && .\\venv\\Scripts\\python.exe -m pip install --upgrade pip && .\\venv\\Scripts\\python.exe -m pip install --upgrade laspy pyproj torch numpy argparse tqdm scipy && node ..\\backend\\scripts\\check_redis_container.js",
     "start": "concurrently \"npm run server\" \"npm run client\" \"npm run backup\"",
     "server": "cd backend && CALL .\\venv\\Scripts\\activate.bat && node server.js",
     "client": "set PORT=3000&& set DANGEROUSLY_DISABLE_HOST_CHECK=true&& react-scripts start",
-    "backup": "cd backend && node backup.js"
+    "backup": "cd backend && node backup.js",
+    "check-redis": "node backend/scripts/check_redis_container.js"
   },
   "proxy": "http://localhost:5000",
   "eslintConfig": {
@@ -82,6 +83,6 @@
     ]
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "concurrently": "^9.1.2"
   }
 }

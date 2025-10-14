@@ -117,9 +117,8 @@ exports.uploadFile = async (req, res) => {
     }
 
     const { originalname, filename, path: stored_path_absolute, mimetype, size } = req.file;
-    const { plot_name, project_id, skipSegmentation, useInstanceSegmentation } = req.body; 
+    const { plot_name, project_id, skipSegmentation } = req.body; 
     const shouldSkipSegmentation = skipSegmentation === 'true';
-    const shouldUseInstanceSegmentation = useInstanceSegmentation === 'true';
     const stored_path_relative = path.join('uploads', filename);
 
     const projectRootDir = path.resolve(__dirname, '..'); 
@@ -195,8 +194,8 @@ exports.uploadFile = async (req, res) => {
 
         // Add file to processing queue instead of immediate background processing
         try {
-            await addFileProcessingJob(fileIdToUpdate, stored_path_absolute, projectRootDir, shouldSkipSegmentation, shouldUseInstanceSegmentation);
-            console.log(`[Controller] File ${fileIdToUpdate} (${originalname}) added to processing queue (${shouldUseInstanceSegmentation ? 'instance' : 'semantic'} segmentation)`);
+            await addFileProcessingJob(fileIdToUpdate, stored_path_absolute, projectRootDir, shouldSkipSegmentation);
+            console.log(`[Controller] File ${fileIdToUpdate} (${originalname}) added to processing queue`);
         } catch (queueError) {
             console.error(`[Controller] Failed to add file ${fileIdToUpdate} to processing queue:`, queueError);
             // Update file status to failed if queue addition fails

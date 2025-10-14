@@ -10,7 +10,6 @@ const FileUploadModal = ({
     colors, theme, openUploadModal, handleCloseUploadModal, isUploading,
     triggerFileInput, fileInputRef, handleFileChange, newFile, uploadProgress,
     plotName, setPlotName, skipSegmentation, setSkipSegmentation,
-    useInstanceSegmentation, setUseInstanceSegmentation,
     selectedProjectId, setSelectedProjectId, loadingProjectsList, projectsList,
     userRole, ROLES, CREATE_NEW_PROJECT_VALUE, handleOpenCreateProjectModal,
     handleCancelUpload, handleFileUpload
@@ -41,13 +40,6 @@ const FileUploadModal = ({
                 {isUploading && uploadProgress !== null && ( <Box sx={styles.uploadProgressContainer}><LinearProgress variant="determinate" value={uploadProgress} /><Typography variant="caption" display="block" sx={{ textAlign: 'center', mt: 0.5 }}>{uploadProgress}%</Typography></Box> )}
                 <TextField label="Plot Name (Required)" value={plotName} onChange={(e) => setPlotName(e.target.value)} fullWidth variant="outlined" margin="dense" sx={styles.dialogTextField} />
                 <FormControlLabel control={<Switch checked={skipSegmentation} onChange={(e) => setSkipSegmentation(e.target.checked)} disabled={isUploading} />} label="Skip Tree Segmentation" sx={{ mt: 1, color: colors.grey[300] }} />
-                {!skipSegmentation && (
-                    <FormControlLabel 
-                        control={<Switch checked={useInstanceSegmentation} onChange={(e) => setUseInstanceSegmentation(e.target.checked)} disabled={isUploading} />} 
-                        label="Use Instance Segmentation (ISBNet)" 
-                        sx={{ mt: 1, color: colors.grey[300] }} 
-                    />
-                )}
                 <FormControl fullWidth margin="dense" sx={styles.dialogSelectControl} disabled={isUploading}>
                     <InputLabel id="project-select-label-upload">Assign to Project (Required)</InputLabel>
                     <Select labelId="project-select-label-upload" value={selectedProjectId} onChange={(e) => { e.target.value === CREATE_NEW_PROJECT_VALUE ? handleOpenCreateProjectModal() : setSelectedProjectId(e.target.value); }} label="Assign to Project (Required)">
