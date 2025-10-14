@@ -228,9 +228,7 @@ export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasR
   
   // Get treeID data if available (use passed parameter or try geometry attribute)
   const treeIDs = treeIDData || originalGeometry.attributes.treeID?.array || null;
-  console.log('Lasso Filter: treeIDData parameter:', treeIDData ? `${treeIDData.length} values` : 'null');
-  console.log('Lasso Filter: geometry treeID attribute:', originalGeometry.attributes.treeID ? 'exists' : 'missing');
-  console.log('Lasso Filter: final treeIDs:', treeIDs ? `${treeIDs.length} values` : 'null');
+  const originalClassifications = originalGeometry.attributes.originalClassification?.array || null;
   
   // Create arrays for ALL new attributes
   const newPositions = [];
@@ -238,6 +236,7 @@ export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasR
   const newCustomColors = [];
   const newSizes = [];
   const newTreeIDs = [];
+  const newOriginalClassifications = [];
   
   const point = new THREE.Vector3();
   const worldMatrix = pointCloud.matrixWorld;
@@ -263,6 +262,15 @@ export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasR
         if (treeIDs) {
           newTreeIDs.push(treeIDs[pointIndex] || 0);
         }
+        
+        // Copy original classification data if available
+        if (originalClassifications) {
+          newOriginalClassifications.push(
+            originalClassifications[i], 
+            originalClassifications[i+1], 
+            originalClassifications[i+2]
+          );
+        }
       }
     }
   }
@@ -278,10 +286,11 @@ export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasR
   // Store treeID data as a custom attribute if available
   if (newTreeIDs.length > 0) {
     finalGeometry.setAttribute('treeID', new THREE.Float32BufferAttribute(newTreeIDs, 1));
-    console.log('Lasso Filter: Stored treeID data with', newTreeIDs.length, 'values');
-    console.log('Lasso Filter: Sample treeID values:', newTreeIDs.slice(0, 10));
-  } else {
-    console.log('Lasso Filter: No treeID data to store');
+  }
+  
+  // Store original classification data as a custom attribute if available
+  if (newOriginalClassifications.length > 0) {
+    finalGeometry.setAttribute('originalClassification', new THREE.Float32BufferAttribute(newOriginalClassifications, 3));
   }
   
   return finalGeometry;

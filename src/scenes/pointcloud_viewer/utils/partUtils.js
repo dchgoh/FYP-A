@@ -84,11 +84,15 @@ export const combineVisibleParts = (parts, originalGeometry) => {
   return combinedGeometry;
 };
 
-export const createRemainingGeometry = (sourceGeometry, selectedGeometry) => {
+export const createRemainingGeometry = (sourceGeometry, selectedGeometry, externalTreeIDData = null) => {
   const sourcePositions = sourceGeometry.attributes.position.array;
   const sourceColors = sourceGeometry.attributes.color.array;
   const sourceCustomColors = sourceGeometry.attributes.customColor.array;
   const sourceSizes = sourceGeometry.attributes.size.array;
+  
+  // Get additional attributes if they exist, or use external data
+  const sourceTreeIDs = sourceGeometry.attributes.treeID?.array || externalTreeIDData || [];
+  const sourceOriginalClassifications = sourceGeometry.attributes.originalClassification?.array || [];
   
   const selectedPositions = selectedGeometry.attributes.position.array;
   
@@ -104,18 +108,36 @@ export const createRemainingGeometry = (sourceGeometry, selectedGeometry) => {
   const remainingColors = [];
   const remainingCustomColors = [];
   const remainingSizes = [];
+  const remainingTreeIDs = [];
+  const remainingOriginalClassifications = [];
   
   for (let i = 0; i < sourcePositions.length; i += 3) {
     const key = `${sourcePositions[i].toFixed(3)},${sourcePositions[i+1].toFixed(3)},${sourcePositions[i+2].toFixed(3)}`;
     
     if (!selectedPositionSet.has(key)) {
       // This point is not in the selected geometry, add it to remaining
+      const pointIndex = i / 3;
       remainingPositions.push(sourcePositions[i], sourcePositions[i+1], sourcePositions[i+2]);
       remainingColors.push(sourceColors[i], sourceColors[i+1], sourceColors[i+2]);
       remainingCustomColors.push(sourceCustomColors[i], sourceCustomColors[i+1], sourceCustomColors[i+2]);
-      remainingSizes.push(sourceSizes[i/3]);
+      remainingSizes.push(sourceSizes[pointIndex]);
+      
+      // Preserve treeID data if it exists
+      if (sourceTreeIDs.length > 0) {
+        remainingTreeIDs.push(sourceTreeIDs[pointIndex] || 0);
+      }
+      
+      // Preserve original classification data if it exists
+      if (sourceOriginalClassifications.length > 0) {
+        remainingOriginalClassifications.push(
+          sourceOriginalClassifications[i], 
+          sourceOriginalClassifications[i+1], 
+          sourceOriginalClassifications[i+2]
+        );
+      }
     }
   }
+
   
   // Create remaining geometry
   const remainingGeometry = new THREE.BufferGeometry();
@@ -124,6 +146,15 @@ export const createRemainingGeometry = (sourceGeometry, selectedGeometry) => {
   remainingGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(remainingCustomColors, 3));
   remainingGeometry.setAttribute('size', new THREE.Float32BufferAttribute(remainingSizes, 1));
   
+  // Preserve treeID attribute if any treeID data exists
+  if (remainingTreeIDs.length > 0) {
+    remainingGeometry.setAttribute('treeID', new THREE.Float32BufferAttribute(remainingTreeIDs, 1));
+  }
+  
+  // Preserve original classification attribute if any classification data exists
+  if (remainingOriginalClassifications.length > 0) {
+    remainingGeometry.setAttribute('originalClassification', new THREE.Float32BufferAttribute(remainingOriginalClassifications, 3));
+  }
   return remainingGeometry;
 };
 
@@ -138,7 +169,8 @@ export const mergeParts = (setParts, setSelectedParts) => (partIds) => {
   if (partIds.length < 2) return;
   
   setParts(prev => {
-    const partsToMerge = prev.filter(part => partIds.includes(part.id));
+    // Preserve the selection order by mapping partIds to parts in order
+    const partsToMerge = partIds.map(id => prev.find(part => part.id === id)).filter(Boolean);
     const remainingParts = prev.filter(part => !partIds.includes(part.id));
     
     if (partsToMerge.length < 2) return prev;
@@ -219,7 +251,7 @@ export const mergeParts = (setParts, setSelectedParts) => (partIds) => {
     // Create merged part
     const mergedPart = {
       id: Date.now(),
-      name: `Merged Part (${partsToMerge.length} parts)`,
+      name: partsToMerge[0].name, // Use the first selected part's name
       geometry: mergedGeometry,
       visible: true,
       type: 'merged'
@@ -255,3 +287,4 @@ export const handlePartMultiSelect = (setSelectedParts, selectedParts) => (partI
     setSelectedParts([partId]);
   }
 };
+
