@@ -59,6 +59,14 @@ processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, asy
     console.log(`[Queue] Starting job ${job.id} for file ${fileId}`);
     
     try {
+        // Check if file was stopped before starting any processing
+        const initialStatusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
+        if (initialStatusCheck.rows.length === 0 || ['failed', 'stopped'].includes(initialStatusCheck.rows[0].status)) {
+            console.log(`[Queue] Job ${job.id}: File ${fileId} was stopped by user, aborting job (this is expected)`);
+            // Don't treat this as an error - it's expected behavior when user stops processing
+            return { success: false, message: 'File processing was stopped by user', aborted: true };
+        }
+        
         // Check resource availability before starting
         if (!await checkResourceAvailability()) {
             throw new Error('Insufficient system resources available');
@@ -71,12 +79,24 @@ processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, asy
 
         // Step 1: LAS Processing
         console.log(`[Queue] Job ${job.id}: Starting LAS processing for file ${fileId}`);
+        
+        // Check if file was stopped before starting LAS processing
+        const preLasStatusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
+        if (preLasStatusCheck.rows.length === 0 || ['failed', 'stopped'].includes(preLasStatusCheck.rows[0].status)) {
+            console.log(`[Queue] Job ${job.id}: File ${fileId} was stopped by user, aborting LAS processing (expected)`);
+            return { success: false, message: 'File processing was stopped by user', aborted: true };
+        }
+        
         await updateJobStatus(fileId, 'processing_las_data', 'Processing LAS data');
         await lasProcessingService.processLasData(fileId, filePath);
         
-        // Verify LAS processing success
+        // Verify LAS processing success and check if file was stopped during processing
         const statusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
-        if (statusCheck.rows.length === 0 || statusCheck.rows[0].status !== 'processed_ready_for_potree') {
+        if (statusCheck.rows.length === 0 || ['failed', 'stopped'].includes(statusCheck.rows[0].status)) {
+            console.log(`[Queue] Job ${job.id}: File ${fileId} was stopped during LAS processing (expected)`);
+            return { success: false, message: 'File processing was stopped by user', aborted: true };
+        }
+        if (statusCheck.rows[0].status !== 'processed_ready_for_potree') {
             throw new Error('LAS processing failed');
         }
 
@@ -91,12 +111,24 @@ processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, asy
         } else {
             // Full pipeline with segmentation
             console.log(`[Queue] Job ${job.id}: Starting segmentation for file ${fileId}`);
+            
+            // Check if file was stopped before starting segmentation
+            const preSegStatusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
+            if (preSegStatusCheck.rows.length === 0 || ['failed', 'stopped'].includes(preSegStatusCheck.rows[0].status)) {
+                console.log(`[Queue] Job ${job.id}: File ${fileId} was stopped by user, aborting segmentation (expected)`);
+                return { success: false, message: 'File processing was stopped by user', aborted: true };
+            }
+            
             await updateJobStatus(fileId, 'segmenting', 'Running AI segmentation');
             await segmentationService.runSegmentation(fileId, filePath, projectRootDir);
             
-            // Verify segmentation success
+            // Verify segmentation success and check if file was stopped during processing
             const segStatusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
-            if (segStatusCheck.rows.length === 0 || segStatusCheck.rows[0].status !== 'segmented_ready_for_las') {
+            if (segStatusCheck.rows.length === 0 || ['failed', 'stopped'].includes(segStatusCheck.rows[0].status)) {
+                console.log(`[Queue] Job ${job.id}: File ${fileId} was stopped during segmentation (expected)`);
+                return { success: false, message: 'File processing was stopped by user', aborted: true };
+            }
+            if (segStatusCheck.rows[0].status !== 'segmented_ready_for_las') {
                 throw new Error('Segmentation failed');
             }
 
@@ -264,6 +296,55 @@ async function clearQueue() {
     console.log('[Queue] Processing queue cleared');
 }
 
+async function stopFileProcessing(fileId) {
+    try {
+        console.log(`[Queue] Attempting to stop processing for file ${fileId}`);
+        
+        // Check if file is currently being processed
+        const fileStatus = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
+        if (fileStatus.rows.length === 0) {
+            throw new Error(`File ${fileId} not found`);
+        }
+        
+        const currentStatus = fileStatus.rows[0].status;
+        
+        // First, try to remove any waiting jobs for this file from the queue
+        try {
+            const waitingJobs = await processingQueue.getWaiting();
+            for (const job of waitingJobs) {
+                if (job.data.fileId === fileId) {
+                    await job.remove();
+                    console.log(`[Queue] Removed waiting job ${job.id} for file ${fileId}`);
+                }
+            }
+        } catch (queueError) {
+            console.warn(`[Queue] Could not remove waiting jobs for file ${fileId}:`, queueError);
+        }
+        
+        if (currentStatus === 'segmenting') {
+            // Stop segmentation process
+            const result = await segmentationService.stopSegmentation(fileId);
+            console.log(`[Queue] Stopped segmentation for file ${fileId}`);
+            return result;
+        } else if (['uploaded', 'processing_las_data', 'processing'].includes(currentStatus)) {
+            // For files in queue or LAS processing, update the status to stopped
+            await pool.query(
+                "UPDATE uploaded_files SET status = 'stopped', processing_error = 'Processing stopped by user' WHERE id = $1",
+                [fileId]
+            );
+            clearProgress(fileId);
+            console.log(`[Queue] Marked file ${fileId} as stopped (stopped by user)`);
+            return { success: true, message: "Processing stopped successfully" };
+        } else {
+            throw new Error(`Cannot stop processing for file ${fileId} with status: ${currentStatus}`);
+        }
+        
+    } catch (error) {
+        console.error(`[Queue] Error stopping processing for file ${fileId}:`, error);
+        throw error;
+    }
+}
+
 // Graceful shutdown
 process.on('SIGTERM', async () => {
     console.log('[Queue] Received SIGTERM, shutting down gracefully');
@@ -277,12 +358,60 @@ process.on('SIGINT', async () => {
     await redis.quit();
 });
 
+async function startFileProcessing(fileId) {
+    try {
+        console.log(`[Queue] Attempting to start processing for file ${fileId}`);
+        
+        // Check if file exists and is in a startable state
+        const fileStatus = await pool.query("SELECT status, stored_path FROM uploaded_files WHERE id = $1", [fileId]);
+        if (fileStatus.rows.length === 0) {
+            throw new Error(`File ${fileId} not found`);
+        }
+        
+        const currentStatus = fileStatus.rows[0].status;
+        const filePath = fileStatus.rows[0].stored_path;
+        
+        if (currentStatus === 'stopped') {
+            // Reset status and add to queue for processing
+            await pool.query(
+                "UPDATE uploaded_files SET status = 'uploaded', processing_error = NULL WHERE id = $1",
+                [fileId]
+            );
+            
+            // Add file back to processing queue
+            const projectRootDir = path.resolve(__dirname, '..');
+            const absoluteFilePath = path.resolve(__dirname, '..', filePath);
+            
+            const job = await processingQueue.add('process-file', {
+                fileId,
+                filePath: absoluteFilePath,
+                projectRootDir,
+                skipSegmentation: false, // Always run full pipeline when restarting
+            }, {
+                priority: 0,
+                delay: 1000,
+            });
+            
+            console.log(`[Queue] Restarted processing for file ${fileId}, added job ${job.id}`);
+            return { success: true, message: "Processing restarted successfully" };
+        } else {
+            throw new Error(`Cannot start processing for file ${fileId} with status: ${currentStatus}`);
+        }
+        
+    } catch (error) {
+        console.error(`[Queue] Error starting processing for file ${fileId}:`, error);
+        throw error;
+    }
+}
+
 module.exports = {
     addFileProcessingJob,
     getQueueStatus,
     pauseQueue,
     resumeQueue,
     clearQueue,
+    stopFileProcessing,
+    startFileProcessing,
     processingQueue,
     redis,
 };

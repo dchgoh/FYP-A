@@ -6,6 +6,9 @@ const { pool } = require('../config/db'); // Assuming shared DB config
 const { setProgress, clearProgress } = require('./progressStore');
 const gpuManager = require('./gpuResourceManager');
 
+// Track active segmentation processes
+const activeProcesses = new Map();
+
 async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
     console.log(`[SegmentationService] (FileID ${fileId}): Starting for ${inputFileAbsolutePath}`);
     await pool.query("UPDATE uploaded_files SET status = 'segmenting', processing_error = NULL WHERE id = $1", [fileId]);
@@ -51,6 +54,14 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
         const segmentationProcess = spawn(pythonVenvExecutable, segmentArgs, { cwd: projectRootDir, stdio: 'pipe' });
         let segStdout = '', segStderr = '';
         
+        // Track the active process
+        activeProcesses.set(fileId, {
+            process: segmentationProcess,
+            startTime: Date.now(),
+            filePath: inputFileAbsolutePath,
+            backupPath: originalFileBackupPath
+        });
+        
         segmentationProcess.stdout.on('data', (data) => { 
             const output = data.toString();
             segStdout += output; 
@@ -62,6 +73,12 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
                     if (!isNaN(pct)) setProgress(fileId, pct);
                 }
             } catch (_) { /* noop */ }
+            
+            // Check if process was stopped during execution
+            if (!activeProcesses.has(fileId)) {
+                console.log(`[SegmentationService] Process ${fileId} was stopped, killing segmentation process`);
+                segmentationProcess.kill('SIGTERM');
+            }
         });
         
         segmentationProcess.stderr.on('data', (data) => { 
@@ -75,10 +92,20 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
                     if (!isNaN(pct)) setProgress(fileId, pct);
                 }
             } catch (_) { /* noop */ }
+            
+            // Check if process was stopped during execution
+            if (!activeProcesses.has(fileId)) {
+                console.log(`[SegmentationService] Process ${fileId} was stopped, killing segmentation process`);
+                segmentationProcess.kill('SIGTERM');
+            }
         });
 
         segmentationProcess.on('error', async (error) => {
             console.error(`[SegmentationService] Error (FileID ${fileId}): Failed to start. Err: ${error.message}`);
+            
+            // Remove from active processes
+            activeProcesses.delete(fileId);
+            
             if (originalFileBackupPath && fs.existsSync(originalFileBackupPath)) { /* restore backup */ try { fs.renameSync(originalFileBackupPath, inputFileAbsolutePath); } catch (e) {console.error('Backup restore failed', e)} }
             try { await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2", [`Seg Spawn Err: ${error.message.substring(0,200)}`, fileId]); } catch (dbErr) {/* log */}
             // Release GPU allocation on process error
@@ -88,6 +115,10 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
 
         segmentationProcess.on('close', async (code) => {
             console.log(`\n[SegmentationService] (FileID ${fileId}): Script exited with code ${code}.`);
+            
+            // Remove from active processes
+            activeProcesses.delete(fileId);
+            
             if (code === 0) {
                 // Check for the output file created by segmentation script
                 // Match the Python script's sanitization: Path(args.input_file).stem.replace(" ", "_")
@@ -144,4 +175,61 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
     });
 }
 
-module.exports = { runSegmentation };
+async function stopSegmentation(fileId) {
+    console.log(`[SegmentationService] Stopping segmentation for file ${fileId}`);
+    
+    const processInfo = activeProcesses.get(fileId);
+    if (!processInfo) {
+        throw new Error(`No active segmentation process found for file ${fileId}`);
+    }
+    
+    try {
+        // Kill the process
+        processInfo.process.kill('SIGTERM');
+        
+        // Wait a bit for graceful shutdown
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Force kill if still running
+        if (!processInfo.process.killed) {
+            processInfo.process.kill('SIGKILL');
+        }
+        
+        // Clean up files
+        if (processInfo.backupPath && fs.existsSync(processInfo.backupPath)) {
+            try {
+                fs.renameSync(processInfo.backupPath, processInfo.filePath);
+                console.log(`[SegmentationService] Restored backup for file ${fileId}`);
+            } catch (e) {
+                console.error(`[SegmentationService] Failed to restore backup for file ${fileId}:`, e);
+            }
+        }
+        
+        // Update database status
+        await pool.query("UPDATE uploaded_files SET status = 'stopped', processing_error = 'Segmentation stopped by user' WHERE id = $1", [fileId]);
+        
+        // Clear progress
+        clearProgress(fileId);
+        
+        // Release GPU allocation
+        gpuManager.releaseGPU(fileId);
+        
+        // Remove from active processes
+        activeProcesses.delete(fileId);
+        
+        console.log(`[SegmentationService] Successfully stopped segmentation for file ${fileId}`);
+        return { success: true, message: "Segmentation stopped successfully" };
+        
+    } catch (error) {
+        console.error(`[SegmentationService] Error stopping segmentation for file ${fileId}:`, error);
+        activeProcesses.delete(fileId);
+        throw error;
+    }
+}
+
+function getActiveSegmentationProcesses() {
+    return Array.from(activeProcesses.keys());
+}
+
+module.exports = { runSegmentation, stopSegmentation, getActiveSegmentationProcesses };
+

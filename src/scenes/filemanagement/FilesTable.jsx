@@ -6,6 +6,8 @@ import DownloadIcon from '@mui/icons-material/Download';
 import DeleteIcon from '@mui/icons-material/Delete';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import AssignmentIcon from '@mui/icons-material/Assignment';
+import StopIcon from '@mui/icons-material/Stop';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 
 const ACTIVE_PIPELINE_PROCESSING_STATUSES = ['segmenting', 'processing_las_data', 'processing'];
 
@@ -13,7 +15,7 @@ const FilesTable = ({
     colors, theme, files, isLoading, isLoadingPermissions, selectedFileIds,
     handleSelectAllClick, handleRowCheckboxClick, canPerformAction,
     filesBeingProcessed, deletingProjectId, deletingDivisionId, isDeletingBulk,
-    handleDownload, handleRemove, handleViewPointCloud,
+    handleDownload, handleRemove, handleViewPointCloud, handleStopProcessing, handleStartProcessing,
     handleOpenReassignModal, numTotalSelectableForDelete
 }) => {
     const [anchorEl, setAnchorEl] = useState(null);
@@ -69,6 +71,7 @@ const FilesTable = ({
                         let statusText = "Not Ready"; let statusColor = colors.grey[500];
                         if (isReady) { statusText = "Ready"; statusColor = colors.greenAccent[400]; }
                         else if (isEffectivelyConverting) { statusText = "Processing..."; statusColor = colors.blueAccent[300]; }
+                        else if (file.status === 'stopped') { statusText = "Stopped"; statusColor = colors.orangeAccent ? colors.orangeAccent[400] : colors.grey[400]; }
                         else if (file.status === 'failed' || file.status.startsWith('error')) { statusText = "Failed"; statusColor = colors.redAccent[400]; }
                         else if (file.status === 'uploaded') { statusText = "Queued"; statusColor = colors.orangeAccent ? colors.orangeAccent[400] : colors.grey[400]; }
 
@@ -98,11 +101,51 @@ const FilesTable = ({
                                 <TableCell sx={styles.bodyCell}>{file.uploadDate}</TableCell>
                                 <TableCell sx={{ ...styles.bodyCell, textAlign: 'center' }}>
                                     {isEffectivelyConverting ? (
-                                        <Box sx={styles.statusText}>
-                                            <CircularProgress size={16} sx={{ color: statusColor }} />
-                                            <Typography variant="caption" sx={{ color: statusColor, ml: 0.5 }}>
-                                                {statusText}{progressPercent !== null ? ` ${progressPercent}%` : ''}
-                                            </Typography>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                                            <Box sx={styles.statusText}>
+                                                <CircularProgress size={16} sx={{ color: statusColor }} />
+                                                <Typography variant="caption" sx={{ color: statusColor, ml: 0.5 }}>
+                                                    {statusText}{progressPercent !== null ? ` ${progressPercent}%` : ''}
+                                                </Typography>
+                                            </Box>
+                                            {canPerformAction('stop', file) && (
+                                                <IconButton 
+                                                    size="small" 
+                                                    onClick={(e) => { e.stopPropagation(); handleStopProcessing(file); }}
+                                                    sx={{ 
+                                                        color: colors.redAccent[400], 
+                                                        padding: '2px',
+                                                        '&:hover': { 
+                                                            backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                                                            color: colors.redAccent[300]
+                                                        }
+                                                    }}
+                                                    title="Stop Processing"
+                                                >
+                                                    <StopIcon fontSize="small" />
+                                                </IconButton>
+                                            )}
+                                        </Box>
+                                    ) : file.status === 'stopped' ? (
+                                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                                            <Typography variant="caption" sx={{ color: statusColor }}>{statusText}</Typography>
+                                            {canPerformAction('start', file) && (
+                                                <IconButton 
+                                                    size="small" 
+                                                    onClick={(e) => { e.stopPropagation(); handleStartProcessing(file); }}
+                                                    sx={{ 
+                                                        color: colors.greenAccent[400], 
+                                                        padding: '2px',
+                                                        '&:hover': { 
+                                                            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                                                            color: colors.greenAccent[300]
+                                                        }
+                                                    }}
+                                                    title="Start Processing"
+                                                >
+                                                    <PlayArrowIcon fontSize="small" />
+                                                </IconButton>
+                                            )}
                                         </Box>
                                     ) : (
                                         <Typography variant="caption" sx={{ color: statusColor }}>{statusText}</Typography>

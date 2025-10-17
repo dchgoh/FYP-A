@@ -7,7 +7,7 @@ const segmentationService = require('../services/segmentationService');
 const { getProgress, clearProgress } = require('../services/progressStore');
 const lasProcessingService = require('../services/lasProcessingService');
 const { encryptFileTo, decryptToStream } = require('../utils/fileCrypto');
-const { addFileProcessingJob, getQueueStatus } = require('../services/queueService');
+const { addFileProcessingJob, getQueueStatus, stopFileProcessing, startFileProcessing } = require('../services/queueService');
 const systemMonitor = require('../services/systemMonitor');
 
 
@@ -1481,6 +1481,58 @@ exports.clearQueue = async (req, res) => {
     }
 };
 
+// Stop File Processing
+exports.stopFileProcessing = async (req, res) => {
+    const fileId = parseInt(req.params.id);
+    
+    if (isNaN(fileId)) {
+        return res.status(400).json({ 
+            success: false, 
+            message: "Invalid file ID" 
+        });
+    }
+    
+    try {
+        const result = await stopFileProcessing(fileId);
+        res.json({
+            success: true,
+            message: result.message
+        });
+    } catch (error) {
+        console.error(`Error stopping processing for file ${fileId}:`, error);
+        res.status(500).json({ 
+            success: false, 
+            message: error.message || "Failed to stop processing" 
+        });
+    }
+};
+
+// Start File Processing
+exports.startFileProcessing = async (req, res) => {
+    const fileId = parseInt(req.params.id);
+    
+    if (isNaN(fileId)) {
+        return res.status(400).json({ 
+            success: false, 
+            message: "Invalid file ID" 
+        });
+    }
+    
+    try {
+        const result = await startFileProcessing(fileId);
+        res.json({
+            success: true,
+            message: result.message
+        });
+    } catch (error) {
+        console.error(`Error starting processing for file ${fileId}:`, error);
+        res.status(500).json({ 
+            success: false, 
+            message: error.message || "Failed to start processing" 
+        });
+    }
+};
+
 // System Health Functions
 exports.getSystemHealth = async (req, res) => {
     try {
@@ -1496,4 +1548,4 @@ exports.getSystemHealth = async (req, res) => {
             message: "Failed to get system health" 
         });
     }
-};;
+};

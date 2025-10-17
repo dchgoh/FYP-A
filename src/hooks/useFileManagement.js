@@ -106,7 +106,7 @@ export const useFileManagement = () => {
       const canPerformAction = useCallback((action, file = null) => {
         if (isLoadingPermissions || !userRole) return false;
     
-        const requiresFileContext = ['download', 'delete', 'assignProject', 'view', 'reassign']; // Added reassign
+        const requiresFileContext = ['download', 'delete', 'assignProject', 'view', 'reassign', 'stop', 'start']; // Added start
         if (requiresFileContext.includes(action) && !file) {
              if (action !== 'upload' && action !== 'manageAssignments' && action !== 'createProject' && action !== 'createDivision') { // Added createProject, createDivision
                  console.warn(`canPerformAction denied - missing file object for action: ${action}`);
@@ -131,6 +131,12 @@ export const useFileManagement = () => {
                      return file && (file.project_id === null || assignedProjectIdsForDM.includes(file.project_id));
                 case 'reassign': // DM can reassign plot name/project for files they manage or unassigned
                      return file && (file.project_id === null || assignedProjectIdsForDM.includes(file.project_id));
+                case 'stop': // DM can stop processing for files they manage or unassigned
+                     return file && (file.project_id === null || assignedProjectIdsForDM.includes(file.project_id)) && 
+                            ['segmenting', 'processing_las_data', 'uploaded'].includes(file.status);
+                case 'start': // DM can start processing for files they manage or unassigned
+                     return file && (file.project_id === null || assignedProjectIdsForDM.includes(file.project_id)) && 
+                            file.status === 'stopped';
                 case 'createProject': // DMs typically don't create projects
                 case 'createDivision': // DMs typically don't create divisions
                 case 'manageAssignments': // This refers to the admin modal for assigning DMs to projects
@@ -445,6 +451,88 @@ export const useFileManagement = () => {
         } catch (e) {
             console.error("Remove error:", e);
             showSnackbar(e.response?.data?.message || "Server error removing file.", "error");
+        }
+      };
+
+      const handleStopProcessing = async (fileToStop) => {
+        if (!canPerformAction('stop', fileToStop)) { 
+            showSnackbar("Permission denied.", "error"); 
+            handleMenuClose(); 
+            return; 
+        }
+        
+        const fileId = fileToStop?.id;
+        if (!fileId) { 
+            handleMenuClose(); 
+            return; 
+        }
+        
+        handleMenuClose(); // Close menu before confirmation
+        
+        const conf = window.confirm(`Stop processing "${fileToStop.name}"? This will cancel the current operation.`);
+        if (!conf) return;
+    
+        const token = localStorage.getItem('authToken');
+        if (!token) { 
+            showSnackbar("Auth required.", "error"); 
+            return; 
+        }
+        
+        try {
+            const res = await axios.post(`${API_BASE_URL}/files/${fileId}/stop`, {}, { 
+                headers: { 'Authorization': `Bearer ${token}` } 
+            });
+            
+            if (res.data.success) {
+                showSnackbar(`Processing stopped for "${fileToStop.name}".`, "success");
+                fetchFiles(); // Refresh file list
+            } else { 
+                showSnackbar(res.data.message || "Stop processing failed.", "warning"); 
+            }
+        } catch (e) {
+            console.error("Stop processing error:", e);
+            showSnackbar(e.response?.data?.message || "Server error stopping processing.", "error");
+        }
+      };
+
+      const handleStartProcessing = async (fileToStart) => {
+        if (!canPerformAction('start', fileToStart)) { 
+            showSnackbar("Permission denied.", "error"); 
+            handleMenuClose(); 
+            return; 
+        }
+        
+        const fileId = fileToStart?.id;
+        if (!fileId) { 
+            handleMenuClose(); 
+            return; 
+        }
+        
+        handleMenuClose(); // Close menu before confirmation
+        
+        const conf = window.confirm(`Start processing "${fileToStart.name}"? This will restart the segmentation process.`);
+        if (!conf) return;
+    
+        const token = localStorage.getItem('authToken');
+        if (!token) { 
+            showSnackbar("Auth required.", "error"); 
+            return; 
+        }
+        
+        try {
+            const res = await axios.post(`${API_BASE_URL}/files/${fileId}/start`, {}, { 
+                headers: { 'Authorization': `Bearer ${token}` } 
+            });
+            
+            if (res.data.success) {
+                showSnackbar(`Processing started for "${fileToStart.name}".`, "success");
+                fetchFiles(); // Refresh file list
+            } else { 
+                showSnackbar(res.data.message || "Start processing failed.", "warning"); 
+            }
+        } catch (e) {
+            console.error("Start processing error:", e);
+            showSnackbar(e.response?.data?.message || "Server error starting processing.", "error");
         }
       };
     
@@ -1424,7 +1512,7 @@ export const useFileManagement = () => {
         setSelectedManagerToAddInModal,
 
         // Handlers
-        handleMenuClick, handleMenuClose, handleDownload, handleRemove,
+        handleMenuClick, handleMenuClose, handleDownload, handleRemove, handleStopProcessing, handleStartProcessing,
         handleViewPointCloud, handleFileUpload, handleAssignProject, handleReassignFile,
         handleBulkDelete, handleSelectAllClick, handleRowCheckboxClick, 
         handleSnackbarClose, showSnackbar, handleExportToExcel,

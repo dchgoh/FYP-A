@@ -67,6 +67,12 @@ router.post('/queue/pause', checkRole([ROLES.ADMIN]), fileController.pauseQueue)
 router.post('/queue/resume', checkRole([ROLES.ADMIN]), fileController.resumeQueue);
 router.post('/queue/clear', checkRole([ROLES.ADMIN]), fileController.clearQueue);
 
+// Stop File Processing Route (Admin/DM)
+router.post('/:id/stop', checkRole([ROLES.ADMIN, ROLES.DATA_MANAGER]), fileController.stopFileProcessing);
+
+// Start File Processing Route (Admin/DM)
+router.post('/:id/start', checkRole([ROLES.ADMIN, ROLES.DATA_MANAGER]), fileController.startFileProcessing);
+
 // System Health Routes (Admin only)
 router.get('/system/health', checkRole([ROLES.ADMIN]), fileController.getSystemHealth);
 
