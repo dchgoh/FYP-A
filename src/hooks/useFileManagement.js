@@ -1257,58 +1257,115 @@ export const useFileManagement = () => {
                 return;
             }
 
-            // Prepare data for Excel export with tree measurements
-            const exportData = treeData.map(tree => ({
-                'File ID': tree.file_id,
-                'File Name': tree.file_name,
-                'Plot Name': tree.plot_name,
-                'Division': tree.division_name,
-                'Project': tree.project_name,
-                'Upload Date': tree.upload_date,
-                'Tree ID': tree.tree_id,
-                'Tree Latitude': tree.tree_latitude,
-                'Tree Longitude': tree.tree_longitude,
-                'Tree Height (m)': tree.tree_height_m,
-                'Tree DBH (cm)': tree.tree_dbh_cm,
-                'Stem Volume (m³)': tree.tree_stem_volume_m3,
-                'Above Ground Volume (m³)': tree.tree_above_ground_volume_m3,
-                'Total Volume (m³)': tree.tree_total_volume_m3,
-                'Biomass (tonnes)': tree.tree_biomass_tonnes,
-                'Carbon (tonnes)': tree.tree_carbon_tonnes,
-                'CO2 Equivalent (tonnes)': tree.tree_co2_equivalent_tonnes,
-                'File Latitude': tree.file_latitude,
-                'File Longitude': tree.file_longitude,
-                'Trees in File': tree.tree_count_in_file,
-                'Assumed D2 (cm)': tree.assumed_d2_cm_for_volume
-            }));
+            // Group trees by file for better organization
+            const fileGroups = {};
+            treeData.forEach(tree => {
+                if (!fileGroups[tree.file_id]) {
+                    fileGroups[tree.file_id] = {
+                        metadata: {
+                            file_id: tree.file_id,
+                            file_name: tree.file_name,
+                            plot_name: tree.plot_name,
+                            division_name: tree.division_name,
+                            project_name: tree.project_name,
+                            upload_date: tree.upload_date,
+                            file_latitude: tree.file_latitude,
+                            file_longitude: tree.file_longitude,
+                            tree_count_in_file: tree.tree_count_in_file
+                        },
+                        trees: []
+                    };
+                }
+                fileGroups[tree.file_id].trees.push(tree);
+            });
 
-            // Create workbook and worksheet
+            // Create workbook
             const wb = XLSX.utils.book_new();
-            const ws = XLSX.utils.json_to_sheet(exportData);
+            
+            // Build worksheet data manually for better control
+            const wsData = [];
+            
+            // Add title row
+            wsData.push(['TREE MEASUREMENTS EXPORT REPORT']);
+            wsData.push(['Generated: ' + new Date().toLocaleString()]);
+            wsData.push([]); // Empty row
+            
+            // Process each file group
+            Object.values(fileGroups).forEach((fileGroup, fileIndex) => {
+                const meta = fileGroup.metadata;
+                
+                // File metadata header
+                wsData.push(['FILE INFORMATION']);
+                wsData.push(['File ID:', meta.file_id]);
+                wsData.push(['File Name:', meta.file_name]);
+                wsData.push(['Plot Name:', meta.plot_name || 'N/A']);
+                wsData.push(['Division:', meta.division_name || 'N/A']);
+                wsData.push(['Project:', meta.project_name || 'N/A']);
+                wsData.push(['Upload Date:', meta.upload_date]);
+                wsData.push(['File Location:', `${meta.file_latitude || 'N/A'}, ${meta.file_longitude || 'N/A'}`]);
+                wsData.push(['Total Trees in File:', meta.tree_count_in_file]);
+                wsData.push([]); // Empty row
+                
+                // Tree measurements header
+                wsData.push([
+                    'Tree ID',
+                    'Latitude',
+                    'Longitude',
+                    'Height (m)',
+                    'DBH (cm)',
+                    'Stem Volume (m³)',
+                    'Above Ground Volume (m³)',
+                    'Total Volume (m³)',
+                    'Biomass (tonnes)',
+                    'Carbon (tonnes)',
+                    'CO2 Equivalent (tonnes)',
+                    'Assumed D2 (cm)'
+                ]);
+                
+                // Tree measurements data
+                fileGroup.trees.forEach(tree => {
+                    wsData.push([
+                        tree.tree_id,
+                        tree.tree_latitude,
+                        tree.tree_longitude,
+                        tree.tree_height_m,
+                        tree.tree_dbh_cm,
+                        tree.tree_stem_volume_m3,
+                        tree.tree_above_ground_volume_m3,
+                        tree.tree_total_volume_m3,
+                        tree.tree_biomass_tonnes,
+                        tree.tree_carbon_tonnes,
+                        tree.tree_co2_equivalent_tonnes,
+                        tree.assumed_d2_cm_for_volume
+                    ]);
+                });
+                
+                // Add spacing between files if there are more files
+                if (fileIndex < Object.values(fileGroups).length - 1) {
+                    wsData.push([]);
+                    wsData.push([]);
+                    wsData.push(['─'.repeat(50)]); // Separator line
+                    wsData.push([]);
+                }
+            });
+
+            // Create worksheet from array
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
 
             // Set column widths for better readability
             const colWidths = [
-                { wch: 8 },  // File ID
-                { wch: 30 }, // File Name
-                { wch: 20 }, // Plot Name
-                { wch: 20 }, // Division
-                { wch: 25 }, // Project
-                { wch: 15 }, // Upload Date
-                { wch: 10 }, // Tree ID
-                { wch: 15 }, // Tree Latitude
-                { wch: 15 }, // Tree Longitude
-                { wch: 15 }, // Tree Height
-                { wch: 15 }, // Tree DBH
-                { wch: 18 }, // Stem Volume
-                { wch: 20 }, // Above Ground Volume
+                { wch: 15 }, // Tree ID / Labels
+                { wch: 15 }, // Latitude / Values
+                { wch: 15 }, // Longitude
+                { wch: 15 }, // Height
+                { wch: 15 }, // DBH
+                { wch: 20 }, // Stem Volume
+                { wch: 25 }, // Above Ground Volume
                 { wch: 18 }, // Total Volume
-                { wch: 15 }, // Biomass
+                { wch: 18 }, // Biomass
                 { wch: 15 }, // Carbon
-                { wch: 20 }, // CO2 Equivalent
-                { wch: 15 }, // File Latitude
-                { wch: 15 }, // File Longitude
-                { wch: 15 }, // Trees in File
-                { wch: 15 }  // Assumed D2
+                { wch: 22 }, // CO2 Equivalent
+                { wch: 18 }  // Assumed D2
             ];
             ws['!cols'] = colWidths;
 
