@@ -4,6 +4,7 @@ const Redis = require('ioredis');
 const { pool } = require('../config/db');
 const lasProcessingService = require('./lasProcessingService');
 const segmentationService = require('./segmentationService');
+const enhancedSegmentationService = require('./enhancedSegmentationService');
 const { setProgress, clearProgress } = require('./progressStore');
 const fs = require('fs');
 const path = require('path');
@@ -39,7 +40,7 @@ const processingQueue = new Queue('file processing', {
 
 // Resource management
 const RESOURCE_LIMITS = {
-    MAX_CONCURRENT_JOBS: parseInt(process.env.MAX_CONCURRENT_JOBS) || 2,
+    MAX_CONCURRENT_JOBS: parseInt(process.env.MAX_CONCURRENT_JOBS) || 5,
     MAX_GPU_MEMORY_MB: parseInt(process.env.MAX_GPU_MEMORY_MB) || 8000,
     MAX_SYSTEM_MEMORY_MB: parseInt(process.env.MAX_SYSTEM_MEMORY_MB) || 16000,
 };
@@ -89,15 +90,15 @@ processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, asy
             await encryptProcessedFile(fileId, filePath);
             
         } else {
-            // Full pipeline with segmentation
-            console.log(`[Queue] Job ${job.id}: Starting segmentation for file ${fileId}`);
-            await updateJobStatus(fileId, 'segmenting', 'Running AI segmentation');
-            await segmentationService.runSegmentation(fileId, filePath, projectRootDir);
+            // Full pipeline with enhanced segmentation (semantic + instance)
+            console.log(`[Queue] Job ${job.id}: Starting enhanced segmentation for file ${fileId}`);
+            await updateJobStatus(fileId, 'segmenting', 'Running AI semantic and instance segmentation');
+            await enhancedSegmentationService.runEnhancedSegmentation(fileId, filePath, projectRootDir);
             
-            // Verify segmentation success
+            // Verify enhanced segmentation success
             const segStatusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
-            if (segStatusCheck.rows.length === 0 || segStatusCheck.rows[0].status !== 'segmented_ready_for_las') {
-                throw new Error('Segmentation failed');
+            if (segStatusCheck.rows.length === 0 || segStatusCheck.rows[0].status !== 'enhanced_segmentation_complete') {
+                throw new Error('Enhanced segmentation failed');
             }
 
             // Final processing steps

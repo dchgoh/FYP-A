@@ -1,0 +1,54 @@
+Loading Mamba module...
+-------------------------------------------------------------------------------
+There are messages associated with the following module(s):
+-------------------------------------------------------------------------------
+
+mamba:
+   - Mamba is a drop-in replacement for conda, offering higher speed and
+   more reliable environment solutions. - Do you really need conda/mamba??
+   Do you know about python virtual environments??? We HIGHLY recommend
+   using virtual envs instead. e.g. python -m venv my-environment - Remember
+   you can change where conda environemnts are created (if you run out of
+   space in your home directory) ``` $ conda config --env --prepend
+   envs_dirs /path/to/my/project/on/fred/.conda/envs $ conda config --env
+   --prepend pkgs_dirs /path/to/my/project/on/fred/.conda/pkgs ``` - To hide
+   this message in the future, load the module with -q ``` $ module -q load
+   conda ```
+
+-------------------------------------------------------------------------------
+
+Activating Conda environment...
+Starting end-to-end inference...
+2025-10-12 02:43:18,170 - INFO - Using device: cuda
+2025-10-12 02:43:18,171 - INFO - Read voxel_scale=8 from config, calculated voxel_size=0.1250
+2025-10-12 02:43:18,171 - INFO - Loading checkpoint from /fred/oz419/brenda/isbnet_inference_engine/configs/best.pth
+2025-10-12 02:43:19,037 - INFO - unexpected key in source state_dict: criterion.empty_weight
+Stage 1: Preprocessing raw LAS file into in-memory chunks...
+Creating Chunks:   0%|          | 0/4 [00:00<?, ?it/s]Creating Chunks:  50%|█████     | 2/4 [00:00<00:00, 14.68it/s]Creating Chunks: 100%|██████████| 4/4 [00:00<00:00, 10.47it/s]Creating Chunks: 100%|██████████| 4/4 [00:00<00:00,  8.69it/s]
+2025-10-12 02:43:19,830 - INFO - 
+Stage 2: Running inference on 4 chunks...
+Created 4 non-empty chunks to be processed.
+Inferring:   0%|          | 0/4 [00:00<?, ?it/s]Inferring:   0%|          | 0/4 [00:02<?, ?it/s]
+Traceback (most recent call last):
+  File "/fred/oz419/brenda/isbnet_inference_engine/run_inference_local.py", line 211, in <module>
+    main()
+  File "/fred/oz419/brenda/isbnet_inference_engine/run_inference_local.py", line 171, in main
+    p2v_map_2d = np.stack([batch_idx_col, p2v_map_1d], axis=1)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/.conda/envs/isbnet_env/lib/python3.11/site-packages/numpy/_core/shape_base.py", line 460, in stack
+    raise ValueError('all input arrays must have the same shape')
+ValueError: all input arrays must have the same shape
+Inference job finished.
+
++------------------ Job Report: 5859518 (COMPLETED) -------------------+
+| Memory (RAM)  [                    ]  0.0% (88 KB peak / 32 GB)      |
+| CPU           [                    ]  3.4% average                   |
+| GPU           [####################] 100.0% average                  |
+| Time          [>                   ]  0.4% (0-00:00:29 / 0-02:00:00) |
+|                                                                      |
+| Lustre Filesystem:                                                   |
+|   Path    Total Read    Total Write      Total IOPS                  |
+|   ------  ------------  -------------  ------------                  |
+|   /apps   0 B           0 B                      1                   |
+|   OS      0 B           0 B                      4                   |
++----------------------------------------------------------------------+

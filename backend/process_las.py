@@ -4,33 +4,115 @@ from pyproj import CRS, Transformer
 import sys
 import json
 import os
-import traceback # For detailed error logging if needed
-from scipy.optimize import least_squares # For DBH calculation
+import traceback
+import torch
+import importlib
+from scipy.optimize import least_squares
+from pathlib import Path
+import yaml
+from munch import Munch
 
-# --- Configuration for Coordinate Transformation ---
-SOURCE_EPSG_COORD_TRANSFORM = 29874 # Example: GDM2000 / Peninsula RSO
-TARGET_EPSG_COORD_TRANSFORM = 4326  # WGS84 (Standard Latitude/Longitude, EPSG:4326)
+# Add the models directory to Python path
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(BASE_DIR, 'models'))
 
-# --- Configuration for Tree ID Extraction ---
-ID_FIELD_NAME_FOR_TREES = "treeID" # The field in your LAS file containing tree IDs
-VALUES_TO_IGNORE_FOR_TREES = {0}   # e.g., {0} if 0 means "not a tree"
-MIN_ID_VALUE_FOR_TREES = 1         # e.g., 1 if tree IDs are positive
+# --- Configuration ---
+SOURCE_EPSG_COORD_TRANSFORM = 29874
+TARGET_EPSG_COORD_TRANSFORM = 4326
+ID_FIELD_NAME_FOR_TREES = "treeID"
+VALUES_TO_IGNORE_FOR_TREES = {0}
+MIN_ID_VALUE_FOR_TREES = 1
+HEIGHT_ADJUSTMENT_VALUE_FOR_L = 1.3
+DBH_HEIGHT_ABOVE_GROUND = 1.3
+DBH_VERTICAL_SLICE_THICKNESS = 0.20
+DBH_MIN_POINTS_FOR_FIT = 5
+ASSUMED_SMALL_END_DIAMETER_D2_CM = 0.0
 
-# --- Configuration for Adjusted Height (Length L for Volume) ---
-HEIGHT_ADJUSTMENT_VALUE_FOR_L = 1.3 # Value to subtract from total tree height to get L
-
-# --- Configuration for DBH Calculation (Diameter D1 for Volume) ---
-DBH_HEIGHT_ABOVE_GROUND = 1.3      # Standard breast height in meters
-DBH_VERTICAL_SLICE_THICKNESS = 0.20 # Thickness of the vertical slice
-DBH_MIN_POINTS_FOR_FIT = 5         # Minimum points in the slice
-
-# --- Configuration for Smalian's Volume Calculation ---
-ASSUMED_SMALL_END_DIAMETER_D2_CM = 0.0 # In centimeters
+# --- Segmentation Configuration ---
+SEMANTIC_MODEL_NAME = "pointnet_sem_seg"  # Change this based on your model
+SEMANTIC_CHECKPOINT = os.path.join(BASE_DIR, "checkpoints", "pointnet_sem_seg.pth")
+INSTANCE_CONFIG = os.path.join(BASE_DIR, "configs", "config_forinstance.yaml")
+INSTANCE_CHECKPOINT = os.path.join(BASE_DIR, "checkpoints", "pointnet2_msg_best_model.pth")
+NUM_CLASSES = 7
+CHUNK_SIZE = (20.0, 20.0, 40.0)
+CHUNK_OVERLAP = 0.5
+STITCHING_IOU_THRESHOLD = 0.25
 
 
 # --- Helper Functions ---
 def log_stderr(module_name, msg):
     print(f"Python ({module_name}): {msg}", file=sys.stderr)
+
+def load_semantic_model():
+    try:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        MODEL = importlib.import_module(SEMANTIC_MODEL_NAME)
+        classifier = MODEL.get_model(NUM_CLASSES).to(device)
+        checkpoint = torch.load(SEMANTIC_CHECKPOINT, map_location=device)
+        classifier.load_state_dict(checkpoint['model_state_dict'])
+        classifier.eval()
+        return classifier, device
+    except Exception as e:
+        log_stderr("Semantic Model", f"Failed to load semantic model: {e}")
+        raise
+
+def process_semantic_segmentation(points, colors, classifier, device):
+    """Run semantic segmentation on the point cloud"""
+    try:
+        num_points = points.shape[0]
+        predictions = np.zeros(num_points, dtype=np.int64)
+        points_mean = np.mean(points, axis=0)
+        points = points - points_mean
+        
+        # Process in batches
+        batch_size = 16
+        num_point_model = 1024
+        num_batches = int(np.ceil(num_points / (batch_size * num_point_model)))
+        
+        with torch.no_grad():
+            for batch_idx in range(num_batches):
+                start_idx = batch_idx * batch_size * num_point_model
+                end_idx = min(start_idx + batch_size * num_point_model, num_points)
+                
+                batch_points = points[start_idx:end_idx]
+                batch_colors = colors[start_idx:end_idx]
+                batch_features = np.concatenate([batch_points, batch_colors], axis=1)
+                batch_features = torch.FloatTensor(batch_features).to(device)
+                
+                batch_predictions = classifier(batch_features.unsqueeze(0))
+                pred_val = batch_predictions.max(dim=1)[1]
+                predictions[start_idx:end_idx] = pred_val.cpu().numpy()
+        
+        return predictions
+    except Exception as e:
+        log_stderr("Semantic Segmentation", f"Failed to process semantic segmentation: {e}")
+        raise
+
+def process_instance_segmentation(input_path, semantic_labels):
+    """Run instance segmentation using the enhanced pipeline"""
+    try:
+        from run_inference_local_enhanced import main as instance_main
+        output_path = input_path.replace('.las', '_instance.las')
+        
+        # Prepare arguments for instance segmentation
+        class Args:
+            def __init__(self):
+                self.input_las = input_path
+                self.output_las = output_path
+                self.config = INSTANCE_CONFIG
+                self.checkpoint = INSTANCE_CHECKPOINT
+                self.sem_model = SEMANTIC_MODEL_NAME
+                self.sem_checkpoint = SEMANTIC_CHECKPOINT
+                self.gpu = '0'
+                self.num_point_model = 1024
+                self.batch_size = 16
+        
+        args = Args()
+        instance_main(args, semantic_labels)
+        return output_path
+    except Exception as e:
+        log_stderr("Instance Segmentation", f"Failed to process instance segmentation: {e}")
+        raise
 
 def extract_tree_ids_from_extra_bytes(las_file_obj, id_field_name, ignore_values, min_id_value):
     """Extract tree IDs directly from extra bytes data"""
