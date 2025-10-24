@@ -60,7 +60,7 @@ const ExportModal = ({
         },
         actions: {
             padding: '16px 24px',
-            backgroundColor: colors.grey[800],
+            backgroundColor: colors.primary[700],
             gap: '12px'
         },
         selectAllContainer: {
@@ -90,7 +90,7 @@ const ExportModal = ({
             </DialogTitle>
             
             <DialogContent sx={styles.content}>
-                <Typography variant="body2" color={colors.grey[300]} sx={{ marginBottom: '16px' }}>
+                <Typography variant="body2" color={colors.grey[300]} sx={{ marginBottom: '16px', marginTop: '16px' }}>
                     Select the files you want to export. Only files with status "Ready" are available for export.
                 </Typography>
 
@@ -123,7 +123,7 @@ const ExportModal = ({
                             </Typography>
                         </Box>
 
-                        <Divider sx={{ backgroundColor: colors.grey[700], marginBottom: '12px' }} />
+                        
 
                         {readyFiles.map((file) => (
                             <Box key={file.id} sx={styles.fileItem}>
