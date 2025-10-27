@@ -80,14 +80,59 @@ async function uploadFileToDropbox(localFilePath, dropboxFilePath) {
         }
 
         // Otherwise, upload file
-        const fileContents = await fs.readFile(localFilePath);
-        const response = await dbx.filesUpload({
-            path: dropboxFilePath,
-            contents: fileContents,
-            mode: 'overwrite',
-        });
+        const MAX_SIMPLE_UPLOAD = 150 * 1024 * 1024; // 150 MB - Dropbox /files/upload limit
+        const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB per chunk for upload sessions
 
-        console.log(`[${new Date().toISOString()}] SUCCESS: Uploaded '${localFilePath}' → '${response.result.path_display}'`);
+        if (localStat.size <= MAX_SIMPLE_UPLOAD) {
+            // Small file - single upload (still reads into memory but within safe limit)
+            const fileContents = await fs.readFile(localFilePath);
+            const response = await dbx.filesUpload({
+                path: dropboxFilePath,
+                contents: fileContents,
+                mode: 'overwrite',
+            });
+            console.log(`[${new Date().toISOString()}] SUCCESS: Uploaded '${localFilePath}' → '${response.result.path_display}'`);
+        } else {
+            // Large file - use upload session (chunked upload)
+            console.log(`[${new Date().toISOString()}] INFO: Large file detected (${localStat.size} bytes). Using upload session for '${localFilePath}'.`);
+            const fh = await fs.open(localFilePath, 'r');
+            try {
+                let offset = 0;
+                let sessionId = null;
+
+                while (offset < localStat.size) {
+                    const chunkSize = Math.min(CHUNK_SIZE, localStat.size - offset);
+                    const buffer = Buffer.alloc(chunkSize);
+                    const { bytesRead } = await fh.read(buffer, 0, chunkSize, offset);
+                    if (bytesRead === 0) break;
+
+                    if (offset === 0) {
+                        // start session
+                        const startRes = await dbx.filesUploadSessionStart({ close: false, contents: buffer.slice(0, bytesRead) });
+                        sessionId = startRes.result.session_id;
+                    } else {
+                        // append
+                        await dbx.filesUploadSessionAppendV2({
+                            cursor: { session_id: sessionId, offset },
+                            close: false,
+                            contents: buffer.slice(0, bytesRead),
+                        });
+                    }
+
+                    offset += bytesRead;
+                }
+
+                // finish session and commit file
+                await dbx.filesUploadSessionFinish({
+                    cursor: { session_id: sessionId, offset: localStat.size },
+                    commit: { path: dropboxFilePath, mode: 'overwrite' },
+                });
+
+                console.log(`[${new Date().toISOString()}] SUCCESS: Uploaded large file '${localFilePath}' → '${dropboxFilePath}'`);
+            } finally {
+                await fh.close();
+            }
+        }
     } catch (error) {
         console.error(`[${new Date().toISOString()}] ERROR uploading file '${localFilePath}':`, error);
         throw error;
