@@ -76,6 +76,9 @@ const ExportModal = ({
     };
 
     const handleExport = () => {
+        console.log('DEBUG: ExportModal - exportSelectedFiles:', exportSelectedFiles);
+        console.log('DEBUG: ExportModal - exportSelectedFiles size:', exportSelectedFiles.size);
+        console.log('DEBUG: ExportModal - exportSelectedFiles as array:', Array.from(exportSelectedFiles));
         handleExportToExcel(exportSelectedFiles);
         handleCloseExportModal();
     };
