@@ -29,12 +29,8 @@ async function runEnhancedSegmentation(fileId, inputFileAbsolutePath, projectRoo
         let originalFileBackupPath = null;
 
         // Pre-checks
-        // If on Windows, we will prefer running via WSL Python (CUDA-enabled) instead of the local venv
-        const preferWSL = process.platform === 'win32';
-        if (!preferWSL) {
-            if (!fs.existsSync(pythonVenvExecutable)) {
-                return reject(new Error(`Python venv executable not found: ${pythonVenvExecutable}`));
-            }
+        if (!fs.existsSync(pythonVenvExecutable)) {
+            return reject(new Error(`Python venv executable not found: ${pythonVenvExecutable}`));
         }
         if (!fs.existsSync(scriptPath)) {
             return reject(new Error(`Enhanced segmentation script not found: ${scriptPath}`));
@@ -58,77 +54,22 @@ async function runEnhancedSegmentation(fileId, inputFileAbsolutePath, projectRoo
             return reject(new Error(`Failed to create backup: ${copyError.message}`));
         }
 
-        // Helper to map Windows path to WSL path
-        function toWSLPath(winPath) {
-            // e.g. C:\Users\... -> /mnt/c/Users/...
-            const drive = winPath[0].toLowerCase();
-            const rest = winPath.slice(2).replace(/\\/g, '/');
-            return `/mnt/${drive}${rest}`;
-        }
-
         // Set up arguments for the enhanced segmentation script
-        const outputLasPath = inputFileAbsolutePath.replace('.las', '_processed.las');
+        const segmentArgs = [
+            scriptPath,
+            inputFileAbsolutePath,                          // input_las
+            inputFileAbsolutePath.replace('.las', '_processed.las'),  // output_las
+            instanceConfig,                                 // config
+            instanceCheckpoint,                            // checkpoint
+            '--sem_model', 'pointnet_sem_seg',             // semantic model name
+            '--sem_checkpoint', semanticCheckpoint,         // semantic checkpoint
+            '--gpu', gpuArg,                               // GPU device
+            '--num_point_model', '1024',                   // points per chunk
+            '--batch_size', '16'                           // batch size
+        ];
 
-        let segmentationProcess;
         console.log(`[EnhancedSegmentationService] (FileID ${fileId}): Spawning enhanced segmentation process...`);
-        if (preferWSL) {
-            // Use WSL conda env python if available; otherwise source conda and activate before running python
-            const scriptWSL = toWSLPath(scriptPath);
-            const inputWSL = toWSLPath(inputFileAbsolutePath);
-            const outputWSL = toWSLPath(outputLasPath);
-            const instCfgWSL = toWSLPath(instanceConfig);
-            const instCkptWSL = toWSLPath(instanceCheckpoint);
-            const semCkptWSL = toWSLPath(semanticCheckpoint);
-
-            const wslCondaEnv = process.env.WSL_CONDA_ENV || 'isbnet_env';
-            const wslPythonPath = process.env.WSL_PYTHON || ('/home/localadmin/miniconda3/envs/' + wslCondaEnv + '/bin/python');
-
-            const pyArgs = [
-                scriptWSL,
-                inputWSL,
-                outputWSL,
-                instCfgWSL,
-                instCkptWSL,
-                '--sem_model', 'pointnet_sem_seg',
-                '--sem_checkpoint', semCkptWSL,
-                '--gpu', gpuArg,
-                '--num_point_model', '1024',
-                '--batch_size', '16'
-            ].join(' ');
-
-            const fullCmd = [
-                'WSL_PY="' + wslPythonPath + '"; ',
-                'if [ -x "$WSL_PY" ]; then ',
-                '  "$WSL_PY" ' + pyArgs + '; ',
-                'else ',
-                '  (',
-                '    source ~/miniconda3/etc/profile.d/conda.sh >/dev/null 2>&1 || ',
-                '    source ~/.bashrc >/dev/null 2>&1 || ',
-                '    source /opt/conda/etc/profile.d/conda.sh >/dev/null 2>&1 || true; ',
-                '    if command -v conda >/dev/null 2>&1; then ',
-                '      conda activate ' + wslCondaEnv + ' >/dev/null 2>&1 || true; ',
-                '    fi; ',
-                '    python3 ' + pyArgs + '; ',
-                '  ); ',
-                'fi'
-            ].join('');
-
-            segmentationProcess = spawn('wsl', ['-e', 'bash', '-lc', fullCmd], { cwd: projectRootDir });
-        } else {
-            const segmentArgs = [
-                scriptPath,
-                inputFileAbsolutePath,
-                outputLasPath,
-                instanceConfig,
-                instanceCheckpoint,
-                '--sem_model', 'pointnet_sem_seg',
-                '--sem_checkpoint', semanticCheckpoint,
-                '--gpu', gpuArg,
-                '--num_point_model', '1024',
-                '--batch_size', '16'
-            ];
-            segmentationProcess = spawn(pythonVenvExecutable, segmentArgs, { cwd: projectRootDir });
-        }
+        const segmentationProcess = spawn(pythonVenvExecutable, segmentArgs, { cwd: projectRootDir });
         
         let segStdout = '', segStderr = '';
         
