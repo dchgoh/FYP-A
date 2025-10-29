@@ -6,6 +6,46 @@ const { pool } = require('../config/db'); // Assuming shared DB config
 const { setProgress, clearProgress } = require('./progressStore');
 const gpuManager = require('./gpuResourceManager');
 
+async function runISBNetInference(inputLas, outputLas, configPath, checkpointPath, projectRootDir) {
+    return new Promise((resolve, reject) => {
+        const wslCommand = [
+            "bash", "-ic",
+            // Activate mamba env and run inference
+            `source ~/mambaforge/bin/activate isbnet_env && cd ${projectRootDir} && python run_inference_local.py "${inputLas}" "${outputLas}" "${configPath}" "${checkpointPath}"`
+        ];
+
+        console.log(`[ISBNet] Running inference in WSL: ${wslCommand.join(" ")}`);
+
+        const process = spawn("wsl", wslCommand, { shell: true });
+        let stdout = "", stderr = "";
+
+        process.stdout.on("data", (data) => {
+            const msg = data.toString();
+            stdout += msg;
+            process.stdout.write(`[ISBNet STDOUT] ${msg}`);
+        });
+
+        process.stderr.on("data", (data) => {
+            const msg = data.toString();
+            stderr += msg;
+            process.stderr.write(`[ISBNet STDERR] ${msg}`);
+        });
+
+        process.on("close", (code) => {
+            if (code === 0) {
+                console.log("[ISBNet] Inference completed successfully.");
+                resolve({ success: true, stdout });
+            } else {
+                console.error(`[ISBNet] Inference failed with code ${code}`);
+                reject(new Error(`ISBNet failed: ${stderr}`));
+            }
+        });
+    });
+}
+
+// Track active segmentation processes
+const activeProcesses = new Map();
+
 async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
     console.log(`[SegmentationService] (FileID ${fileId}): Starting for ${inputFileAbsolutePath}`);
     await pool.query("UPDATE uploaded_files SET status = 'segmenting', processing_error = NULL WHERE id = $1", [fileId]);
@@ -51,6 +91,14 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
         const segmentationProcess = spawn(pythonVenvExecutable, segmentArgs, { cwd: projectRootDir, stdio: 'pipe' });
         let segStdout = '', segStderr = '';
         
+        // Track the active process
+        activeProcesses.set(fileId, {
+            process: segmentationProcess,
+            startTime: Date.now(),
+            filePath: inputFileAbsolutePath,
+            backupPath: originalFileBackupPath
+        });
+        
         segmentationProcess.stdout.on('data', (data) => { 
             const output = data.toString();
             segStdout += output; 
@@ -62,6 +110,12 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
                     if (!isNaN(pct)) setProgress(fileId, pct);
                 }
             } catch (_) { /* noop */ }
+            
+            // Check if process was stopped during execution
+            if (!activeProcesses.has(fileId)) {
+                console.log(`[SegmentationService] Process ${fileId} was stopped, killing segmentation process`);
+                segmentationProcess.kill('SIGTERM');
+            }
         });
         
         segmentationProcess.stderr.on('data', (data) => { 
@@ -75,10 +129,20 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
                     if (!isNaN(pct)) setProgress(fileId, pct);
                 }
             } catch (_) { /* noop */ }
+            
+            // Check if process was stopped during execution
+            if (!activeProcesses.has(fileId)) {
+                console.log(`[SegmentationService] Process ${fileId} was stopped, killing segmentation process`);
+                segmentationProcess.kill('SIGTERM');
+            }
         });
 
         segmentationProcess.on('error', async (error) => {
             console.error(`[SegmentationService] Error (FileID ${fileId}): Failed to start. Err: ${error.message}`);
+            
+            // Remove from active processes
+            activeProcesses.delete(fileId);
+            
             if (originalFileBackupPath && fs.existsSync(originalFileBackupPath)) { /* restore backup */ try { fs.renameSync(originalFileBackupPath, inputFileAbsolutePath); } catch (e) {console.error('Backup restore failed', e)} }
             try { await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2", [`Seg Spawn Err: ${error.message.substring(0,200)}`, fileId]); } catch (dbErr) {/* log */}
             // Release GPU allocation on process error
@@ -88,6 +152,10 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
 
         segmentationProcess.on('close', async (code) => {
             console.log(`\n[SegmentationService] (FileID ${fileId}): Script exited with code ${code}.`);
+            
+            // Remove from active processes
+            activeProcesses.delete(fileId);
+            
             if (code === 0) {
                 // Check for the output file created by segmentation script
                 // Match the Python script's sanitization: Path(args.input_file).stem.replace(" ", "_")
@@ -126,10 +194,35 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
                     // Or set to 'segmented_ready_for_las_processing'
                     await pool.query("UPDATE uploaded_files SET status = 'segmented_ready_for_las', processing_error = NULL WHERE id = $1", [fileId]);
                     try { setProgress(fileId, 100); } catch (_) { /* noop */ }
-                    console.log(`[SegmentationService] (FileID ${fileId}): Success. Status 'segmented_ready_for_las'.`);
-                    // Release GPU allocation
+                    console.log(`[SegmentationService] (FileID ${fileId}): Success. Running ISBNet inference next.`);
+
+                    // Release GPU used for segmentation (optional, or reuse it)
                     gpuManager.releaseGPU(fileId);
-                    resolve({ success: true, message: "Segmentation successful.", stdout: segStdout });
+
+                    try {
+                        // Define ISBNet paths
+                        const inputLas = inputFileAbsolutePath;
+                        const outputLas = inputLas.replace(".las", "_prediction.las");
+                        const configPath = "/mnt/c/Users/hongw/Desktop/AI_Instance_Segmentation/isbnet_inference_engine/configs/config_forinstance.yaml";
+                        const checkpointPath = "/mnt/c/Users/hongw/Desktop/AI_Instance_Segmentation/isbnet_inference_engine/configs/best.pth";
+                        const projectRootDirISBNet = "/mnt/c/Users/hongw/Desktop/AI_Instance_Segmentation/isbnet_inference_engine";
+
+                        // Run ISBNet
+                        const inferenceResult = await runISBNetInference(inputLas, outputLas, configPath, checkpointPath, projectRootDirISBNet);
+
+                        console.log(`[SegmentationService] (FileID ${fileId}): ISBNet inference completed.`);
+                        console.log(`[SegmentationService] (FileID ${fileId}): Output file: ${outputLas}`);
+
+                        // Update DB after ISBNet
+                        await pool.query("UPDATE uploaded_files SET status = 'isbnet_completed', processing_error = NULL WHERE id = $1", [fileId]);
+
+                        resolve({ success: true, message: "Segmentation + ISBNet inference completed.", stdout: segStdout + "\n" + inferenceResult.stdout });
+                    } catch (isberr) {
+                        console.error(`[SegmentationService] (FileID ${fileId}): ISBNet failed:`, isberr);
+                        await pool.query("UPDATE uploaded_files SET status = 'isbnet_failed', processing_error = $1 WHERE id = $2", [isberr.message, fileId]);
+                        reject(new Error(`[SegmentationService] ISBNet failed: ${isberr.message}`));
+                    }
+
                 }
             } else {
                 const errMsg = `[SegmentationService] Script failed. Code: ${code}. Stderr: ${segStderr.substring(0,200)}`;
@@ -144,4 +237,61 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
     });
 }
 
-module.exports = { runSegmentation };
+async function stopSegmentation(fileId) {
+    console.log(`[SegmentationService] Stopping segmentation for file ${fileId}`);
+    
+    const processInfo = activeProcesses.get(fileId);
+    if (!processInfo) {
+        throw new Error(`No active segmentation process found for file ${fileId}`);
+    }
+    
+    try {
+        // Kill the process
+        processInfo.process.kill('SIGTERM');
+        
+        // Wait a bit for graceful shutdown
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Force kill if still running
+        if (!processInfo.process.killed) {
+            processInfo.process.kill('SIGKILL');
+        }
+        
+        // Clean up files
+        if (processInfo.backupPath && fs.existsSync(processInfo.backupPath)) {
+            try {
+                fs.renameSync(processInfo.backupPath, processInfo.filePath);
+                console.log(`[SegmentationService] Restored backup for file ${fileId}`);
+            } catch (e) {
+                console.error(`[SegmentationService] Failed to restore backup for file ${fileId}:`, e);
+            }
+        }
+        
+        // Update database status
+        await pool.query("UPDATE uploaded_files SET status = 'stopped', processing_error = 'Segmentation stopped by user' WHERE id = $1", [fileId]);
+        
+        // Clear progress
+        clearProgress(fileId);
+        
+        // Release GPU allocation
+        gpuManager.releaseGPU(fileId);
+        
+        // Remove from active processes
+        activeProcesses.delete(fileId);
+        
+        console.log(`[SegmentationService] Successfully stopped segmentation for file ${fileId}`);
+        return { success: true, message: "Segmentation stopped successfully" };
+        
+    } catch (error) {
+        console.error(`[SegmentationService] Error stopping segmentation for file ${fileId}:`, error);
+        activeProcesses.delete(fileId);
+        throw error;
+    }
+}
+
+function getActiveSegmentationProcesses() {
+    return Array.from(activeProcesses.keys());
+}
+
+module.exports = { runSegmentation, stopSegmentation, getActiveSegmentationProcesses };
+
