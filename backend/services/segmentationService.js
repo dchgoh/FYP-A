@@ -6,6 +6,43 @@ const { pool } = require('../config/db'); // Assuming shared DB config
 const { setProgress, clearProgress } = require('./progressStore');
 const gpuManager = require('./gpuResourceManager');
 
+async function runISBNetInference(inputLas, outputLas, configPath, checkpointPath, projectRootDir) {
+    return new Promise((resolve, reject) => {
+        const wslCommand = [
+            "bash", "-ic",
+            // Activate mamba env and run inference
+            `source ~/mambaforge/bin/activate isbnet_env && cd ${projectRootDir} && python run_inference_local.py "${inputLas}" "${outputLas}" "${configPath}" "${checkpointPath}"`
+        ];
+
+        console.log(`[ISBNet] Running inference in WSL: ${wslCommand.join(" ")}`);
+
+        const process = spawn("wsl", wslCommand, { shell: true });
+        let stdout = "", stderr = "";
+
+        process.stdout.on("data", (data) => {
+            const msg = data.toString();
+            stdout += msg;
+            process.stdout.write(`[ISBNet STDOUT] ${msg}`);
+        });
+
+        process.stderr.on("data", (data) => {
+            const msg = data.toString();
+            stderr += msg;
+            process.stderr.write(`[ISBNet STDERR] ${msg}`);
+        });
+
+        process.on("close", (code) => {
+            if (code === 0) {
+                console.log("[ISBNet] Inference completed successfully.");
+                resolve({ success: true, stdout });
+            } else {
+                console.error(`[ISBNet] Inference failed with code ${code}`);
+                reject(new Error(`ISBNet failed: ${stderr}`));
+            }
+        });
+    });
+}
+
 // Track active segmentation processes
 const activeProcesses = new Map();
 
@@ -157,10 +194,35 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
                     // Or set to 'segmented_ready_for_las_processing'
                     await pool.query("UPDATE uploaded_files SET status = 'segmented_ready_for_las', processing_error = NULL WHERE id = $1", [fileId]);
                     try { setProgress(fileId, 100); } catch (_) { /* noop */ }
-                    console.log(`[SegmentationService] (FileID ${fileId}): Success. Status 'segmented_ready_for_las'.`);
-                    // Release GPU allocation
+                    console.log(`[SegmentationService] (FileID ${fileId}): Success. Running ISBNet inference next.`);
+
+                    // Release GPU used for segmentation (optional, or reuse it)
                     gpuManager.releaseGPU(fileId);
-                    resolve({ success: true, message: "Segmentation successful.", stdout: segStdout });
+
+                    try {
+                        // Define ISBNet paths
+                        const inputLas = inputFileAbsolutePath;
+                        const outputLas = inputLas.replace(".las", "_prediction.las");
+                        const configPath = "/mnt/c/Users/hongw/Desktop/AI_Instance_Segmentation/isbnet_inference_engine/configs/config_forinstance.yaml";
+                        const checkpointPath = "/mnt/c/Users/hongw/Desktop/AI_Instance_Segmentation/isbnet_inference_engine/configs/best.pth";
+                        const projectRootDirISBNet = "/mnt/c/Users/hongw/Desktop/AI_Instance_Segmentation/isbnet_inference_engine";
+
+                        // Run ISBNet
+                        const inferenceResult = await runISBNetInference(inputLas, outputLas, configPath, checkpointPath, projectRootDirISBNet);
+
+                        console.log(`[SegmentationService] (FileID ${fileId}): ISBNet inference completed.`);
+                        console.log(`[SegmentationService] (FileID ${fileId}): Output file: ${outputLas}`);
+
+                        // Update DB after ISBNet
+                        await pool.query("UPDATE uploaded_files SET status = 'isbnet_completed', processing_error = NULL WHERE id = $1", [fileId]);
+
+                        resolve({ success: true, message: "Segmentation + ISBNet inference completed.", stdout: segStdout + "\n" + inferenceResult.stdout });
+                    } catch (isberr) {
+                        console.error(`[SegmentationService] (FileID ${fileId}): ISBNet failed:`, isberr);
+                        await pool.query("UPDATE uploaded_files SET status = 'isbnet_failed', processing_error = $1 WHERE id = $2", [isberr.message, fileId]);
+                        reject(new Error(`[SegmentationService] ISBNet failed: ${isberr.message}`));
+                    }
+
                 }
             } else {
                 const errMsg = `[SegmentationService] Script failed. Code: ${code}. Stderr: ${segStderr.substring(0,200)}`;

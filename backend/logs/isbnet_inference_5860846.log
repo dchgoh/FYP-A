@@ -1,0 +1,53 @@
+Loading Mamba module...
+-------------------------------------------------------------------------------
+There are messages associated with the following module(s):
+-------------------------------------------------------------------------------
+
+mamba:
+   - Mamba is a drop-in replacement for conda, offering higher speed and
+   more reliable environment solutions. - Do you really need conda/mamba??
+   Do you know about python virtual environments??? We HIGHLY recommend
+   using virtual envs instead. e.g. python -m venv my-environment - Remember
+   you can change where conda environemnts are created (if you run out of
+   space in your home directory) ``` $ conda config --env --prepend
+   envs_dirs /path/to/my/project/on/fred/.conda/envs $ conda config --env
+   --prepend pkgs_dirs /path/to/my/project/on/fred/.conda/pkgs ``` - To hide
+   this message in the future, load the module with -q ``` $ module -q load
+   conda ```
+
+-------------------------------------------------------------------------------
+
+Activating Conda environment...
+Starting end-to-end inference...
+2025-10-12 04:19:32,766 - INFO - Using device: cuda
+2025-10-12 04:19:32,768 - INFO - Created temporary directory: tmp/tmpbzsdhdea
+Stage 1: Preprocessing raw LAS file into temporary chunk files...
+Creating Temp Chunks:   0%|          | 0/4 [00:00<?, ?it/s]Creating Temp Chunks:  50%|█████     | 2/4 [00:00<00:00,  3.12it/s]Creating Temp Chunks:  75%|███████▌  | 3/4 [00:01<00:00,  2.44it/s]Creating Temp Chunks: 100%|██████████| 4/4 [00:01<00:00,  2.41it/s]Creating Temp Chunks: 100%|██████████| 4/4 [00:01<00:00,  2.04it/s]
+2025-10-12 04:19:34,919 - INFO - Load test dataset: 4 files loaded.
+2025-10-12 04:19:34,920 - INFO - Loading checkpoint from /fred/oz419/brenda/isbnet_inference_engine/configs/best.pth
+2025-10-12 04:19:35,452 - INFO - unexpected key in source state_dict: criterion.empty_weight
+2025-10-12 04:19:35,475 - INFO - 
+Stage 2: Running inference on 4 chunks...
+Created 4 temporary chunk files.
+Inferring:   0%|          | 0/4 [00:00<?, ?it/s]slurmstepd: error: *** JOB 5860846 ON gina2 CANCELLED AT 2025-10-12T04:33:19 ***
+
++------------------ Job Report: 5860846 (CANCELLED) -------------------+
+| Memory (RAM)  [                    ]  4.0% (1.3 GB peak / 32 GB)     |
+| CPU           [#                   ]  9.5% average                   |
+| GPU           [                    ]  3.2% average                   |
+| Time          [-->                 ] 11.7% (0-00:14:05 / 0-02:00:00) |
+|                                                                      |
+| Lustre Filesystem:                                                   |
+|   Path    Total Read    Total Write    Total IOPS                    |
+|   ------  ------------  -------------  ------------                  |
+|   /apps   0 B           0 B            434                           |
+|   /fred   160 KB        477.4 MB       2 K                           |
+|   /home   0 B           0 B            2                             |
+|   OS      0 B           0 B            5                             |
+|                                                                      |
+| Warnings:                                                            |
+|   - Too much memory requested                                        |
+|   - CPU usage is low                                                 |
+|   - GPU usage is low                                                 |
+|   - Too much time requested                                          |
++----------------------------------------------------------------------+

@@ -4,6 +4,7 @@ const Redis = require('ioredis');
 const { pool } = require('../config/db');
 const lasProcessingService = require('./lasProcessingService');
 const segmentationService = require('./segmentationService');
+const enhancedSegmentationService = require('./enhancedSegmentationService');
 const { setProgress, clearProgress } = require('./progressStore');
 const fs = require('fs');
 const path = require('path');
@@ -59,14 +60,6 @@ processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, asy
     console.log(`[Queue] Starting job ${job.id} for file ${fileId}`);
     
     try {
-        // Check if file was stopped before starting any processing
-        const initialStatusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
-        if (initialStatusCheck.rows.length === 0 || ['failed', 'stopped'].includes(initialStatusCheck.rows[0].status)) {
-            console.log(`[Queue] Job ${job.id}: File ${fileId} was stopped by user, aborting job (this is expected)`);
-            // Don't treat this as an error - it's expected behavior when user stops processing
-            return { success: false, message: 'File processing was stopped by user', aborted: true };
-        }
-        
         // Check resource availability before starting
         if (!await checkResourceAvailability()) {
             throw new Error('Insufficient system resources available');

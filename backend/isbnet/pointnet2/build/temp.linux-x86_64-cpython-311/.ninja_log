@@ -1,0 +1,10 @@
+# ninja log v5
+6	227682	1758038628000000000	/fred/oz419/brenda/ISBNet/isbnet/pointnet2/build/temp.linux-x86_64-cpython-311/_ext_src/src/ball_query_gpu.o	6c0a89d09e1ffeae
+6	228295	1758038629000000000	/fred/oz419/brenda/ISBNet/isbnet/pointnet2/build/temp.linux-x86_64-cpython-311/_ext_src/src/group_points_gpu.o	a4904789cd5af0cc
+6	241954	1758038643000000000	/fred/oz419/brenda/ISBNet/isbnet/pointnet2/build/temp.linux-x86_64-cpython-311/_ext_src/src/bindings.o	bd779865d6db96d7
+8	242148	1758038643000000000	/fred/oz419/brenda/ISBNet/isbnet/pointnet2/build/temp.linux-x86_64-cpython-311/_ext_src/src/interpolate.o	1f2534759ad1bb41
+6	243697	1758038644000000000	/fred/oz419/brenda/ISBNet/isbnet/pointnet2/build/temp.linux-x86_64-cpython-311/_ext_src/src/group_points.o	5e36e5d425e6d7ff
+5	245163	1758038646000000000	/fred/oz419/brenda/ISBNet/isbnet/pointnet2/build/temp.linux-x86_64-cpython-311/_ext_src/src/ball_query.o	e5f1695c41b5f813
+228295	258197	1758038659000000000	/fred/oz419/brenda/ISBNet/isbnet/pointnet2/build/temp.linux-x86_64-cpython-311/_ext_src/src/sampling.o	e5b20307866c07b9
+227805	259371	1758038660000000000	/fred/oz419/brenda/ISBNet/isbnet/pointnet2/build/temp.linux-x86_64-cpython-311/_ext_src/src/interpolate_gpu.o	7c5e14e536e0eae7
+241959	261661	1758038662000000000	/fred/oz419/brenda/ISBNet/isbnet/pointnet2/build/temp.linux-x86_64-cpython-311/_ext_src/src/sampling_gpu.o	9f8956b76c877293

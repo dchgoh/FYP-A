@@ -1,0 +1,78 @@
+Loading Mamba module...
+-------------------------------------------------------------------------------
+There are messages associated with the following module(s):
+-------------------------------------------------------------------------------
+
+mamba:
+   - Mamba is a drop-in replacement for conda, offering higher speed and
+   more reliable environment solutions. - Do you really need conda/mamba??
+   Do you know about python virtual environments??? We HIGHLY recommend
+   using virtual envs instead. e.g. python -m venv my-environment - Remember
+   you can change where conda environemnts are created (if you run out of
+   space in your home directory) ``` $ conda config --env --prepend
+   envs_dirs /path/to/my/project/on/fred/.conda/envs $ conda config --env
+   --prepend pkgs_dirs /path/to/my/project/on/fred/.conda/pkgs ``` - To hide
+   this message in the future, load the module with -q ``` $ module -q load
+   conda ```
+
+-------------------------------------------------------------------------------
+
+Activating Conda environment...
+Starting end-to-end inference...
+2025-10-12 04:08:53,651 - INFO - Using device: cuda
+2025-10-12 04:08:53,652 - INFO - Read voxel_scale=8 from config, calculated voxel_size=0.1250
+2025-10-12 04:08:53,652 - INFO - Loading checkpoint from /fred/oz419/brenda/isbnet_inference_engine/configs/best.pth
+2025-10-12 04:08:54,623 - INFO - unexpected key in source state_dict: criterion.empty_weight
+Stage 1: Preprocessing raw LAS file into in-memory chunks...
+Creating Chunks:   0%|          | 0/4 [00:00<?, ?it/s]Creating Chunks:  50%|█████     | 2/4 [00:00<00:00, 14.50it/s]Creating Chunks: 100%|██████████| 4/4 [00:00<00:00, 10.68it/s]Creating Chunks: 100%|██████████| 4/4 [00:00<00:00,  8.88it/s]
+2025-10-12 04:08:55,422 - INFO - 
+Stage 2: Running inference on 4 chunks...
+Created 4 non-empty chunks to be processed.
+Inferring:   0%|          | 0/4 [00:00<?, ?it/s]/fred/oz419/brenda/isbnet_inference_engine/isbnet/ops/functions.py:188: UserWarning: The torch.cuda.*DtypeTensor constructors are no longer recommended. It's best to use methods such as torch.tensor(data, dtype=*, device='cuda') to create tensors. (Triggered internally at /pytorch/torch/csrc/tensor/python_tensor.cpp:78.)
+  output_feats = torch.cuda.FloatTensor(M, C).zero_()
+Inferring:   0%|          | 0/4 [00:03<?, ?it/s]
+Traceback (most recent call last):
+  File "/fred/oz419/brenda/isbnet_inference_engine/run_inference_local.py", line 227, in <module>
+    main()
+  File "/fred/oz419/brenda/isbnet_inference_engine/run_inference_local.py", line 214, in main
+    res = model(batch)
+          ^^^^^^^^^^^^
+  File "/fred/oz419/brenda/.conda/envs/isbnet_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1751, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/.conda/envs/isbnet_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1762, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/isbnet_inference_engine/isbnet/model/isbnet.py", line 229, in forward
+    return self.forward_test(**batch)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/isbnet_inference_engine/isbnet/util/utils.py", line 215, in wrapper
+    return func(*new_args, **new_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/isbnet_inference_engine/isbnet/model/isbnet.py", line 461, in forward_test
+    voxel_output_feats, voxel_batch_idxs = self.forward_backbone(
+                                           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/isbnet_inference_engine/isbnet/model/isbnet.py", line 650, in forward_backbone
+    input = spconv.SparseConvTensor(voxel_input_feats, voxel_coords.int(), spatial_shape, batch_size)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/.conda/envs/isbnet_env/lib/python3.11/site-packages/torch/fx/_symbolic_trace.py", line 100, in __call__
+    cls.__init__(instance, *args, **kwargs)  # type: ignore[misc]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/.conda/envs/isbnet_env/lib/python3.11/site-packages/spconv/pytorch/core.py", line 162, in __init__
+    assert len(spatial_shape) == ndim, "spatial shape must equal to ndim"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: spatial shape must equal to ndim
+Inference job finished.
+
++------------------ Job Report: 5860639 (COMPLETED) -------------------+
+| Memory (RAM)  [                    ]  0.0% (4 KB peak / 32 GB)       |
+| CPU           [                    ]  3.6% average                   |
+| Time          [>                   ]  0.4% (0-00:00:31 / 0-02:00:00) |
+|                                                                      |
+| Lustre Filesystem:                                                   |
+|   Path    Total Read    Total Write      Total IOPS                  |
+|   ------  ------------  -------------  ------------                  |
+|   /apps   18.1 MB       0 B                    198                   |
+|   /fred   0 B           0 B                      2                   |
+|   OS      16.7 MB       0 B                      6                   |
++----------------------------------------------------------------------+
