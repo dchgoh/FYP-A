@@ -39,6 +39,7 @@ export const createPointCloudMaterial = () => {
   const vertexShader = `
     // ADD THIS UNIFORM
     uniform float u_pointSize;
+    uniform float u_density; // declared in vertex for consistency (not used here)
 
     attribute float size;
     attribute vec3 customColor;
@@ -59,7 +60,7 @@ export const createPointCloudMaterial = () => {
   `;
 
   const fragmentShader = `
-    // The fragment shader does NOT need to be changed
+    // Add density-based discard to control point density
     uniform vec3 color;
     uniform float opacity;
     varying vec3 vColor;
@@ -67,6 +68,12 @@ export const createPointCloudMaterial = () => {
     uniform bool u_clippingEnabled;
     uniform vec3 u_clipBoxMin;
     uniform vec3 u_clipBoxMax;
+    uniform float u_density; // 0..1
+
+    float hash(vec3 p) {
+      // Simple hash from world position to pseudo-random in [0,1)
+      return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+    }
     void main() {
       if (u_clippingEnabled) {
         if (vWorldPosition.x < u_clipBoxMin.x || vWorldPosition.x > u_clipBoxMax.x ||
@@ -75,6 +82,8 @@ export const createPointCloudMaterial = () => {
           discard;
         }
       }
+      // Density discard: keep approximately u_density fraction of points
+      if (hash(vWorldPosition) > u_density) discard;
       vec2 center = gl_PointCoord - vec2(0.5);
       float dist = length(center);
       if (dist > 0.5) discard;
@@ -96,6 +105,7 @@ export const createPointCloudMaterial = () => {
       
       // ADD THE NEW UNIFORM HERE with a default value
       u_pointSize: { value: 10.0 },
+      u_density: { value: 1.0 },
     },
     vertexShader: vertexShader,
     fragmentShader: fragmentShader,

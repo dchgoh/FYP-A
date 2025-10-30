@@ -165,8 +165,9 @@ export const parseLASFile = async (file, onProgress = null) => {
             const z = zInt * zScale + zOffset;
             points.push(x, y, z);
             
-            // Read classification (standard location at byte 15).
-            const classification = dataView.getUint8(offset + 15);
+            // Read classification. For LAS 1.4 formats (6-10), classification is at byte 16; for earlier formats (0-5), it's at byte 15.
+            const classificationOffset = (pointDataRecordFormat >= 6) ? 16 : 15;
+            const classification = dataView.getUint8(offset + classificationOffset);
             const classificationData = getClassificationColor(classification);
             colors.push(classificationData.color[0], classificationData.color[1], classificationData.color[2]);
             

@@ -72,6 +72,7 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const [parts, setParts] = useState([]);
   const [activePartId, setActivePartId] = useState(null);
   const [pointSize, setPointSize] = useState(5.0); // State for the slider value
+  const [pointDensity, setPointDensity] = useState(1.0); // 0..1 density control
   
   // --- Multi-selection and Context Menu State ---
   const [selectedParts, setSelectedParts] = useState([]);
@@ -99,6 +100,13 @@ const PointCloudViewer = ({ isCollapsed }) => {
       pointCloud.material.uniforms.u_pointSize.value = pointSize;
     }
   }, [pointSize, pointCloud]);
+
+  // Update density uniform when changed
+  useEffect(() => {
+    if (pointCloud && pointCloud.material && pointCloud.material.uniforms.u_density) {
+      pointCloud.material.uniforms.u_density.value = pointDensity;
+    }
+  }, [pointDensity, pointCloud]);
 
   // --- MiniMap State ---
   const [showMiniMap, setShowMiniMap] = useState(false);
@@ -1456,6 +1464,23 @@ end_header
                         step={0.5}
                         min={1}
                         max={20}
+                        sx={{ color: colors.greenAccent[500] }}
+                      />
+                    </Box>
+
+                    {/* Point Density */}
+                    <Box sx={{ px: 1, mt: 2 }}>
+                      <Typography gutterBottom variant="body2" sx={{ color: colors.grey[300] }}>
+                        Point Density
+                      </Typography>
+                      <Slider
+                        value={pointDensity}
+                        onChange={(e, v) => setPointDensity(v)}
+                        aria-labelledby="point-density-slider"
+                        valueLabelDisplay="auto"
+                        step={0.05}
+                        min={0.1}
+                        max={1.0}
                         sx={{ color: colors.greenAccent[500] }}
                       />
                     </Box>
