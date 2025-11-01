@@ -4,7 +4,7 @@ const Redis = require('ioredis');
 const { pool } = require('../config/db');
 const lasProcessingService = require('./lasProcessingService');
 const segmentationService = require('./segmentationService');
-const enhancedSegmentationService = require('./enhancedSegmentationService');
+const enhancedSegmentationService = require('./segmentationService');
 const { setProgress, clearProgress } = require('./progressStore');
 const fs = require('fs');
 const path = require('path');
@@ -90,15 +90,16 @@ processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, asy
             await encryptProcessedFile(fileId, filePath);
             
         } else {
-            // Full pipeline with enhanced segmentation (semantic + instance)
+            // Full pipeline with segmentation (semantic + instance via ISBNet)
             console.log(`[Queue] Job ${job.id}: Starting enhanced segmentation for file ${fileId}`);
             await updateJobStatus(fileId, 'segmenting', 'Running AI semantic and instance segmentation');
-            await enhancedSegmentationService.runEnhancedSegmentation(fileId, filePath, projectRootDir);
+            await enhancedSegmentationService.runSegmentation(fileId, filePath, projectRootDir);
             
-            // Verify enhanced segmentation success
+            // Verify segmentation success (accept both enhanced_segmentation_complete and isbnet_completed)
             const segStatusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
-            if (segStatusCheck.rows.length === 0 || segStatusCheck.rows[0].status !== 'enhanced_segmentation_complete') {
-                throw new Error('Enhanced segmentation failed');
+            const status = segStatusCheck.rows.length > 0 ? segStatusCheck.rows[0].status : null;
+            if (!status || (status !== 'enhanced_segmentation_complete' && status !== 'isbnet_completed')) {
+                throw new Error(`Enhanced segmentation failed. Status: ${status}`);
             }
 
             // Final processing steps
