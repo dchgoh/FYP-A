@@ -55,82 +55,64 @@ let resourceUsage = {
 // Job processor
 processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, async (job) => {
     const { fileId, filePath, projectRootDir, skipSegmentation } = job.data;
-    
     console.log(`[Queue] Starting job ${job.id} for file ${fileId}`);
-    
+
     try {
-        // Check resource availability before starting
         if (!await checkResourceAvailability()) {
             throw new Error('Insufficient system resources available');
         }
 
-        // Update job status
         await updateJobStatus(fileId, 'processing', 'Job started');
         activeJobs.set(job.id, { fileId, startTime: Date.now() });
         resourceUsage.activeProcesses++;
 
-        // Step 1: LAS Processing
-        console.log(`[Queue] Job ${job.id}: Starting LAS processing for file ${fileId}`);
-        await updateJobStatus(fileId, 'processing_las_data', 'Processing LAS data');
-        await lasProcessingService.processLasData(fileId, filePath);
-        
-        // Verify LAS processing success
-        const statusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
-        if (statusCheck.rows.length === 0 || statusCheck.rows[0].status !== 'processed_ready_for_potree') {
-            throw new Error('LAS processing failed');
-        }
-
         if (skipSegmentation) {
-            // Skip segmentation path
             console.log(`[Queue] Job ${job.id}: Skipping segmentation for file ${fileId}`);
             await updateJobStatus(fileId, 'ready', 'Processing complete - ready for viewer');
-            
-            // Encrypt file
             await encryptProcessedFile(fileId, filePath);
-            
         } else {
-            // Full pipeline with segmentation (semantic + instance via ISBNet)
+            // Step 1: Run AI Segmentation (Semantic + Instance)
             console.log(`[Queue] Job ${job.id}: Starting enhanced segmentation for file ${fileId}`);
             await updateJobStatus(fileId, 'segmenting', 'Running AI semantic and instance segmentation');
             await enhancedSegmentationService.runSegmentation(fileId, filePath, projectRootDir);
-            
-            // Verify segmentation success (accept both enhanced_segmentation_complete and isbnet_completed)
+
+            // Verify segmentation success
             const segStatusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
             const status = segStatusCheck.rows.length > 0 ? segStatusCheck.rows[0].status : null;
             if (!status || (status !== 'enhanced_segmentation_complete' && status !== 'isbnet_completed')) {
                 throw new Error(`Enhanced segmentation failed. Status: ${status}`);
             }
 
-            // Final processing steps
+            // Step 2: LAS Processing (now runs AFTER AI)
+            console.log(`[Queue] Job ${job.id}: Starting LAS processing after segmentation for file ${fileId}`);
+            await updateJobStatus(fileId, 'processing_las_data', 'Processing LAS data after AI segmentation');
+            await lasProcessingService.processLasData(fileId, filePath);
+
+            // Verify LAS processing success
+            const statusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
+            if (statusCheck.rows.length === 0 || statusCheck.rows[0].status !== 'processed_ready_for_potree') {
+                throw new Error('LAS processing failed after AI segmentation');
+            }
+
+            // Step 3: Final status and encryption
             await updateJobStatus(fileId, 'ready', 'Processing complete - ready for viewer');
             await encryptProcessedFile(fileId, filePath);
         }
 
-        // Clear progress tracking
         try { clearProgress(fileId); } catch (_) {}
-
         console.log(`[Queue] Job ${job.id} completed successfully for file ${fileId}`);
         return { success: true, fileId };
 
     } catch (error) {
         console.error(`[Queue] Job ${job.id} failed for file ${fileId}:`, error);
-        
-        // Update file status to failed
         try {
-            await pool.query(
-                "UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2",
-                [error.message, fileId]
-            );
+            await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2", [error.message, fileId]);
         } catch (dbError) {
             console.error(`[Queue] Failed to update error status for file ${fileId}:`, dbError);
         }
-
-        // Clear progress tracking
         try { clearProgress(fileId); } catch (_) {}
-
         throw error;
     } finally {
-        // Clean up resources
         activeJobs.delete(job.id);
         resourceUsage.activeProcesses = Math.max(0, resourceUsage.activeProcesses - 1);
         updateResourceUsage();
