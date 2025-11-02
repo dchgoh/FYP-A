@@ -93,7 +93,7 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
     const allocatedGpuId = await gpuManager.allocateGPU(fileId, 2000); // Request 2GB GPU memory
     const gpuArg = allocatedGpuId !== null ? allocatedGpuId.toString() : 'cpu';
 
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
         const pythonVenvExecutable = process.platform === "win32"
             ? path.join(projectRootDir, 'venv', 'Scripts', 'python.exe')
             : path.join(projectRootDir, 'venv', 'bin', 'python');
@@ -106,15 +106,9 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
         const modelNameForScript = 'pointnet2_sem_seg_msg';
         let originalFileBackupPath = null;
 
-        // If on Windows, prefer WSL Python (CUDA-enabled) instead of local venv
-        const preferWSL = process.platform === 'win32';
-        
-        // Pre-checks (moved from controller/single service)
-        if (!preferWSL) {
-            if (!fs.existsSync(pythonVenvExecutable)) return reject(new Error(`[SegmentationService] Python venv executable not found: ${pythonVenvExecutable}`));
-        }
-        if (!fs.existsSync(pythonSegmentScriptToExecute)) return reject(new Error(`[SegmentationService] Python segmentation script not found: ${pythonSegmentScriptToExecute}`));
-        if (!fs.existsSync(checkpointAbsolutePathForCheck)) return reject(new Error(`[SegmentationService] Segmentation checkpoint file not found: ${checkpointAbsolutePathForCheck}`));
+        // Pre-checks
+        if (!fs.existsSync(checkpointAbsolutePathForCheck))
+            return reject(new Error(`[SegmentationService] Checkpoint file not found: ${checkpointAbsolutePathForCheck}`));
 
         originalFileBackupPath = inputFileAbsolutePath + ".bak";
         try {
@@ -124,214 +118,143 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
             return reject(new Error(`[SegmentationService] Failed to create backup: ${copyError.message}`));
         }
 
-        // Helper to map Windows path to WSL path
-        function toWSLPath(winPath) {
-            const drive = winPath[0].toLowerCase();
-            const rest = winPath.slice(2).replace(/\\/g, '/');
-            return `/mnt/${drive}${rest}`;
-        }
+        // ---------- 🧠 STEP 1: Run ISBNet FIRST ----------
+        try {
+            console.log(`[SegmentationService] (FileID ${fileId}): Running ISBNet inference FIRST.`);
 
-        let segmentationProcess;
-        if (preferWSL) {
-            // Use WSL conda env python
-            const scriptWSL = toWSLPath(pythonSegmentScriptToExecute);
-            const inputWSL = toWSLPath(inputFileAbsolutePath);
-            const outputDirWSL = toWSLPath(path.dirname(inputFileAbsolutePath));
-            const checkpointWSL = toWSLPath(checkpointAbsolutePathForCheck);
+            const inputLas = inputFileAbsolutePath;
+            const outputLas = inputFileAbsolutePath;
+            const configPath = path.join(projectRootDir, 'configs', 'config_forinstance.yaml');
+            const checkpointPath = path.join(projectRootDir, 'configs', 'best.pth');
 
-            const wslCondaEnv = process.env.WSL_CONDA_ENV || 'isbnet_env';
-            const wslPythonPath = process.env.WSL_PYTHON || ('/home/localadmin/miniconda3/envs/' + wslCondaEnv + '/bin/python');
+            const isbnetResult = await runISBNetInference(
+                inputLas,
+                outputLas,
+                configPath,
+                checkpointPath,
+                projectRootDir
+            );
 
-            const pyArgs = [
-                scriptWSL,
-                '--model', modelNameForScript,
-                '--checkpoint_path', checkpointWSL,
-                '--input_file', inputWSL,
-                '--output_dir', outputDirWSL,
-                '--num_point_model', '1024',
-                '--num_features', '6',
-                '--batch_size_inference', '16',
-                '--stride_ratio', '0.5',
-                '--output_format', 'las',
-                '--gpu', gpuArg
-            ].join(' ');
-
-            const fullCmd = [
-                'WSL_PY="' + wslPythonPath + '"; ',
-                'if [ -x "$WSL_PY" ]; then ',
-                '  "$WSL_PY" ' + pyArgs + '; ',
-                'else ',
-                '  (',
-                '    source ~/miniconda3/etc/profile.d/conda.sh >/dev/null 2>&1 || ',
-                '    source ~/.bashrc >/dev/null 2>&1 || ',
-                '    source /opt/conda/etc/profile.d/conda.sh >/dev/null 2>&1 || true; ',
-                '    if command -v conda >/dev/null 2>&1; then ',
-                '      conda activate ' + wslCondaEnv + ' >/dev/null 2>&1 || true; ',
-                '    fi; ',
-                '    python3 ' + pyArgs + '; ',
-                '  ); ',
-                'fi'
-            ].join('');
-
-            console.log(`[SegmentationService] (FileID ${fileId}): Spawning via WSL: wsl -e bash -lc "${fullCmd.substring(0, 200)}..."`);
-            segmentationProcess = spawn('wsl', ['-e', 'bash', '-lc', fullCmd], { cwd: projectRootDir, stdio: 'pipe' });
-        } else {
-            const segmentArgs = [
-                pythonSegmentScriptToExecute, '--model', modelNameForScript, '--checkpoint_path', checkpointRelativePath,
-                '--input_file', inputFileAbsolutePath, '--output_dir', path.dirname(inputFileAbsolutePath),
-                '--num_point_model', '1024', '--num_features', '6', '--batch_size_inference', '16',
-                '--stride_ratio', '0.5', '--output_format', 'las', '--gpu', gpuArg,
-            ];
-
-            console.log(`[SegmentationService] (FileID ${fileId}): Spawning: "${pythonVenvExecutable}" CWD "${projectRootDir}" args: ${segmentArgs.join(' ')}`);
-            segmentationProcess = spawn(pythonVenvExecutable, segmentArgs, { cwd: projectRootDir, stdio: 'pipe' });
-        }
-        let segStdout = '', segStderr = '';
-        
-        // Track the active process
-        activeProcesses.set(fileId, {
-            process: segmentationProcess,
-            startTime: Date.now(),
-            filePath: inputFileAbsolutePath,
-            backupPath: originalFileBackupPath
-        });
-        
-        segmentationProcess.stdout.on('data', (data) => { 
-            const output = data.toString();
-            segStdout += output; 
-            process.stdout.write(`[SegPy STDOUT FID ${fileId}] ${output}`);
-            try {
-                const match = output.match(/(\d{1,3})%/);
-                if (match) {
-                    const pct = parseInt(match[1], 10);
-                    if (!isNaN(pct)) setProgress(fileId, pct);
-                }
-            } catch (_) { /* noop */ }
-            
-            // Check if process was stopped during execution
-            if (!activeProcesses.has(fileId)) {
-                console.log(`[SegmentationService] Process ${fileId} was stopped, killing segmentation process`);
-                segmentationProcess.kill('SIGTERM');
-            }
-        });
-        
-        segmentationProcess.stderr.on('data', (data) => { 
-            const output = data.toString();
-            segStderr += output;
-            process.stderr.write(`[SegPy STDERR FID ${fileId}] ${output}`);
-            try {
-                const match = output.match(/(\d{1,3})%/);
-                if (match) {
-                    const pct = parseInt(match[1], 10);
-                    if (!isNaN(pct)) setProgress(fileId, pct);
-                }
-            } catch (_) { /* noop */ }
-            
-            // Check if process was stopped during execution
-            if (!activeProcesses.has(fileId)) {
-                console.log(`[SegmentationService] Process ${fileId} was stopped, killing segmentation process`);
-                segmentationProcess.kill('SIGTERM');
-            }
-        });
-
-        segmentationProcess.on('error', async (error) => {
-            console.error(`[SegmentationService] Error (FileID ${fileId}): Failed to start. Err: ${error.message}`);
-            
-            // Remove from active processes
-            activeProcesses.delete(fileId);
-            
-            if (originalFileBackupPath && fs.existsSync(originalFileBackupPath)) { /* restore backup */ try { fs.renameSync(originalFileBackupPath, inputFileAbsolutePath); } catch (e) {console.error('Backup restore failed', e)} }
-            try { await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2", [`Seg Spawn Err: ${error.message.substring(0,200)}`, fileId]); } catch (dbErr) {/* log */}
-            // Release GPU allocation on process error
+            console.log(`[SegmentationService] (FileID ${fileId}): ISBNet completed successfully.`);
+            await pool.query("UPDATE uploaded_files SET status = 'isbnet_completed', processing_error = NULL WHERE id = $1", [fileId]);
+        } catch (isbErr) {
+            console.error(`[SegmentationService] (FileID ${fileId}): ISBNet failed:`, isbErr);
             gpuManager.releaseGPU(fileId);
-            reject(new Error(`[SegmentationService] Spawn error: ${error.message}. Stderr: ${segStderr.substring(0, 100)}`));
-        });
+            return reject(new Error(`[SegmentationService] ISBNet failed first: ${isbErr.message}`));
+        }
 
-        segmentationProcess.on('close', async (code) => {
-            console.log(`\n[SegmentationService] (FileID ${fileId}): Script exited with code ${code}.`);
-            
-            // Remove from active processes
-            activeProcesses.delete(fileId);
-            
-            if (code === 0) {
-                // Check for the output file created by segmentation script
-                // Match the Python script's sanitization: Path(args.input_file).stem.replace(" ", "_")
-                const inputFileName = path.basename(inputFileAbsolutePath, path.extname(inputFileAbsolutePath));
-                const sanitizedInputStem = inputFileName.replace(/ /g, '_'); // Replace spaces with underscores like Python script
-                const outputFileName = sanitizedInputStem + '.las';
-                const outputFileAbsolutePath = path.join(path.dirname(inputFileAbsolutePath), outputFileName);
-                
-                console.log(`[SegmentationService] (FileID ${fileId}): Checking for output file: ${outputFileAbsolutePath}`);
-                
-                // List all files in the output directory for debugging
-                const outputDir = path.dirname(inputFileAbsolutePath);
-                try {
-                    const filesInDir = fs.readdirSync(outputDir);
-                    console.log(`[SegmentationService] (FileID ${fileId}): Files in output directory:`, filesInDir);
-                } catch (listError) {
-                    console.error(`[SegmentationService] (FileID ${fileId}): Error listing directory:`, listError);
-                }
-                
-                if (!fs.existsSync(outputFileAbsolutePath) || fs.statSync(outputFileAbsolutePath).size === 0) {
-                    if (originalFileBackupPath && fs.existsSync(originalFileBackupPath)) { /* restore backup */ try { fs.renameSync(originalFileBackupPath, inputFileAbsolutePath); } catch (e) {console.error('Backup restore failed', e)}}
-                    try { await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = 'Seg invalid output' WHERE id = $1", [fileId]); } catch (dbErr) {/* log */}
-                    reject(new Error("[SegmentationService] Output file invalid."));
-                } else {
-                    // Replace the original file with the segmented output
-                    try {
-                        fs.renameSync(outputFileAbsolutePath, inputFileAbsolutePath);
-                        console.log(`[SegmentationService] (FileID ${fileId}): Replaced original file with segmented output.`);
-                    } catch (renameError) {
-                        console.error(`[SegmentationService] (FileID ${fileId}): Error replacing file:`, renameError);
-                        // Continue anyway, the output file exists
-                    }
-                    
-                    if (originalFileBackupPath && fs.existsSync(originalFileBackupPath)) { /* delete backup */ try {fs.unlinkSync(originalFileBackupPath); } catch(e){console.error('Backup delete failed',e)}}
-                    // Successfully segmented, don't change status yet, let controller do it or next service
-                    // Or set to 'segmented_ready_for_las_processing'
-                    await pool.query("UPDATE uploaded_files SET status = 'segmented_ready_for_las', processing_error = NULL WHERE id = $1", [fileId]);
-                    try { setProgress(fileId, 100); } catch (_) { /* noop */ }
-                    console.log(`[SegmentationService] (FileID ${fileId}): Success. Running ISBNet inference next.`);
+        // ---------- 🧩 STEP 2: Run Semantic Segmentation (PointNet++) ----------
+        try {
+            console.log(`[SegmentationService] (FileID ${fileId}): Running Semantic Segmentation next.`);
 
-                    // Release GPU used for segmentation (optional, or reuse it)
-                    gpuManager.releaseGPU(fileId);
-
-                    try {
-                        // Define ISBNet paths (using Windows paths - will be converted to WSL in runISBNetInference)
-                        const inputLas = inputFileAbsolutePath;
-                        const outputLas = inputFileAbsolutePath;
-                        const configPath = path.join(projectRootDir, 'configs', 'config_forinstance.yaml');
-                        const checkpointPath = path.join(projectRootDir, 'configs', 'best.pth');
-
-                        // Run ISBNet (paths will be converted to WSL inside the function)
-                        const inferenceResult = await runISBNetInference(inputLas, outputLas, configPath, checkpointPath, projectRootDir);
-
-                        console.log(`[SegmentationService] (FileID ${fileId}): ISBNet inference completed.`);
-                        console.log(`[SegmentationService] (FileID ${fileId}): Output file: ${outputLas}`);
-
-                        // Update DB after ISBNet
-                        await pool.query("UPDATE uploaded_files SET status = 'isbnet_completed', processing_error = NULL WHERE id = $1", [fileId]);
-
-                        resolve({ success: true, message: "Segmentation + ISBNet inference completed.", stdout: segStdout + "\n" + inferenceResult.stdout });
-                    } catch (isberr) {
-                        console.error(`[SegmentationService] (FileID ${fileId}): ISBNet failed:`, isberr);
-                        await pool.query("UPDATE uploaded_files SET status = 'isbnet_failed', processing_error = $1 WHERE id = $2", [isberr.message, fileId]);
-                        reject(new Error(`[SegmentationService] ISBNet failed: ${isberr.message}`));
-                    }
-
-                }
-            } else {
-                const errMsg = `[SegmentationService] Script failed. Code: ${code}. Stderr: ${segStderr.substring(0,200)}`;
-                if (originalFileBackupPath && fs.existsSync(originalFileBackupPath)) { /* restore backup */ try { fs.renameSync(originalFileBackupPath, inputFileAbsolutePath); } catch (e) {console.error('Backup restore failed', e)}}
-                try { await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2", [errMsg, fileId]); } catch (dbErr) {/* log */}
-                try { clearProgress(fileId); } catch (_) { /* noop */ }
-                // Release GPU allocation on failure
-                gpuManager.releaseGPU(fileId);
-                reject(new Error(errMsg));
+            // Helper to map Windows path to WSL path
+            function toWSLPath(winPath) {
+                const drive = winPath[0].toLowerCase();
+                const rest = winPath.slice(2).replace(/\\/g, '/');
+                return `/mnt/${drive}${rest}`;
             }
-        });
+
+            let segmentationProcess;
+            const preferWSL = process.platform === 'win32';
+            if (preferWSL) {
+                const scriptWSL = toWSLPath(pythonSegmentScriptToExecute);
+                const inputWSL = toWSLPath(inputFileAbsolutePath);
+                const outputDirWSL = toWSLPath(path.dirname(inputFileAbsolutePath));
+                const checkpointWSL = toWSLPath(checkpointAbsolutePathForCheck);
+
+                const wslCondaEnv = process.env.WSL_CONDA_ENV || 'isbnet_env';
+                const wslPythonPath = process.env.WSL_PYTHON || ('/home/localadmin/miniconda3/envs/' + wslCondaEnv + '/bin/python');
+
+                const pyArgs = [
+                    scriptWSL,
+                    '--model', modelNameForScript,
+                    '--checkpoint_path', checkpointWSL,
+                    '--input_file', inputWSL,
+                    '--output_dir', outputDirWSL,
+                    '--num_point_model', '1024',
+                    '--num_features', '6',
+                    '--batch_size_inference', '16',
+                    '--stride_ratio', '0.5',
+                    '--output_format', 'las',
+                    '--gpu', gpuArg
+                ].join(' ');
+
+                const fullCmd = [
+                    'WSL_PY="' + wslPythonPath + '"; ',
+                    'if [ -x "$WSL_PY" ]; then ',
+                    '  "$WSL_PY" ' + pyArgs + '; ',
+                    'else ',
+                    '  (',
+                    '    source ~/miniconda3/etc/profile.d/conda.sh >/dev/null 2>&1 || ',
+                    '    source ~/.bashrc >/dev/null 2>&1 || ',
+                    '    source /opt/conda/etc/profile.d/conda.sh >/dev/null 2>&1 || true; ',
+                    '    if command -v conda >/dev/null 2>&1; then ',
+                    '      conda activate ' + wslCondaEnv + ' >/dev/null 2>&1 || true; ',
+                    '    fi; ',
+                    '    python3 ' + pyArgs + '; ',
+                    '  ); ',
+                    'fi'
+                ].join('');
+
+                console.log(`[SegmentationService] (FileID ${fileId}): Spawning WSL segmentation process...`);
+                segmentationProcess = spawn('wsl', ['-e', 'bash', '-lc', fullCmd], { cwd: projectRootDir, stdio: 'pipe' });
+            } else {
+                segmentationProcess = spawn(pythonVenvExecutable, [
+                    pythonSegmentScriptToExecute, '--model', modelNameForScript,
+                    '--checkpoint_path', checkpointRelativePath,
+                    '--input_file', inputFileAbsolutePath,
+                    '--output_dir', path.dirname(inputFileAbsolutePath),
+                    '--num_point_model', '1024', '--num_features', '6',
+                    '--batch_size_inference', '16',
+                    '--stride_ratio', '0.5',
+                    '--output_format', 'las',
+                    '--gpu', gpuArg,
+                ], { cwd: projectRootDir, stdio: 'pipe' });
+            }
+
+            let segStdout = '', segStderr = '';
+            activeProcesses.set(fileId, {
+                process: segmentationProcess,
+                startTime: Date.now(),
+                filePath: inputFileAbsolutePath,
+                backupPath: originalFileBackupPath
+            });
+
+            segmentationProcess.stdout.on('data', (data) => {
+                const output = data.toString();
+                segStdout += output;
+                process.stdout.write(`[SegPy STDOUT FID ${fileId}] ${output}`);
+                const match = output.match(/(\d{1,3})%/);
+                if (match) setProgress(fileId, parseInt(match[1], 10));
+            });
+
+            segmentationProcess.stderr.on('data', (data) => {
+                const output = data.toString();
+                segStderr += output;
+                process.stderr.write(`[SegPy STDERR FID ${fileId}] ${output}`);
+            });
+
+            segmentationProcess.on('close', async (code) => {
+                activeProcesses.delete(fileId);
+                if (code === 0) {
+                    console.log(`[SegmentationService] (FileID ${fileId}): Semantic segmentation completed successfully.`);
+                    await pool.query("UPDATE uploaded_files SET status = 'segmentation_completed', processing_error = NULL WHERE id = $1", [fileId]);
+                    gpuManager.releaseGPU(fileId);
+                    resolve({ success: true, message: "ISBNet + Semantic segmentation completed.", stdout: segStdout });
+                } else {
+                    const errMsg = `[SegmentationService] Semantic segmentation failed (code ${code}): ${segStderr}`;
+                    console.error(errMsg);
+                    gpuManager.releaseGPU(fileId);
+                    reject(new Error(errMsg));
+                }
+            });
+        } catch (segErr) {
+            gpuManager.releaseGPU(fileId);
+            reject(new Error(`[SegmentationService] Semantic segmentation error: ${segErr.message}`));
+        }
     });
 }
+
 
 async function stopSegmentation(fileId) {
     console.log(`[SegmentationService] Stopping segmentation for file ${fileId}`);
