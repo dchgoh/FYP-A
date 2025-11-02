@@ -101,7 +101,7 @@ export const parseLASFile = async (file, onProgress = null) => {
           
           
           // Try to find treeID in extra bytes
-          if (extraBytesLength >= 4) { // Need at least 4 bytes for float32
+          if (extraBytesLength >= 4) { // Need at least 4 bytes for float32 or int32
             // Try different positions in extra bytes
             const positionsToTry = [
               extraBytesStart,           // First 4 bytes
@@ -112,18 +112,25 @@ export const parseLASFile = async (file, onProgress = null) => {
             ];
             
             for (const pos of positionsToTry) {
-              // Only try float32 (4 bytes)
-              if (pos + 4 <= offset + recordLength) {
-                try {
-                  const float32TreeID = dataView.getFloat32(offset + pos, true);
-                  const roundedTreeID = Math.round(float32TreeID);
-                  
-                  // Check if this looks like a valid treeID (positive integer, not too large)
-                  if (roundedTreeID > 0 && roundedTreeID < 1000000) {
-                    return Math.abs(roundedTreeID);
-                  }
-                } catch (e) {
-                  // Continue to next position
+              // Check bounds: pos is offset within the point record, ensure we don't read past recordLength
+              if (pos + 4 <= recordLength) {
+                const absoluteOffset = offset + pos;
+                
+                // First try int32 format
+                const int32TreeID = dataView.getInt32(absoluteOffset, true);
+                
+                // Check if this looks like a valid treeID: -1 (Unclassified), 0 or positive integer (not too large)
+                if (int32TreeID === -1 || (int32TreeID >= 0 && int32TreeID < 10000)) {
+                  return int32TreeID;
+                }
+                
+                // Then try float32 format
+                const float32TreeID = dataView.getFloat32(absoluteOffset, true);
+                const roundedTreeID = Math.round(float32TreeID);
+                
+                // Check if this looks like a valid treeID: -1 (Unclassified), 0 or positive integer (not too large, not NaN or Infinity)
+                if (isFinite(roundedTreeID) && (roundedTreeID === -1 || (roundedTreeID >= 0 && roundedTreeID < 10000))) {
+                  return roundedTreeID === -1 ? -1 : Math.abs(roundedTreeID);
                 }
               }
             }

@@ -1116,7 +1116,27 @@ end_header
       });
     } else if (filterMode === 'treeID' && treeIDData) {
       // Split by treeID - create a custom filter for each treeID
-      Object.entries(treeIDs).forEach(([id, treeID]) => {
+      // Check if -1 exists to determine which is Unclassified
+      const hasNegativeOne = Object.keys(treeIDs).some(key => parseInt(key) === -1);
+      
+      // Sort entries: Unclassified first, then regular treeIDs
+      const sortedEntries = Object.entries(treeIDs).sort(([idA, treeIDA], [idB, treeIDB]) => {
+        const numA = parseInt(idA);
+        const numB = parseInt(idB);
+        
+        // Determine which value is unclassified
+        const aIsUnclassified = hasNegativeOne ? (numA === -1) : (numA === 0);
+        const bIsUnclassified = hasNegativeOne ? (numB === -1) : (numB === 0);
+        
+        // Unclassified goes to the very first position
+        if (aIsUnclassified && !bIsUnclassified) return -1;
+        if (!aIsUnclassified && bIsUnclassified) return 1;
+        
+        // Both are regular treeIDs: sort numerically
+        return numA - numB;
+      });
+      
+      sortedEntries.forEach(([id, treeID]) => {
         const filteredGeometry = filterPointCloudBySingleTreeID(originalGeometry, id, treeID, treeIDData);
         if (filteredGeometry && filteredGeometry.attributes && filteredGeometry.attributes.position && filteredGeometry.attributes.position.count > 0) {
           newParts.push({
@@ -1315,7 +1335,9 @@ end_header
                 {selectedFile && fileInfo && (
                     <Box sx={{ mb: 2, p:1, border: `1px solid ${colors.grey[700]}`, borderRadius: '4px' }}>
                         <Typography variant="subtitle1" sx={{ color: colors.grey[100], mb: 1, fontWeight: 'bold' }}>File Information</Typography>
-                        <Typography variant="body2" sx={{ color: colors.grey[200] }}>Name: <span style={{color: colors.grey[300]}}>{fileInfo.name || selectedFile.name}</span></Typography>
+                        <Typography variant="body2" sx={{ color: colors.grey[200], mb: 0.5 }}>File Name: <span style={{color: colors.grey[300]}}>{fileInfo.name || selectedFile.name}</span></Typography>
+                        <Typography variant="body2" sx={{ color: colors.grey[200], mb: 0.5 }}>Plot: <span style={{color: colors.grey[300]}}>{fileInfo.plot_name || 'N/A'}</span></Typography>
+                        <Typography variant="body2" sx={{ color: colors.grey[200], mb: 0.5 }}>Division: <span style={{color: colors.grey[300]}}>{fileInfo.divisionName || 'N/A'}</span></Typography>
                         <Typography variant="body2" sx={{ color: colors.grey[200] }}>Project: <span style={{color: colors.grey[300]}}>{fileInfo.projectName || 'N/A'}</span></Typography>
                     </Box>
                 )}
