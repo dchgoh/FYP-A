@@ -6,6 +6,82 @@ const { pool } = require('../config/db'); // Assuming shared DB config
 const { setProgress, clearProgress } = require('./progressStore');
 const gpuManager = require('./gpuResourceManager');
 
+async function runISBNetInference(inputLas, outputLas, configPath, checkpointPath, projectRootDir) {
+    return new Promise((resolve, reject) => {
+        // Helper to convert Windows path to WSL path
+        function toWSLPath(winPath) {
+            if (typeof winPath !== 'string') return winPath;
+            if (winPath.startsWith('/mnt/')) return winPath; // Already WSL path
+            const drive = winPath[0].toLowerCase();
+            const rest = winPath.slice(2).replace(/\\/g, '/');
+            return `/mnt/${drive}${rest}`;
+        }
+
+        // Convert all paths to WSL paths
+        const inputWSL = toWSLPath(inputLas);
+        const outputWSL = toWSLPath(outputLas);
+        const configWSL = toWSLPath(configPath);
+        const checkpointWSL = toWSLPath(checkpointPath);
+        const projectWSL = toWSLPath(projectRootDir);
+
+        const wslCondaEnv = process.env.WSL_CONDA_ENV || 'isbnet_env';
+        const wslPythonPath = process.env.WSL_PYTHON || ('/home/localadmin/miniconda3/envs/' + wslCondaEnv + '/bin/python');
+
+        const pyArgs = [
+            'run_inference_local.py',
+            inputWSL,
+            outputWSL,
+            configWSL,
+            checkpointWSL
+        ].join(' ');
+
+        const fullCmd = [
+            'cd "' + projectWSL + '" && ',
+            'WSL_PY="' + wslPythonPath + '"; ',
+            'if [ -x "$WSL_PY" ]; then ',
+            '  "$WSL_PY" ' + pyArgs + '; ',
+            'else ',
+            '  (',
+            '    source ~/miniconda3/etc/profile.d/conda.sh >/dev/null 2>&1 || ',
+            '    source ~/.bashrc >/dev/null 2>&1 || ',
+            '    source /opt/conda/etc/profile.d/conda.sh >/dev/null 2>&1 || true; ',
+            '    if command -v conda >/dev/null 2>&1; then ',
+            '      conda activate ' + wslCondaEnv + ' >/dev/null 2>&1 || true; ',
+            '    fi; ',
+            '    python3 ' + pyArgs + '; ',
+            '  ); ',
+            'fi'
+        ].join('');
+
+        console.log(`[ISBNet] Running inference in WSL...`);
+
+        const isbnetProcess = spawn('wsl', ['-e', 'bash', '-lc', fullCmd], { stdio: 'pipe' });
+        let stdout = "", stderr = "";
+
+        isbnetProcess.stdout.on("data", (data) => {
+            const msg = data.toString();
+            stdout += msg;
+            process.stdout.write(`[ISBNet STDOUT] ${msg}`);
+        });
+
+        isbnetProcess.stderr.on("data", (data) => {
+            const msg = data.toString();
+            stderr += msg;
+            process.stderr.write(`[ISBNet STDERR] ${msg}`);
+        });
+
+        isbnetProcess.on("close", (code) => {
+            if (code === 0) {
+                console.log("[ISBNet] Inference completed successfully.");
+                resolve({ success: true, stdout });
+            } else {
+                console.error(`[ISBNet] Inference failed with code ${code}`);
+                reject(new Error(`ISBNet failed: ${stderr}`));
+            }
+        });
+    });
+}
+
 // Track active segmentation processes
 const activeProcesses = new Map();
 
@@ -30,8 +106,13 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
         const modelNameForScript = 'pointnet2_sem_seg_msg';
         let originalFileBackupPath = null;
 
+        // If on Windows, prefer WSL Python (CUDA-enabled) instead of local venv
+        const preferWSL = process.platform === 'win32';
+        
         // Pre-checks (moved from controller/single service)
-        if (!fs.existsSync(pythonVenvExecutable)) return reject(new Error(`[SegmentationService] Python venv executable not found: ${pythonVenvExecutable}`));
+        if (!preferWSL) {
+            if (!fs.existsSync(pythonVenvExecutable)) return reject(new Error(`[SegmentationService] Python venv executable not found: ${pythonVenvExecutable}`));
+        }
         if (!fs.existsSync(pythonSegmentScriptToExecute)) return reject(new Error(`[SegmentationService] Python segmentation script not found: ${pythonSegmentScriptToExecute}`));
         if (!fs.existsSync(checkpointAbsolutePathForCheck)) return reject(new Error(`[SegmentationService] Segmentation checkpoint file not found: ${checkpointAbsolutePathForCheck}`));
 
@@ -43,15 +124,68 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
             return reject(new Error(`[SegmentationService] Failed to create backup: ${copyError.message}`));
         }
 
-        const segmentArgs = [
-            pythonSegmentScriptToExecute, '--model', modelNameForScript, '--checkpoint_path', checkpointRelativePath,
-            '--input_file', inputFileAbsolutePath, '--output_dir', path.dirname(inputFileAbsolutePath),
-            '--num_point_model', '1024', '--num_features', '6', '--batch_size_inference', '16',
-            '--stride_ratio', '0.5', '--output_format', 'las', '--gpu', gpuArg,
-        ];
+        // Helper to map Windows path to WSL path
+        function toWSLPath(winPath) {
+            const drive = winPath[0].toLowerCase();
+            const rest = winPath.slice(2).replace(/\\/g, '/');
+            return `/mnt/${drive}${rest}`;
+        }
 
-        console.log(`[SegmentationService] (FileID ${fileId}): Spawning: "${pythonVenvExecutable}" CWD "${projectRootDir}" args: ${segmentArgs.join(' ')}`);
-        const segmentationProcess = spawn(pythonVenvExecutable, segmentArgs, { cwd: projectRootDir, stdio: 'pipe' });
+        let segmentationProcess;
+        if (preferWSL) {
+            // Use WSL conda env python
+            const scriptWSL = toWSLPath(pythonSegmentScriptToExecute);
+            const inputWSL = toWSLPath(inputFileAbsolutePath);
+            const outputDirWSL = toWSLPath(path.dirname(inputFileAbsolutePath));
+            const checkpointWSL = toWSLPath(checkpointAbsolutePathForCheck);
+
+            const wslCondaEnv = process.env.WSL_CONDA_ENV || 'isbnet_env';
+            const wslPythonPath = process.env.WSL_PYTHON || ('/home/localadmin/miniconda3/envs/' + wslCondaEnv + '/bin/python');
+
+            const pyArgs = [
+                scriptWSL,
+                '--model', modelNameForScript,
+                '--checkpoint_path', checkpointWSL,
+                '--input_file', inputWSL,
+                '--output_dir', outputDirWSL,
+                '--num_point_model', '1024',
+                '--num_features', '6',
+                '--batch_size_inference', '16',
+                '--stride_ratio', '0.5',
+                '--output_format', 'las',
+                '--gpu', gpuArg
+            ].join(' ');
+
+            const fullCmd = [
+                'WSL_PY="' + wslPythonPath + '"; ',
+                'if [ -x "$WSL_PY" ]; then ',
+                '  "$WSL_PY" ' + pyArgs + '; ',
+                'else ',
+                '  (',
+                '    source ~/miniconda3/etc/profile.d/conda.sh >/dev/null 2>&1 || ',
+                '    source ~/.bashrc >/dev/null 2>&1 || ',
+                '    source /opt/conda/etc/profile.d/conda.sh >/dev/null 2>&1 || true; ',
+                '    if command -v conda >/dev/null 2>&1; then ',
+                '      conda activate ' + wslCondaEnv + ' >/dev/null 2>&1 || true; ',
+                '    fi; ',
+                '    python3 ' + pyArgs + '; ',
+                '  ); ',
+                'fi'
+            ].join('');
+
+            console.log(`[SegmentationService] (FileID ${fileId}): Spawning via WSL: wsl -e bash -lc "${fullCmd.substring(0, 200)}..."`);
+            segmentationProcess = spawn('wsl', ['-e', 'bash', '-lc', fullCmd], { cwd: projectRootDir, stdio: 'pipe' });
+        } else {
+            const segmentArgs = [
+                pythonSegmentScriptToExecute, '--model', modelNameForScript, '--checkpoint_path', checkpointRelativePath,
+                '--input_file', inputFileAbsolutePath, '--output_dir', path.dirname(inputFileAbsolutePath),
+                '--num_point_model', '1024', '--num_features', '6', '--batch_size_inference', '16',
+                '--stride_ratio', '0.5', '--output_format', 'las', '--gpu', gpuArg,
+            ];
+
+            console.log(`[SegmentationService] (FileID ${fileId}): Spawning: "${pythonVenvExecutable}" CWD "${projectRootDir}" args: ${segmentArgs.join(' ')}`);
+            segmentationProcess = spawn(pythonVenvExecutable, segmentArgs, { cwd: projectRootDir, stdio: 'pipe' });
+        }
         let segStdout = '', segStderr = '';
         
         // Track the active process
@@ -157,10 +291,34 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
                     // Or set to 'segmented_ready_for_las_processing'
                     await pool.query("UPDATE uploaded_files SET status = 'segmented_ready_for_las', processing_error = NULL WHERE id = $1", [fileId]);
                     try { setProgress(fileId, 100); } catch (_) { /* noop */ }
-                    console.log(`[SegmentationService] (FileID ${fileId}): Success. Status 'segmented_ready_for_las'.`);
-                    // Release GPU allocation
+                    console.log(`[SegmentationService] (FileID ${fileId}): Success. Running ISBNet inference next.`);
+
+                    // Release GPU used for segmentation (optional, or reuse it)
                     gpuManager.releaseGPU(fileId);
-                    resolve({ success: true, message: "Segmentation successful.", stdout: segStdout });
+
+                    try {
+                        // Define ISBNet paths (using Windows paths - will be converted to WSL in runISBNetInference)
+                        const inputLas = inputFileAbsolutePath;
+                        const outputLas = inputFileAbsolutePath;
+                        const configPath = path.join(projectRootDir, 'configs', 'config_forinstance.yaml');
+                        const checkpointPath = path.join(projectRootDir, 'configs', 'best.pth');
+
+                        // Run ISBNet (paths will be converted to WSL inside the function)
+                        const inferenceResult = await runISBNetInference(inputLas, outputLas, configPath, checkpointPath, projectRootDir);
+
+                        console.log(`[SegmentationService] (FileID ${fileId}): ISBNet inference completed.`);
+                        console.log(`[SegmentationService] (FileID ${fileId}): Output file: ${outputLas}`);
+
+                        // Update DB after ISBNet
+                        await pool.query("UPDATE uploaded_files SET status = 'isbnet_completed', processing_error = NULL WHERE id = $1", [fileId]);
+
+                        resolve({ success: true, message: "Segmentation + ISBNet inference completed.", stdout: segStdout + "\n" + inferenceResult.stdout });
+                    } catch (isberr) {
+                        console.error(`[SegmentationService] (FileID ${fileId}): ISBNet failed:`, isberr);
+                        await pool.query("UPDATE uploaded_files SET status = 'isbnet_failed', processing_error = $1 WHERE id = $2", [isberr.message, fileId]);
+                        reject(new Error(`[SegmentationService] ISBNet failed: ${isberr.message}`));
+                    }
+
                 }
             } else {
                 const errMsg = `[SegmentationService] Script failed. Code: ${code}. Stderr: ${segStderr.substring(0,200)}`;

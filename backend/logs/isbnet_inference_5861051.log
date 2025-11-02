@@ -1,0 +1,75 @@
+Loading Mamba module...
+-------------------------------------------------------------------------------
+There are messages associated with the following module(s):
+-------------------------------------------------------------------------------
+
+mamba:
+   - Mamba is a drop-in replacement for conda, offering higher speed and
+   more reliable environment solutions. - Do you really need conda/mamba??
+   Do you know about python virtual environments??? We HIGHLY recommend
+   using virtual envs instead. e.g. python -m venv my-environment - Remember
+   you can change where conda environemnts are created (if you run out of
+   space in your home directory) ``` $ conda config --env --prepend
+   envs_dirs /path/to/my/project/on/fred/.conda/envs $ conda config --env
+   --prepend pkgs_dirs /path/to/my/project/on/fred/.conda/pkgs ``` - To hide
+   this message in the future, load the module with -q ``` $ module -q load
+   conda ```
+
+-------------------------------------------------------------------------------
+
+Activating Conda environment...
+Starting end-to-end inference...
+2025-10-12 04:35:50,717 - INFO - Using device: cuda
+2025-10-12 04:35:50,720 - INFO - Created temporary directory: tmp/tmpc7rjm73s
+Stage 1: Preprocessing raw LAS file into temporary chunk files...
+Creating Temp Chunks:   0%|          | 0/4 [00:00<?, ?it/s]Creating Temp Chunks:  50%|█████     | 2/4 [00:00<00:00,  3.27it/s]Creating Temp Chunks:  75%|███████▌  | 3/4 [00:01<00:00,  2.50it/s]Creating Temp Chunks: 100%|██████████| 4/4 [00:01<00:00,  2.46it/s]Creating Temp Chunks: 100%|██████████| 4/4 [00:01<00:00,  2.11it/s]
+2025-10-12 04:35:52,900 - INFO - Load test dataset: 4 files loaded.
+2025-10-12 04:35:52,901 - INFO - Loading checkpoint from /fred/oz419/brenda/isbnet_inference_engine/configs/best.pth
+2025-10-12 04:35:53,671 - INFO - unexpected key in source state_dict: criterion.empty_weight
+2025-10-12 04:35:53,704 - INFO - 
+Stage 2: Running inference on 4 chunks...
+Created 4 temporary chunk files.
+Inferring:   0%|          | 0/4 [00:00<?, ?it/s]Inferring:   0%|          | 0/4 [00:00<?, ?it/s]
+
+[DEBUG] __getitem__ called for index: 0
+[DEBUG]   Attempting to load file for index: 0
+[DEBUG]   !!! FAILED: No valid instances for index 0. Restarting loop.
+Traceback (most recent call last):
+  File "/fred/oz419/brenda/isbnet_inference_engine/run_inference_local.py", line 200, in <module>
+    main()
+  File "/fred/oz419/brenda/isbnet_inference_engine/run_inference_local.py", line 178, in main
+    for batch in tqdm(dataloader, desc="Inferring"):
+  File "/fred/oz419/brenda/.conda/envs/isbnet_env/lib/python3.11/site-packages/tqdm/std.py", line 1181, in __iter__
+    for obj in iterable:
+  File "/fred/oz419/brenda/.conda/envs/isbnet_env/lib/python3.11/site-packages/torch/utils/data/dataloader.py", line 733, in __next__
+    data = self._next_data()
+           ^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/.conda/envs/isbnet_env/lib/python3.11/site-packages/torch/utils/data/dataloader.py", line 789, in _next_data
+    data = self._dataset_fetcher.fetch(index)  # may raise StopIteration
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/.conda/envs/isbnet_env/lib/python3.11/site-packages/torch/utils/data/_utils/fetch.py", line 52, in fetch
+    data = [self.dataset[idx] for idx in possibly_batched_index]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/.conda/envs/isbnet_env/lib/python3.11/site-packages/torch/utils/data/_utils/fetch.py", line 52, in <listcomp>
+    data = [self.dataset[idx] for idx in possibly_batched_index]
+            ~~~~~~~~~~~~^^^^^
+  File "/fred/oz419/brenda/isbnet_inference_engine/isbnet/data/forinstance.py", line 159, in __getitem__
+    time.sleep(0.5)
+    ^^^^^^^^^^
+AttributeError: 'builtin_function_or_method' object has no attribute 'sleep'
+Inference job finished.
+
++------------------ Job Report: 5861051 (COMPLETED) -------------------+
+| Memory (RAM)  [                    ]  0.0% (88 KB peak / 32 GB)      |
+| CPU           [                    ]  2.3% average                   |
+| GPU           [                    ]  0.0% average                   |
+| Time          [>                   ]  0.5% (0-00:00:33 / 0-02:00:00) |
+|                                                                      |
+| Lustre Filesystem:                                                   |
+|   Path    Total Read    Total Write    Total IOPS                    |
+|   ------  ------------  -------------  ------------                  |
+|   /apps   0 B           0 B            426                           |
+|   /fred   200.3 MB      1.1 KB         1.7 K                         |
+|   /home   4 KB          0 B            5                             |
+|   OS      0 B           0 B            3                             |
++----------------------------------------------------------------------+

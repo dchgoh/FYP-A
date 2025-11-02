@@ -1,0 +1,73 @@
+Loading Mamba module...
+-------------------------------------------------------------------------------
+There are messages associated with the following module(s):
+-------------------------------------------------------------------------------
+
+mamba:
+   - Mamba is a drop-in replacement for conda, offering higher speed and
+   more reliable environment solutions. - Do you really need conda/mamba??
+   Do you know about python virtual environments??? We HIGHLY recommend
+   using virtual envs instead. e.g. python -m venv my-environment - Remember
+   you can change where conda environemnts are created (if you run out of
+   space in your home directory) ``` $ conda config --env --prepend
+   envs_dirs /path/to/my/project/on/fred/.conda/envs $ conda config --env
+   --prepend pkgs_dirs /path/to/my/project/on/fred/.conda/pkgs ``` - To hide
+   this message in the future, load the module with -q ``` $ module -q load
+   conda ```
+
+-------------------------------------------------------------------------------
+
+Activating Conda environment...
+Starting end-to-end inference...
+2025-10-12 04:01:58,977 - INFO - Using device: cuda
+2025-10-12 04:01:58,978 - INFO - Read voxel_scale=8 from config, calculated voxel_size=0.1250
+2025-10-12 04:01:58,978 - INFO - Loading checkpoint from /fred/oz419/brenda/isbnet_inference_engine/configs/best.pth
+2025-10-12 04:01:59,923 - INFO - unexpected key in source state_dict: criterion.empty_weight
+Stage 1: Preprocessing raw LAS file into in-memory chunks...
+Creating Chunks:   0%|          | 0/4 [00:00<?, ?it/s]Creating Chunks:  50%|█████     | 2/4 [00:00<00:00, 14.88it/s]Creating Chunks: 100%|██████████| 4/4 [00:00<00:00, 11.11it/s]Creating Chunks: 100%|██████████| 4/4 [00:00<00:00,  9.21it/s]
+2025-10-12 04:02:00,681 - INFO - 
+Stage 2: Running inference on 4 chunks...
+Created 4 non-empty chunks to be processed.
+Inferring:   0%|          | 0/4 [00:00<?, ?it/s]/fred/oz419/brenda/isbnet_inference_engine/isbnet/ops/functions.py:188: UserWarning: The torch.cuda.*DtypeTensor constructors are no longer recommended. It's best to use methods such as torch.tensor(data, dtype=*, device='cuda') to create tensors. (Triggered internally at /pytorch/torch/csrc/tensor/python_tensor.cpp:78.)
+  output_feats = torch.cuda.FloatTensor(M, C).zero_()
+Inferring:   0%|          | 0/4 [00:04<?, ?it/s]
+Traceback (most recent call last):
+  File "/fred/oz419/brenda/isbnet_inference_engine/run_inference_local.py", line 214, in <module>
+    main()
+  File "/fred/oz419/brenda/isbnet_inference_engine/run_inference_local.py", line 201, in main
+    res = model(batch)
+          ^^^^^^^^^^^^
+  File "/fred/oz419/brenda/.conda/envs/isbnet_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1751, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/.conda/envs/isbnet_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1762, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/isbnet_inference_engine/isbnet/model/isbnet.py", line 229, in forward
+    return self.forward_test(**batch)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/isbnet_inference_engine/isbnet/util/utils.py", line 215, in wrapper
+    return func(*new_args, **new_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/isbnet_inference_engine/isbnet/model/isbnet.py", line 459, in forward_test
+    voxel_coords_float = voxelization(coords_float, p2v_map)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/.conda/envs/isbnet_env/lib/python3.11/site-packages/torch/autograd/function.py", line 575, in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/fred/oz419/brenda/isbnet_inference_engine/isbnet/ops/functions.py", line 192, in forward
+    ops.voxelize_fp(feats, output_feats, map_rule, mode, M, maxActive, C)
+RuntimeError: expected scalar type Int but found Long
+Inference job finished.
+
++------------------ Job Report: 5860552 (COMPLETED) -------------------+
+| Memory (RAM)  No data available                                      |
+| CPU           [                    ]  3.8% average                   |
+| Time          [>                   ]  0.5% (0-00:00:33 / 0-02:00:00) |
+|                                                                      |
+| Lustre Filesystem:                                                   |
+|   Path    Total Read    Total Write      Total IOPS                  |
+|   ------  ------------  -------------  ------------                  |
+|   /apps   0 B           0 B                      8                   |
+|   OS      0 B           0 B                      2                   |
++----------------------------------------------------------------------+
