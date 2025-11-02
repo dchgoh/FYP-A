@@ -299,7 +299,7 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
                     try {
                         // Define ISBNet paths (using Windows paths - will be converted to WSL in runISBNetInference)
                         const inputLas = inputFileAbsolutePath;
-                        const outputLas = inputLas.replace(".las", "_prediction.las");
+                        const outputLas = inputFileAbsolutePath;
                         const configPath = path.join(projectRootDir, 'configs', 'config_forinstance.yaml');
                         const checkpointPath = path.join(projectRootDir, 'configs', 'best.pth');
 

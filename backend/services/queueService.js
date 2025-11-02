@@ -3,7 +3,6 @@ const Queue = require('bull');
 const Redis = require('ioredis');
 const { pool } = require('../config/db');
 const lasProcessingService = require('./lasProcessingService');
-const segmentationService = require('./segmentationService');
 const enhancedSegmentationService = require('./segmentationService');
 const { setProgress, clearProgress } = require('./progressStore');
 const fs = require('fs');

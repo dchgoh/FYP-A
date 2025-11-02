@@ -24,11 +24,13 @@ from isbnet.data import build_dataset, build_dataloader
 # ==============================================================================
 # SCRIPT CONFIGURATION
 # ==============================================================================
-CHUNK_SIZE = (20.0, 20.0, 40.0)
+# === MODIFIED TO MATCH V4 TRAINING DATA ===
+CHUNK_SIZE = (40.0, 40.0, 40.0) # This now matches SAMPLE_WINDOW_SIZE in v4
+# ==========================================
 CHUNK_OVERLAP = 0.5
 # NEW: Threshold for merging instances. If two bounding boxes overlap more than this,
-# they are considered the same object. 0.25 is a reasonable starting value.
-STITCHING_IOU_THRESHOLD = 0.25
+# they are considered the same object. 0.15 is a reasonable starting value.
+STITCHING_IOU_THRESHOLD = 0.15
 # ==============================================================================
 
 def get_args():
@@ -40,7 +42,8 @@ def get_args():
     return parser.parse_args()
 
 def preprocess_las_to_temp_chunks(las_path, temp_dir):
-    # This function is correct and remains unchanged.
+    # This function is correct and remains unchanged. Its normalization logic
+    # (scene-shift then chunk-center) correctly matches the v4 script.
     print("Stage 1: Preprocessing raw LAS file into temporary chunk files...")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
@@ -52,7 +55,7 @@ def preprocess_las_to_temp_chunks(las_path, temp_dir):
         (las.blue.astype(np.float32) / 65535.0) * 2.0 - 1.0
     )).T.astype(np.float32)
     scene_min = xyz_raw.min(0)
-    xyz_shifted = xyz_raw - scene_min
+    xyz_shifted = xyz_raw - scene_min # <-- Stage 1 Normalization (Correct)
     scene_dims = xyz_shifted.max(0)
     chunk_step = np.array(CHUNK_SIZE) * (1 - CHUNK_OVERLAP)
     n_chunks_x = int(np.ceil((scene_dims[0] - CHUNK_SIZE[0]) / chunk_step[0])) + 1 if scene_dims[0] > CHUNK_SIZE[0] else 1
@@ -71,7 +74,7 @@ def preprocess_las_to_temp_chunks(las_path, temp_dir):
                 if len(chunk_point_indices) < 100: continue
                 chunk_xyz_shifted = xyz_shifted[chunk_point_indices]
                 chunk_mean = chunk_xyz_shifted.mean(0)
-                chunk_xyz_final = chunk_xyz_shifted - chunk_mean
+                chunk_xyz_final = chunk_xyz_shifted - chunk_mean # <-- Stage 2 Normalization (Correct)
                 dummy_sem = np.zeros(len(chunk_point_indices), dtype=np.int64)
                 dummy_inst = np.full(len(chunk_point_indices), -100, dtype=np.int64)
                 chunk_name = f"chunk_{i}_{j}_{k}"
@@ -165,12 +168,15 @@ def stitch_and_save_las(output_path, original_las, all_chunk_results, original_i
         final_instance_labels[instance["global_indices"]] = final_id
         
     # 5. Save the final LAS file
-    header = laspy.LasHeader(version="1.4", point_format=3)
-    header.add_extra_dim(laspy.ExtraBytesParams(name="pred_instance_id", type=np.int32))
-    out_las = laspy.LasData(header)
-    out_las.x = original_las.x; out_las.y = original_las.y; out_las.z = original_las.z
-    out_las.red = original_las.red; out_las.green = original_las.green; out_las.blue = original_las.blue
-    out_las.pred_instance_id = final_instance_labels
+    print("  - Creating output LAS file and replacing/adding TreeID...")
+    out_las = laspy.LasData(original_las.header)
+    out_las.points = original_las.points.copy()
+    if "treeID" not in out_las.header.point_format.dimension_names:
+        print("    - 'treeID' field not found. Adding it to the output file.")
+        out_las.add_extra_dim(laspy.ExtraBytesParams(name="treeID", type=np.int32))
+    else:
+        print("    - 'treeID' field found. Overwriting its values.")
+    out_las.treeID = final_instance_labels
     out_las.write(output_path)
 # --- END OF THE NEW, CORRECT STITCHING LOGIC ---
 
