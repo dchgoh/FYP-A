@@ -79,8 +79,8 @@ processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, asy
             // Verify segmentation success
             const segStatusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
             const status = segStatusCheck.rows.length > 0 ? segStatusCheck.rows[0].status : null;
-            if (!status || !['segmentation_completed', 'isbnet_completed', 'enhanced_segmentation_complete'].includes(status)) {
-                throw new Error(`Segmentation failed or incomplete. Status: ${status}`);
+            if (!status || (status !== 'enhanced_segmentation_complete' && status !== 'isbnet_completed')) {
+                throw new Error(`Enhanced segmentation failed. Status: ${status}`);
             }
 
             // Step 2: LAS Processing (now runs AFTER AI)
