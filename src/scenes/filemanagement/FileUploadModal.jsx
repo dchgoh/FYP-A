@@ -39,7 +39,6 @@ const FileUploadModal = ({
                 </Box>
                 {isUploading && uploadProgress !== null && ( <Box sx={styles.uploadProgressContainer}><LinearProgress variant="determinate" value={uploadProgress} /><Typography variant="caption" display="block" sx={{ textAlign: 'center', mt: 0.5 }}>{uploadProgress}%</Typography></Box> )}
                 <TextField label="Plot Name (Required)" value={plotName} onChange={(e) => setPlotName(e.target.value)} fullWidth variant="outlined" margin="dense" sx={styles.dialogTextField} />
-                <FormControlLabel control={<Switch checked={skipSegmentation} onChange={(e) => setSkipSegmentation(e.target.checked)} disabled={isUploading} />} label="Skip Tree Segmentation" sx={{ mt: 1, color: colors.grey[300] }} />
                 <FormControl fullWidth margin="dense" sx={styles.dialogSelectControl} disabled={isUploading}>
                     <InputLabel id="project-select-label-upload">Assign to Project (Required)</InputLabel>
                     <Select labelId="project-select-label-upload" value={selectedProjectId} onChange={(e) => { e.target.value === CREATE_NEW_PROJECT_VALUE ? handleOpenCreateProjectModal() : setSelectedProjectId(e.target.value); }} label="Assign to Project (Required)">
@@ -48,6 +47,7 @@ const FileUploadModal = ({
                         {userRole === ROLES.ADMIN && (<MenuItem value={CREATE_NEW_PROJECT_VALUE} sx={{ fontStyle: 'italic', color: colors.greenAccent[400] }}><ListItemIcon sx={{ minWidth: '32px', color: 'inherit' }}><AddCircleOutlineIcon fontSize="small" /></ListItemIcon><ListItemText>New Project...</ListItemText></MenuItem>)}
                     </Select>
                 </FormControl>
+                <FormControlLabel control={<Switch checked={skipSegmentation} onChange={(e) => setSkipSegmentation(e.target.checked)} disabled={isUploading} />} label="Skip Tree Segmentation" sx={{ mt: 1, color: colors.grey[300] }} />
             </DialogContent>
             <DialogActions sx={styles.dialogActions}>
                 {isUploading ? (<Button onClick={handleCancelUpload} variant="outlined" sx={{ color: colors.redAccent[400], borderColor: colors.redAccent[400], '&:hover': { color: colors.grey[100], borderColor: colors.redAccent[500], backgroundColor: colors.redAccent[500] } }}>Cancel Upload</Button>)

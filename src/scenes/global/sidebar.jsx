@@ -4,7 +4,7 @@ import { Box, IconButton, Typography, useTheme } from "@mui/material";
 import { Link, useLocation } from "react-router-dom";
 import "react-pro-sidebar/dist/css/styles.css";
 import { tokens } from "../../theme";
-import { routes } from "../../routesConfig"; // <-- IMPORT the new config
+import { routes } from "../../routesConfig";
 import MenuOutlinedIcon from "@mui/icons-material/MenuOutlined";
 
 const Item = ({ title, to, icon, selected, setSelected }) => {
@@ -30,9 +30,8 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
     
     const [selected, setSelected] = useState("Dashboard");
     const [username, setUsername] = useState("User");
-    const [userRole, setUserRole] = useState("Role"); // For display only, e.g., "Administrator"
+    const [userRole, setUserRole] = useState("Role");
 
-    // Find the current page's title from the config based on the URL
     useEffect(() => {
         const currentRoute = routes.find(route => route.to === location.pathname);
         if (currentRoute) {
@@ -40,14 +39,12 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
         }
     }, [location.pathname]);
 
-    // Get user details from localStorage on mount
     useEffect(() => {
         const storedUsername = localStorage.getItem("username");
-        const storedUserRole = localStorage.getItem("userRole"); // e.g., "administrator"
+        const storedUserRole = localStorage.getItem("userRole");
 
         if (storedUsername) setUsername(storedUsername);
         if (storedUserRole) {
-            // Capitalize for display
             setUserRole(storedUserRole.charAt(0).toUpperCase() + storedUserRole.slice(1));
         }
     }, []);
@@ -62,7 +59,17 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
                 left: 0,
                 height: "100%",
                 zIndex: 1000,
-                "& .pro-sidebar-inner": { background: `${colors.grey[900]} !important` },
+                "& .pro-sidebar": { height: "100%" },
+                "& .pro-sidebar-inner": {
+                    background: `${colors.grey[900]} !important`,
+                    // --- CHANGE #1: Ensure the inner container is also a flex column to push content to the bottom ---
+                    display: "flex",
+                    flexDirection: "column",
+                },
+                "& .pro-menu": {
+                    // --- CHANGE #2: Let the menu grow to fill available space ---
+                    flexGrow: 1,
+                },
                 "& .pro-icon-wrapper": { backgroundColor: "transparent !important" },
                 "& .pro-inner-item": { padding: "5px 35px 5px 20px !important" },
                 "& .pro-inner-item:hover": { color: `${colors.primary[200]} !important` },
@@ -70,6 +77,7 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
             }}
         >
             <ProSidebar collapsed={isCollapsed}>
+                {/* The Menu component now correctly fills the space due to the styles above */}
                 <Menu iconShape="square">
                     <MenuItem onClick={() => setIsCollapsed(!isCollapsed)} icon={isCollapsed ? <MenuOutlinedIcon /> : undefined} style={{ margin: "10px 0 20px 0", color: colors.grey[100] }}>
                         {!isCollapsed && (
@@ -80,27 +88,8 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
                         )}
                     </MenuItem>
 
-                    {!isCollapsed && (
-                        <Box mb="25px">
-                            <Box display="flex" justifyContent="center" alignItems="center">
-                                <img
-                                    alt="profile-user"
-                                    width="100px"
-                                    height="100px"
-                                    src={`/assets/user.png`} // <-- Use absolute path from public folder
-                                    style={{ cursor: "pointer", borderRadius: "50%", border: `2px solid ${colors.primary[700]}` }}
-                                />
-                            </Box>
-                            <Box textAlign="center">
-                                <Typography variant="h2" color={colors.grey[100]} fontWeight="bold" sx={{ m: "10px 0 0 0" }}>{username}</Typography>
-                                <Typography variant="h5" color={colors.grey[200]}>{userRole}</Typography>
-                            </Box>
-                        </Box>
-                    )}
-
                     <Box paddingLeft={isCollapsed ? undefined : "7%"} paddingRight={isCollapsed ? undefined : "10%"}>
                         {routes.map((route) => {
-                            // Logic to decide if the item should be rendered
                             if (route.omitFromSidebar) return null;
                             if (route.roles && !route.roles.includes(userRoleLower)) return null;
 
@@ -117,6 +106,18 @@ const Sidebar = ({ isCollapsed, setIsCollapsed }) => {
                         })}
                     </Box>
                 </Menu>
+
+                {!isCollapsed && (
+                    // --- CHANGE #3: This Box is now outside the Menu component and will be pushed to the bottom ---
+                    <Box sx={{ padding: '20px', textAlign: 'center', borderTop: `1px solid ${colors.grey[700]}` }}>
+                        <Typography variant="h4" color={colors.grey[100]} fontWeight="bold">
+                            {username}
+                        </Typography>
+                        <Typography variant="body2" color={colors.grey[300]}>
+                            {userRole}
+                        </Typography>
+                    </Box>
+                )}
             </ProSidebar>
         </Box>
     );

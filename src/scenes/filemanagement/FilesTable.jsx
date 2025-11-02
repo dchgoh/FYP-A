@@ -28,7 +28,7 @@ const FilesTable = ({
         tableContainer: { marginTop: selectedFileIds.size > 0 ? 1 : 2, backgroundColor: colors.grey[900], borderRadius: 2, maxHeight: `calc(100vh - ${selectedFileIds.size > 0 ? '340px' : '280px'})`, overflow: 'auto', position: 'relative', "&::-webkit-scrollbar": { width: "8px", height: "8px" }, "&::-webkit-scrollbar-track": { background: colors.grey?.[700] }, "&::-webkit-scrollbar-thumb": { backgroundColor: colors.grey?.[500], borderRadius: "10px" } },
         table: { minWidth: { xs: 600, md: 750, lg: 900 }, width: '100%' },
         tableHead: { backgroundColor: colors.primary[700], position: 'sticky', top: 0, zIndex: 1 },
-        headCell: { color: colors.grey?.[100], fontWeight: "bold", whiteSpace: 'nowrap', borderBottom: `1px solid ${colors.grey[700]}`, p: { xs: '12px 6px', sm: '16px 8px' }, fontSize: { xs: '0.75rem', sm: '0.875rem' } },
+        headCell: { color: colors.grey?.[100], fontWeight: 600, whiteSpace: 'nowrap', borderBottom: `1px solid ${colors.grey[700]}`, p: { xs: '12px 6px', sm: '16px 8px' }, fontSize: { xs: '0.75rem', sm: '0.875rem' } },
         bodyCell: { color: colors.grey?.[100], overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderBottom: `1px solid ${colors.grey[800]}`, p: { xs: '6px 6px', sm: '8px 8px' }, fontSize: { xs: '0.75rem', sm: '0.875rem' }, maxWidth: 150 },
         actionButton: { color: colors.grey?.[300], padding: { xs: '2px', sm: '4px' }, '&:hover': { color: colors.blueAccent?.[400], backgroundColor: 'rgba(0, 123, 255, 0.1)' }, '&.Mui-disabled': { color: colors.grey?.[600] } },
         statusText: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', fontSize: { xs: '0.7rem', sm: '0.8rem' } },
