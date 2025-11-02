@@ -7,7 +7,7 @@ const segmentationService = require('../services/segmentationService');
 const { getProgress, clearProgress } = require('../services/progressStore');
 const lasProcessingService = require('../services/lasProcessingService');
 const { encryptFileTo, decryptToStream } = require('../utils/fileCrypto');
-const { addFileProcessingJob, getQueueStatus, stopFileProcessing, startFileProcessing } = require('../services/queueService');
+const { addFileProcessingJob, getQueueStatus, stopFileProcessing: stopFileProcessingService, startFileProcessing: startFileProcessingService } = require('../services/queueService');
 const systemMonitor = require('../services/systemMonitor');
 
 
@@ -1493,7 +1493,7 @@ exports.stopFileProcessing = async (req, res) => {
     }
     
     try {
-        const result = await stopFileProcessing(fileId);
+        const result = await stopFileProcessingService(fileId);
         res.json({
             success: true,
             message: result.message
@@ -1519,10 +1519,12 @@ exports.startFileProcessing = async (req, res) => {
     }
     
     try {
-        const result = await startFileProcessing(fileId);
+        const result = await startFileProcessingService(fileId);
         res.json({
             success: true,
-            message: result.message
+            message: result.message,
+            status: result.status || 'pending',
+            jobId: result.jobId
         });
     } catch (error) {
         console.error(`Error starting processing for file ${fileId}:`, error);
