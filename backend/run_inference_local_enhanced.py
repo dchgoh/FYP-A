@@ -78,12 +78,16 @@ def process_semantic_segmentation(points, colors, classifier, device, args):
             
             # Combine points and colors
             batch_features = np.concatenate([batch_points, batch_colors], axis=1)
-            batch_features = torch.FloatTensor(batch_features).to(device)
-            
-            # Get predictions
-            batch_predictions = classifier(batch_features.unsqueeze(0))
-            pred_val = batch_predictions.max(dim=1)[1]
-            predictions[start_idx:end_idx] = pred_val.cpu().numpy()
+            batch_features = torch.as_tensor(batch_features, dtype=torch.float32, device=device)
+
+            # PointNet expects [B, C, N]; we have [N, C] → [1, N, C] → [1, C, N]
+            inputs = batch_features.unsqueeze(0).permute(0, 2, 1)
+
+            # Get predictions (model returns (log_probs, trans_feat))
+            log_probs, _ = classifier(inputs)
+            # log_probs shape: [1, N, num_classes]
+            pred_labels = torch.argmax(log_probs, dim=2).squeeze(0)
+            predictions[start_idx:end_idx] = pred_labels.cpu().numpy()
     
     return predictions
 

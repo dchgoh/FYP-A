@@ -66,6 +66,29 @@ processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, asy
         activeJobs.set(job.id, { fileId, startTime: Date.now() });
         resourceUsage.activeProcesses++;
 
+        // Step 1: LAS Processing
+        console.log(`[Queue] Job ${job.id}: Starting LAS processing for file ${fileId}`);
+        
+        // Check if file was stopped before starting LAS processing
+        const preLasStatusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
+        if (preLasStatusCheck.rows.length === 0 || ['failed', 'stopped'].includes(preLasStatusCheck.rows[0].status)) {
+            console.log(`[Queue] Job ${job.id}: File ${fileId} was stopped by user, aborting LAS processing (expected)`);
+            return { success: false, message: 'File processing was stopped by user', aborted: true };
+        }
+        
+        await updateJobStatus(fileId, 'processing_las_data', 'Processing LAS data');
+        await lasProcessingService.processLasData(fileId, filePath);
+        
+        // Verify LAS processing success and check if file was stopped during processing
+        const statusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
+        if (statusCheck.rows.length === 0 || ['failed', 'stopped'].includes(statusCheck.rows[0].status)) {
+            console.log(`[Queue] Job ${job.id}: File ${fileId} was stopped during LAS processing (expected)`);
+            return { success: false, message: 'File processing was stopped by user', aborted: true };
+        }
+        if (statusCheck.rows[0].status !== 'processed_ready_for_potree') {
+            throw new Error('LAS processing failed');
+        }
+
         if (skipSegmentation) {
             console.log(`[Queue] Job ${job.id}: Skipping segmentation for file ${fileId}`);
             await updateJobStatus(fileId, 'ready', 'Processing complete - ready for viewer');

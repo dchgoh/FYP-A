@@ -1304,9 +1304,24 @@ export const useFileManagement = () => {
 
     // --- EXPORT FUNCTIONALITY ---
     const handleExportToExcel = useCallback(async (selectedFileIds = null) => {
-        const filesToExport = selectedFileIds ? 
-            files.filter(file => selectedFileIds.has(file.id) && file.status === 'ready') :
+        // Convert selectedFileIds to an array if it's a Set
+        const selectedIdsArray = selectedFileIds instanceof Set ? Array.from(selectedFileIds) : selectedFileIds;
+        
+        console.log('DEBUG: selectedFileIds:', selectedFileIds);
+        console.log('DEBUG: selectedIdsArray:', selectedIdsArray);
+        console.log('DEBUG: All files count:', files.length);
+        console.log('DEBUG: All file IDs and types:', files.map(f => ({ id: f.id, type: typeof f.id })));
+        
+        const filesToExport = selectedIdsArray && selectedIdsArray.length > 0 ? 
+            files.filter(file => {
+                const isSelected = selectedIdsArray.includes(file.id);
+                console.log(`DEBUG: File ${file.id} (type: ${typeof file.id}) - isSelected: ${isSelected}`);
+                return isSelected && file.status === 'ready';
+            }) :
             files.filter(file => file.status === 'ready');
+        
+        console.log('DEBUG: filesToExport count:', filesToExport.length);
+        console.log('DEBUG: filesToExport IDs:', filesToExport.map(f => f.id));
 
         if (filesToExport.length === 0) {
             showSnackbar("No ready files to export.", "warning");
@@ -1325,6 +1340,9 @@ export const useFileManagement = () => {
             // Fetch detailed tree data from the API for selected files
             const fileIds = filesToExport.map(file => file.id);
             const params = { fileIds: fileIds.join(',') };
+            
+            console.log('DEBUG: Sending to backend - fileIds:', fileIds);
+            console.log('DEBUG: Sending to backend - params:', params);
 
             const response = await axios.get(`${API_BASE_URL}/files/export/tree-data`, {
                 headers: { 'Authorization': `Bearer ${token}` },
@@ -1336,9 +1354,19 @@ export const useFileManagement = () => {
                 return;
             }
 
-            const treeData = response.data.data;
+            let treeData = response.data.data;
             const totalTrees = response.data.total_trees;
             const totalFiles = response.data.total_files;
+
+            // IMPORTANT: Filter treeData to only include trees from selected files
+            // The backend might return data for all files, so we filter it here
+            const selectedFileIdsArray = filesToExport.map(f => f.id);
+            const originalTreeDataCount = treeData.length;
+            treeData = treeData.filter(tree => selectedFileIdsArray.includes(tree.file_id));
+            
+            console.log('DEBUG: Backend returned', originalTreeDataCount, 'trees');
+            console.log('DEBUG: After filtering by selected files:', treeData.length, 'trees');
+            console.log('DEBUG: Tree file_ids in response:', [...new Set(treeData.map(t => t.file_id))]);
 
             if (treeData.length === 0) {
                 showSnackbar("No tree measurements found in the selected files.", "warning");

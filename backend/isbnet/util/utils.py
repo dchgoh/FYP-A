@@ -156,11 +156,17 @@ def load_checkpoint(checkpoint, logger, model, optimizer=None, strict=False, map
     # This works for both CPU and GPU.
     state_dict = torch.load(checkpoint, map_location=map_location)
     
-    # The key for model weights might be 'net' or 'state_dict'
-    if "net" in state_dict:
-        src_state_dict = state_dict["net"]
+    # The key for model weights might be 'net', 'state_dict', or the dict itself
+    if isinstance(state_dict, dict) and all(isinstance(k, str) for k in state_dict.keys()):
+        if "net" in state_dict:
+            src_state_dict = state_dict["net"]
+        elif "state_dict" in state_dict:
+            src_state_dict = state_dict["state_dict"]
+        else:
+            # Assume this is directly a state_dict mapping param names to tensors
+            src_state_dict = state_dict
     else:
-        src_state_dict = state_dict["state_dict"]
+        src_state_dict = state_dict
 
     target_state_dict = model.state_dict()
     skip_keys = []
