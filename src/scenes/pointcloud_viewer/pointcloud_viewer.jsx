@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Box, Button, Typography, Paper, Alert, CircularProgress, useTheme, FormControlLabel, Checkbox, FormControl, InputLabel, Select, MenuItem, IconButton, Slider, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Menu, ListItemIcon, ListItemText} from '@mui/material';
+import { Box, Button, Typography, Paper, Alert, CircularProgress, useTheme, FormControlLabel, Checkbox, FormControl, InputLabel, Select, MenuItem, IconButton, Slider, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Menu, ListItemIcon, ListItemText, Divider} from '@mui/material';
 import { tokens } from '../../theme';
 import { Map, Close, Gesture, HistoryEdu, DeleteSweep, Edit, Save, Delete, Merge } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
@@ -1355,13 +1355,47 @@ end_header
                      <Box sx={{display: 'flex', alignItems: 'center', mb:1}}>
                        <Typography sx={{...styles.annotationTitle, flex: 1, borderBottom: 'none', textAlign: 'center'}}>Point Cloud</Typography>
                      </Box>
-                    
-                    <Box 
+                    <Box sx={{ maxHeight: 320, overflowY: 'auto' }}>
+                      <Box 
                         sx={{...styles.annotationItem, ...(selectedParts.length === 0 ? styles.activeAnnotationItem : {})}}
                         onClick={() => setSelectedParts([])}
                       >
-                      <Typography sx={styles.annotationName}>Full Point Cloud</Typography>
-                    </Box>
+                        <Typography sx={styles.annotationName}>Full Point Cloud</Typography>
+                      </Box>
+                    {parts.length > 0 && (() => {
+                      const allVisible = parts.every(p => p.visible);
+                      const noneVisible = parts.every(p => !p.visible);
+                      return (
+                        <Box
+                          sx={styles.annotationItem}
+                          onClick={() => {
+                            const target = !allVisible;
+                            setParts(prev => prev.map(part => ({ ...part, visible: target })));
+                          }}
+                          title="Toggle visibility of all parts"
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                            <Typography sx={styles.annotationName}>
+                              Show all parts
+                            </Typography>
+                            <Checkbox 
+                              checked={allVisible}
+                              indeterminate={!allVisible && !noneVisible}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                const checked = e.target.checked;
+                                setParts(prev => prev.map(part => ({ ...part, visible: checked })));
+                              }}
+                              sx={{ p: 0.5 }}
+                              size="small"
+                            />
+                          </Box>
+                        </Box>
+                      );
+                    })()}
+                    {parts.length > 0 && (
+                      <Divider sx={{ my: 1 }} />
+                    )}
                     
                     {parts.map(part => {
                       const isSelected = selectedParts.includes(part.id);
@@ -1410,6 +1444,7 @@ end_header
                       </Box>
                       );
                     })}
+                    </Box>
                   </Box>
                 )}
 
