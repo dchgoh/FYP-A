@@ -577,7 +577,7 @@ exports.assignProjectToFile = async (req, res) => {
         const updatedFileResult = await pool.query(
             `SELECT
                 f.id, f.original_name, f.size_bytes, f.upload_date, f.stored_path,
-                f.potree_metadata_path, f.project_id, f.plot_name, f.latitude, f.longitude,
+                f.project_id, f.plot_name, f.latitude, f.longitude,
                 p.name AS project_name,
                 p.division_id,        -- Get division_id from the project
                 d.name AS division_name -- Get division_name via the project's division_id
@@ -716,7 +716,7 @@ exports.reassignFileDetails = async (req, res) => {
          const updatedFileResult = await poolClient.query( // Use the same client
             `SELECT
                 f.id, f.original_name, f.size_bytes, f.upload_date, f.stored_path,
-                f.potree_metadata_path, f.project_id, f.plot_name, f.latitude, f.longitude,
+                f.project_id, f.plot_name, f.latitude, f.longitude,
                 p.name AS project_name,
                 p.division_id,
                 d.name AS division_name
