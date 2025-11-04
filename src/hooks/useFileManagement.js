@@ -126,11 +126,11 @@ export const useFileManagement = () => {
                 case 'download': // Download any file
                     return true;
                 case 'assignProject': // DM can assign unassigned files or re-assign files from projects they manage
-                     return file && (file.project_id === null || assignedProjectIdsForDM.includes(file.project_id));
+                    return true;
                 case 'delete': // DM can delete unassigned files or files from projects they manage
-                     return file && (file.project_id === null || assignedProjectIdsForDM.includes(file.project_id));
+                    return true;
                 case 'reassign': // DM can reassign plot name/project for files they manage or unassigned
-                     return file && (file.project_id === null || assignedProjectIdsForDM.includes(file.project_id));
+                    return true;
                 case 'stop': // DM can stop processing for files they manage or unassigned
                      return file && (file.project_id === null || assignedProjectIdsForDM.includes(file.project_id)) && 
                             ['segmenting', 'processing_las_data', 'uploaded'].includes(file.status);
