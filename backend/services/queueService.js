@@ -105,6 +105,25 @@ processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, asy
             if (!(await shouldJobContinue(job, fileId))) {
                 throw new Error('Job was cancelled');
             }
+
+            // Step 2: LAS Processing (now runs AFTER AI)
+            console.log(`[Queue] Job ${job.id}: Starting LAS processing after segmentation for file ${fileId}`);
+            await updateJobStatus(fileId, 'processing_las_data', 'Processing LAS data after AI segmentation');
+            await lasProcessingService.processLasData(fileId, filePath);
+
+            // Check again after LAS processing
+            if (!(await shouldJobContinue(job, fileId))) {
+                throw new Error('Job was cancelled after LAS processing');
+            }
+
+            // Verify LAS processing success
+            const statusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
+            if (statusCheck.rows.length === 0 || statusCheck.rows[0].status !== 'processed_ready_for_potree') {
+                if (statusCheck.rows[0]?.status === 'stopped') {
+                    throw new Error('Processing was stopped by user');
+                }
+                throw new Error('LAS processing failed after AI segmentation');
+            }
             
             console.log(`[Queue] Job ${job.id}: Skipping segmentation for file ${fileId}`);
             await updateJobStatus(fileId, 'ready', 'Processing complete - ready for viewer');
