@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Box, Button, Typography, Paper, Alert, CircularProgress, useTheme, FormControlLabel, Checkbox, FormControl, InputLabel, Select, MenuItem, IconButton, Slider, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Menu, ListItemIcon, ListItemText, Divider} from '@mui/material';
 import { tokens } from '../../theme';
 import { Map, Close, Gesture, HistoryEdu, DeleteSweep, Edit, Save, Delete, Merge } from '@mui/icons-material';
@@ -10,7 +10,7 @@ import { createSceneManager } from './scene_manager';
 import { createBoundingBox, updateBoundingBoxVisibility, disposeBoundingBox } from './pointcloud_boundingbox';
 import { createStyles, getResponsiveMarginLeft } from './pointcloud_viewer.styles';
 import { createInitialClassifications, toggleClassification } from './classificationUtils';
-import { createInitialTreeIDs, toggleTreeID } from './treeIDUtils';
+import { createInitialTreeIDs, toggleTreeID, generateTreeIDColor } from './treeIDUtils';
 import { parseLASFile } from './lasParser';
 import {
   createPointCloudGeometry,
@@ -397,7 +397,7 @@ end_header
     headerView.setUint8(104, pointFormat);
     
     // Point Data Record Length (38 bytes for format 3 with one extra byte)
-    const pointDataRecordLength = useExtraBytes ? 38 : 34; // Format 3 base (34) + extra bytes (4 for one float32)
+    const pointDataRecordLength = useExtraBytes ? 38 : 34; // Format 3 base (34) + extra bytes (4 for one int32)
     headerView.setUint16(105, pointDataRecordLength, true);
     
     // Number of point records
@@ -485,8 +485,8 @@ end_header
       vlrView.setUint16(offset, 0, true);
       offset += 2;
       
-      // Data type (1 byte) - 9 = float
-      vlrView.setUint8(offset, 9);
+      // Data type (1 byte) - 6 = int32 (signed 32-bit integer)
+      vlrView.setUint8(offset, 6);
       offset += 1;
       
       // Options (1 byte)
@@ -609,10 +609,14 @@ end_header
            pointDataView.setUint16(offset + 30, green, true);
            pointDataView.setUint16(offset + 32, blue, true);
            
-           // Store treeID in extra bytes as Float32 (starting at offset 34)
+           // Store treeID in extra bytes as Int32 (starting at offset 34)
            if (useExtraBytes && hasTreeID && treeIDAttribute) {
              const treeIDValue = treeIDAttribute[i] || 0;
-             pointDataView.setFloat32(offset + 34, treeIDValue, true);
+             // Convert to int32 format
+             const int32Value = Math.round(treeIDValue);
+             // Clamp to int32 range
+             const clampedValue = Math.max(-2147483648, Math.min(2147483647, int32Value));
+             pointDataView.setInt32(offset + 34, clampedValue, true);
            }
          } catch (error) {
            console.error(`LAS Conversion Error at point ${i}:`, {
@@ -663,6 +667,117 @@ end_header
 
 
 
+  // Helper function to apply filter mode colors to combined geometry
+  const applyFilterModeColorsToGeometry = (geometry) => {
+    if (!geometry || !geometry.attributes.position) return geometry;
+    
+    const positions = geometry.attributes.position.array;
+    const pointCount = positions.length / 3;
+    
+    // Get treeID data from geometry
+    const treeIDAttribute = geometry.attributes.treeID;
+    const originalClassificationAttribute = geometry.attributes.originalClassification;
+    const classificationColorAttribute = geometry.attributes.classificationColor;
+    
+    // Create new color arrays
+    const newColors = [];
+    const newCustomColors = [];
+    
+    // If we have parts, the geometry already has the correct colors from the parts
+    // We should preserve those colors, not recalculate based on visibility state
+    if (parts.length > 0 && geometry.attributes.color && geometry.attributes.color.array.length > 0) {
+      // Use existing colors from parts (they already have the correct colors)
+      const existingColors = geometry.attributes.color.array;
+      const existingCustomColors = geometry.attributes.customColor?.array || existingColors;
+      for (let i = 0; i < existingColors.length; i++) {
+        newColors.push(existingColors[i]);
+      }
+      for (let i = 0; i < existingCustomColors.length; i++) {
+        newCustomColors.push(existingCustomColors[i]);
+      }
+    } else if (filterMode === 'treeID' && treeIDAttribute) {
+      // Apply treeID colors using existing treeIDs state (to maintain consistent colors)
+      const treeIDArray = treeIDAttribute.array;
+      
+      for (let i = 0; i < pointCount; i++) {
+        const treeIDValue = treeIDArray[i] || 0;
+        const treeIDKey = String(treeIDValue);
+        let treeInfo = treeIDs[treeIDKey];
+        
+        // If treeID not found in state, generate color using the treeID value directly
+        if (!treeInfo) {
+          // Generate color for this treeID value (consistent based on treeID value)
+          const color = generateTreeIDColor(treeIDValue);
+          treeInfo = {
+            id: treeIDValue,
+            visible: true,
+            color: color
+          };
+        }
+        
+        // When parts exist, all treeIDs in the geometry are already visible (filtered by parts)
+        // So we don't need to check visibility here - just use the color
+        if (treeInfo && treeInfo.color) {
+          newColors.push(treeInfo.color[0], treeInfo.color[1], treeInfo.color[2]);
+          newCustomColors.push(treeInfo.color[0], treeInfo.color[1], treeInfo.color[2]);
+        } else {
+          // Fallback color (gray for missing treeIDs)
+          newColors.push(0.5, 0.5, 0.5);
+          newCustomColors.push(0.5, 0.5, 0.5);
+        }
+      }
+    } else if (filterMode === 'classification') {
+      // Apply classification colors - use originalClassification first, then classificationColor
+      let classificationArray = null;
+      if (originalClassificationAttribute) {
+        classificationArray = originalClassificationAttribute.array;
+      } else if (classificationColorAttribute) {
+        classificationArray = classificationColorAttribute.array;
+      }
+      
+      if (classificationArray) {
+        for (let i = 0; i < classificationArray.length; i += 3) {
+          const r = classificationArray[i];
+          const g = classificationArray[i + 1];
+          const b = classificationArray[i + 2];
+          newColors.push(r, g, b);
+          newCustomColors.push(r, g, b);
+        }
+      } else {
+        // Fallback to existing colors if no classification data
+        const existingColors = geometry.attributes.color?.array || [];
+        for (let i = 0; i < existingColors.length; i++) {
+          newColors.push(existingColors[i]);
+        }
+        for (let i = 0; i < existingColors.length; i++) {
+          newCustomColors.push(existingColors[i]);
+        }
+      }
+    } else {
+      // Use existing colors if no filter mode data available
+      const existingColors = geometry.attributes.color?.array || [];
+      const existingCustomColors = geometry.attributes.customColor?.array || [];
+      for (let i = 0; i < existingColors.length; i++) {
+        newColors.push(existingColors[i]);
+      }
+      for (let i = 0; i < existingCustomColors.length; i++) {
+        newCustomColors.push(existingCustomColors[i]);
+      }
+    }
+    
+    // Update geometry colors
+    if (newColors.length > 0) {
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(newColors, 3));
+      geometry.attributes.color.needsUpdate = true;
+    }
+    if (newCustomColors.length > 0) {
+      geometry.setAttribute('customColor', new THREE.Float32BufferAttribute(newCustomColors, 3));
+      geometry.attributes.customColor.needsUpdate = true;
+    }
+    
+    return geometry;
+  };
+
   // --- ADD THIS NEW EFFECT ---  // Visually updates the point cloud based on visibility
   useEffect(() => {
    if (!pointCloud || !originalGeometry) return;
@@ -676,7 +791,9 @@ end_header
    // If we have parts, combine visible ones
    const combinedGeometry = combineVisiblePartsInstance();
    if (combinedGeometry) {
-     updatePointCloudGeometry(pointCloud, combinedGeometry);
+     // Apply filter mode colors to the combined geometry
+     const coloredGeometry = applyFilterModeColorsToGeometry(combinedGeometry);
+     updatePointCloudGeometry(pointCloud, coloredGeometry);
    } else {
      // No visible parts, show empty
      const emptyGeometry = new THREE.BufferGeometry();
@@ -686,7 +803,7 @@ end_header
      emptyGeometry.setAttribute('size', new THREE.Float32BufferAttribute([], 1));
      updatePointCloudGeometry(pointCloud, emptyGeometry);
    }
-  }, [parts, pointCloud, originalGeometry, updatePointCloudColors]);
+  }, [parts, pointCloud, originalGeometry, updatePointCloudColors, filterMode, treeIDs, treeIDData]);
 
    useEffect(() => {
     const canvasContainerElement = canvasRef.current?.parentElement;
@@ -859,8 +976,8 @@ end_header
           file.longitude !== null && typeof file.longitude === 'number'
         ).map(f => ({
             ...f,
-            projectName: f.project_name || (f.project_id ? `Project ID ${f.project_id}` : 'Unassigned'),
-            divisionName: f.division_name || (f.division_id ? `Division ID ${f.division_id}` : 'N/A'),
+            projectName: f.projectName || (f.project_id ? `${f.project_name}` : 'Unassigned'),
+            divisionName: f.divisionName || (f.division_id ? `${f.division_name}` : 'N/A'),
        }));
         setMiniMapFiles(filesWithValidCoords);
       } catch (err) {
@@ -1248,6 +1365,11 @@ end_header
     const newCustomColors = [];
     const newSizes = [];
     const newTreeIDs = []; // Store treeID data for each point
+    const newClassificationColors = []; // Preserve classification colors
+    const newOriginalClassifications = []; // Preserve original classification
+    
+    // Get original classification data from originalGeometry
+    const originalClassification = originalGeometry.attributes.originalClassification?.array;
     
     const [targetR, targetG, targetB] = classification.color;
     
@@ -1262,6 +1384,17 @@ end_header
         newColors.push(classificationColors[i], classificationColors[i+1], classificationColors[i+2]);
         newCustomColors.push(customColors[i], customColors[i+1], customColors[i+2]);
         newSizes.push(sizes[pointIndex]);
+        
+        // Preserve classification colors
+        newClassificationColors.push(classificationColors[i], classificationColors[i+1], classificationColors[i+2]);
+        
+        // Preserve original classification if available
+        if (originalClassification && i < originalClassification.length) {
+          newOriginalClassifications.push(originalClassification[i], originalClassification[i+1], originalClassification[i+2]);
+        } else {
+          // If no originalClassification, use classification colors as original
+          newOriginalClassifications.push(classificationColors[i], classificationColors[i+1], classificationColors[i+2]);
+        }
         
         // Preserve treeID data if available
         if (treeIDData && treeIDData[pointIndex] !== undefined) {
@@ -1280,6 +1413,16 @@ end_header
     finalGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(newCustomColors, 3));
     finalGeometry.setAttribute('size', new THREE.Float32BufferAttribute(newSizes, 1));
     
+    // Store classificationColor attribute to preserve classification colors
+    if (newClassificationColors.length > 0) {
+      finalGeometry.setAttribute('classificationColor', new THREE.Float32BufferAttribute(newClassificationColors, 3));
+    }
+    
+    // Store originalClassification attribute to preserve original classification data
+    if (newOriginalClassifications.length > 0) {
+      finalGeometry.setAttribute('originalClassification', new THREE.Float32BufferAttribute(newOriginalClassifications, 3));
+    }
+    
     // Store treeID data as a custom attribute
     if (newTreeIDs.length > 0) {
       finalGeometry.setAttribute('treeID', new THREE.Float32BufferAttribute(newTreeIDs, 1));
@@ -1297,19 +1440,129 @@ end_header
     setParts([]);
     setSelectedParts([]);
     setActivePartId(null);
+    
+    // Reset filter mode to classification to show full point cloud
+    setFilterMode('classification');
+    
+    // Reset all treeIDs to visible so they show when switching back to treeID mode
+    if (treeIDs && Object.keys(treeIDs).length > 0) {
+      const resetTreeIDs = {};
+      Object.keys(treeIDs).forEach(id => {
+        if (treeIDs[id]) {
+          resetTreeIDs[id] = {
+            ...treeIDs[id],
+            visible: true
+          };
+        }
+      });
+      setTreeIDs(resetTreeIDs);
+    }
+  };
+
+  // Handler for treeID selection from minimap
+  const handleTreeIDSelectFromMiniMap = (treeIDValue) => {
+    if (!treeIDData || !originalGeometry) return;
+    
+    // Switch to treeID filter mode
+    setFilterMode('treeID');
+    
+    // Check if parts exist and are split by treeID
+    const partsAreTreeIDSplit = parts.length > 0 && parts.every(part => part.type === 'treeID');
+    const treeIDString = String(treeIDValue);
+    
+    if (partsAreTreeIDSplit) {
+      // Parts already split by treeID - check if clicking the same treeID or different one
+      const clickedPart = parts.find(part => part.treeIDId === treeIDString);
+      const currentVisible = clickedPart ? clickedPart.visible : false;
+      
+      // Toggle treeID visibility
+      const newTreeIDs = toggleTreeID(treeIDs, treeIDValue);
+      setTreeIDs(newTreeIDs);
+      
+      // Toggle visibility of the clicked treeID part (keep others as they are)
+      setParts(prevParts => 
+        prevParts.map(part => 
+          part.treeIDId === treeIDString 
+            ? { ...part, visible: !currentVisible }
+            : part // Keep other parts as they are
+        )
+      );
+    } else {
+      // Need to split by treeID first - show only the clicked treeID
+      const newParts = [];
+      const hasNegativeOne = Object.keys(treeIDs).some(key => parseInt(key) === -1);
+      
+      // Sort entries: Unclassified first, then regular treeIDs
+      const sortedEntries = Object.entries(treeIDs).sort(([idA, treeIDA], [idB, treeIDB]) => {
+        const numA = parseInt(idA);
+        const numB = parseInt(idB);
+        const aIsUnclassified = hasNegativeOne ? (numA === -1) : (numA === 0);
+        const bIsUnclassified = hasNegativeOne ? (numB === -1) : (numB === 0);
+        if (aIsUnclassified && !bIsUnclassified) return -1;
+        if (!aIsUnclassified && bIsUnclassified) return 1;
+        return numA - numB;
+      });
+      
+      sortedEntries.forEach(([id, treeID]) => {
+        const filteredGeometry = filterPointCloudBySingleTreeID(originalGeometry, id, treeID, treeIDData);
+        if (filteredGeometry && filteredGeometry.attributes && filteredGeometry.attributes.position && filteredGeometry.attributes.position.count > 0) {
+          // First time: hide all first, then show only the clicked treeID
+          const isClickedTreeID = id === treeIDString;
+          newParts.push({
+            id: Date.now() + Math.random() + parseFloat(id),
+            name: treeID.name,
+            geometry: filteredGeometry,
+            visible: isClickedTreeID, // Show only clicked one, hide all others
+            type: 'treeID',
+            treeIDId: id
+          });
+        }
+      });
+      
+      if (newParts.length > 0) {
+        setParts(newParts);
+        setSelectedParts([]);
+        
+        // Update treeID visibility state: clicked treeID visible, others hidden
+        const newTreeIDs = { ...treeIDs };
+        sortedEntries.forEach(([id, treeID]) => {
+          const isClickedTreeID = id === treeIDString;
+          if (newTreeIDs[id]) {
+            newTreeIDs[id] = {
+              ...newTreeIDs[id],
+              visible: isClickedTreeID // Show clicked, hide all others
+            };
+          }
+        });
+        setTreeIDs(newTreeIDs);
+      }
+    }
   };
 
 
   // Create annotation function instances with state setters
   const handleAnnotationTypeChangeInstance = handleAnnotationTypeChange(setSelectedAnnotationType, setSelectedAnnotationValue);
   const handleAnnotationValueSelectInstance = handleAnnotationValueSelect(setSelectedAnnotationValue);
-  const annotateAllVisiblePointsInstance = annotateAllVisiblePoints(setIsAnnotating, setAnnotationDialogOpen, selectedAnnotationValue, selectedAnnotationType, classifications, treeIDs, pointCloud, parts, selectedParts, originalGeometry, combineVisiblePartsInstance);
+  const annotateAllVisiblePointsInstance = annotateAllVisiblePoints(setIsAnnotating, setAnnotationDialogOpen, selectedAnnotationValue, selectedAnnotationType, classifications, treeIDs, pointCloud, parts, selectedParts, originalGeometry, combineVisiblePartsInstance, setTreeIDs, setTreeIDData, treeIDData, setParts);
   const handleAnnotationDialogCloseInstance = handleAnnotationDialogClose(setAnnotationDialogOpen, setSelectedAnnotationValue);
 
 
   useEffect(() => {
     updatePointCloudColors();
   }, [filterMode, classifications, treeIDs]);
+
+  // Create a map of visible treeIDs from parts for the minimap
+  const visibleTreeIDs = useMemo(() => {
+    const visibleMap = {};
+    if (parts.length > 0 && parts.every(part => part.type === 'treeID')) {
+      parts.forEach(part => {
+        if (part.treeIDId) {
+          visibleMap[part.treeIDId] = part.visible;
+        }
+      });
+    }
+    return visibleMap;
+  }, [parts]);
 
   return (
     <Box 
@@ -1601,7 +1854,7 @@ end_header
                 {isLoadingMiniMapFiles && <CircularProgress/>}
                 {errorMiniMapFiles && <Typography color="error">{errorMiniMapFiles}</Typography>}
                 {!isLoadingMiniMapFiles && !errorMiniMapFiles && miniMapFiles.length > 0 && (
-                    <MiniMap files={miniMapFiles} currentFileId={fileId ? parseInt(fileId) : null} colors={colors}/>
+                    <MiniMap files={miniMapFiles} currentFileId={fileId ? parseInt(fileId) : null} colors={colors} onTreeIDSelect={handleTreeIDSelectFromMiniMap} visibleTreeIDs={visibleTreeIDs}/>
                 )}
                 {!isLoadingMiniMapFiles && !errorMiniMapFiles && miniMapFiles.length === 0 && <Typography>No geolocated files found.</Typography>}
             </Box>
@@ -1673,30 +1926,28 @@ end_header
                </FormControl>
              )}
              
-             {selectedAnnotationType === 'treeID' && (
-               <FormControl fullWidth sx={{ mb: 2 }}>
-                 <InputLabel>Tree ID</InputLabel>
-                 <Select 
-                   value={selectedAnnotationValue || ''} 
-                   label="Tree ID" 
-                   onChange={(e) => handleAnnotationValueSelectInstance(e.target.value)}
-                 >
-                   {Object.entries(treeIDs).map(([id, treeID]) => (
-                     <MenuItem key={id} value={id}>
-                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                         <Box sx={{
-                           width: 16, 
-                           height: 16, 
-                           backgroundColor: `rgb(${treeID.color.map(c=>c*255).join(',')})`,
-                           borderRadius: '2px'
-                         }} />
-                         {treeID.name}
-                       </Box>
-                     </MenuItem>
-                   ))}
-                 </Select>
-               </FormControl>
-             )}
+            {selectedAnnotationType === 'treeID' && (
+              <TextField
+                fullWidth
+                label="Tree ID"
+                type="number"
+                value={selectedAnnotationValue || ''}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  // Only allow integers (including negative numbers like -1)
+                  if (value === '' || /^-?\d+$/.test(value)) {
+                    handleAnnotationValueSelectInstance(value);
+                  }
+                }}
+                inputProps={{
+                  step: 1,
+                  min: -2147483648,
+                  max: 2147483647
+                }}
+                helperText="Enter an integer value (int32 format)"
+                sx={{ mb: 2 }}
+              />
+            )}
              
            </Box>
          </DialogContent>
@@ -1704,14 +1955,19 @@ end_header
            <Button onClick={handleAnnotationDialogCloseInstance}>
              Cancel
            </Button>
-           <Button 
-             onClick={annotateAllVisiblePointsInstance}
-             variant="contained"
-             disabled={!selectedAnnotationValue || isAnnotating || (parts.length > 0 && selectedParts.length === 0)}
-             startIcon={<Save />}
-           >
-             {isAnnotating ? 'Applying...' : 'Apply Annotation'}
-           </Button>
+          <Button 
+            onClick={annotateAllVisiblePointsInstance}
+            variant="contained"
+            disabled={
+              !selectedAnnotationValue || 
+              isAnnotating || 
+              (parts.length > 0 && selectedParts.length === 0) ||
+              (selectedAnnotationType === 'treeID' && (selectedAnnotationValue === '' || isNaN(parseInt(selectedAnnotationValue, 10)) || parseInt(selectedAnnotationValue, 10) < -2147483648 || parseInt(selectedAnnotationValue, 10) > 2147483647))
+            }
+            startIcon={<Save />}
+          >
+            {isAnnotating ? 'Applying...' : 'Apply Annotation'}
+          </Button>
          </DialogActions>
        </Dialog>
 

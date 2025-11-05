@@ -28,6 +28,7 @@ export const combineVisibleParts = (parts, originalGeometry) => {
   const allSizes = [];
   const allTreeIDs = [];
   const allOriginalClassifications = [];
+  const allClassificationColors = [];
   
   visibleParts.forEach(part => {
     const positions = part.geometry.attributes.position.array;
@@ -38,6 +39,7 @@ export const combineVisibleParts = (parts, originalGeometry) => {
     // Handle treeID attribute if it exists
     const treeIDs = part.geometry.attributes.treeID?.array || [];
     const originalClassifications = part.geometry.attributes.originalClassification?.array || [];
+    const classificationColors = part.geometry.attributes.classificationColor?.array || [];
     
     for (let i = 0; i < positions.length; i += 3) {
       allPositions.push(positions[i], positions[i+1], positions[i+2]);
@@ -54,6 +56,22 @@ export const combineVisibleParts = (parts, originalGeometry) => {
         allOriginalClassifications.push(
           originalClassifications[i], 
           originalClassifications[i+1], 
+          originalClassifications[i+2]
+        );
+      }
+      
+      // Preserve classificationColor data
+      if (classificationColors.length > 0) {
+        allClassificationColors.push(
+          classificationColors[i],
+          classificationColors[i+1],
+          classificationColors[i+2]
+        );
+      } else if (originalClassifications.length > 0) {
+        // If no classificationColor but have originalClassification, use that
+        allClassificationColors.push(
+          originalClassifications[i],
+          originalClassifications[i+1],
           originalClassifications[i+2]
         );
       }
@@ -79,6 +97,11 @@ export const combineVisibleParts = (parts, originalGeometry) => {
   // Preserve original classification attribute if any classification data exists
   if (allOriginalClassifications.length > 0) {
     combinedGeometry.setAttribute('originalClassification', new THREE.Float32BufferAttribute(allOriginalClassifications, 3));
+  }
+  
+  // Preserve classificationColor attribute if any classification color data exists
+  if (allClassificationColors.length > 0) {
+    combinedGeometry.setAttribute('classificationColor', new THREE.Float32BufferAttribute(allClassificationColors, 3));
   }
   
   return combinedGeometry;

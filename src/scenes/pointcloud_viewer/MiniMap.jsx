@@ -31,10 +31,25 @@ const midpointPathOptions = {
   className: 'mini-map-midpoint-circle'
 };
 
+const midpointVisiblePathOptions = {
+  fillColor: "#00ff00", // Green for visible trees
+  color: "#000",
+  weight: 2,
+  opacity: 1,
+  fillOpacity: 0.9,
+  className: 'mini-map-midpoint-circle'
+};
+
 const midpointHoverPathOptions = {
   fillColor: "#ff9933",
   weight: 2,
   fillOpacity: 0.9,
+};
+
+const midpointVisibleHoverPathOptions = {
+  fillColor: "#33ff33", // Brighter green on hover
+  weight: 3,
+  fillOpacity: 1.0,
 };
 
 // Add new constants for plot rectangle styling
@@ -149,7 +164,7 @@ const calculateCircleParams = (points) => {
   };
 };
 
-const MiniMapContent = ({ files, currentFileId, initialCenter, initialZoom, colors }) => {
+const MiniMapContent = ({ files, currentFileId, initialCenter, initialZoom, colors, onTreeIDSelect, visibleTreeIDs }) => {
   const map = useMap();
   const markerRefs = useRef({});
   const [currentZoom, setCurrentZoom] = useState(initialZoom);
@@ -251,24 +266,25 @@ const MiniMapContent = ({ files, currentFileId, initialCenter, initialZoom, colo
     fontSize: '11px',
   };
 
-  // Group midpoints by plot
+  // Group midpoints by plot - only include trees from current file
   const plotGroups = useMemo(() => {
     const groups = {};
     
     files.forEach(file => {
-      if (file.tree_midpoints) {
+      // Only process the current file for area circles and tree display
+      if (file.id === currentFileId && file.tree_midpoints) {
         const plotKey = file.plot_name || 'unassigned';
         if (!groups[plotKey]) {
           groups[plotKey] = {
             name: plotKey,
             points: [],
             files: [],
-            projectName: file.project_name || 'Unassigned',
-            divisionName: file.division_name || 'N/A'
+            projectName: file.projectName || 'Unassigned',
+            divisionName: file.divisionName || 'N/A'
           };
         }
         
-        // Add midpoints to the plot group
+        // Add midpoints to the plot group (only from current file)
         Object.values(file.tree_midpoints).forEach(midpoint => {
           if (midpoint && typeof midpoint.latitude === 'number' && typeof midpoint.longitude === 'number') {
             groups[plotKey].points.push(midpoint);
@@ -286,7 +302,7 @@ const MiniMapContent = ({ files, currentFileId, initialCenter, initialZoom, colo
     });
     
     return groups;
-  }, [files]);
+  }, [files, currentFileId]);
 
   // Add CSS styles for popups and tooltips
   useEffect(() => {
@@ -338,8 +354,12 @@ const MiniMapContent = ({ files, currentFileId, initialCenter, initialZoom, colo
         maxNativeZoom={OSM_MAX_NATIVE_ZOOM}
       />
       
-      {/* Replace Rectangle components with Circle */}
+      {/* Replace Rectangle components with Circle - only show for current file */}
       {Object.entries(plotGroups).map(([plotKey, plotData]) => {
+        // Only show area circle if this plot contains the current file
+        const hasCurrentFile = plotData.files.some(f => f.id === currentFileId);
+        if (!hasCurrentFile) return null;
+        
         const circleParams = calculateCircleParams(plotData.points);
         if (!circleParams) return null;
 
@@ -434,10 +454,10 @@ const MiniMapContent = ({ files, currentFileId, initialCenter, initialZoom, colo
                   Plot: {file.plot_name || 'N/A'}
                 </Typography>
                 <Typography variant="caption" display="block" sx={{fontSize: '0.7rem'}}>
-                  Division: {file.division_name || 'N/A'}
+                  Division: {file.divisionName || 'N/A'}
                 </Typography>
                 <Typography variant="caption" display="block" sx={{fontSize: '0.7rem'}}>
-                  Project: {file.project_name || 'Unassigned'}
+                  Project: {file.projectName || 'Unassigned'}
                 </Typography>
 
                 {isCurrent ? (
@@ -475,14 +495,25 @@ const MiniMapContent = ({ files, currentFileId, initialCenter, initialZoom, colo
         );
       })}
 
-      {/* Tree midpoints - only show when zoomed in */}
+      {/* Tree midpoints - only show when zoomed in and only for current file */}
       {currentZoom >= ZOOM_THRESHOLD && files.map(file => {
-        if (!file.tree_midpoints) return null;
+        // Only show tree midpoints for the current file
+        if (file.id !== currentFileId || !file.tree_midpoints) return null;
 
         return (
           <FeatureGroup key={`midpoints-group-${file.id}`}>
             {Object.entries(file.tree_midpoints).map(([treeId, midpointData]) => {
               if (midpointData && typeof midpointData.latitude === 'number' && typeof midpointData.longitude === 'number') {
+                // Check if this treeID is visible
+                const treeIDValue = parseInt(treeId, 10);
+                const isVisible = visibleTreeIDs && visibleTreeIDs[String(treeIDValue)] !== undefined 
+                  ? visibleTreeIDs[String(treeIDValue)] 
+                  : false;
+                
+                // Use different path options based on visibility
+                const currentPathOptions = isVisible ? midpointVisiblePathOptions : midpointPathOptions;
+                const currentHoverPathOptions = isVisible ? midpointVisibleHoverPathOptions : midpointHoverPathOptions;
+                
                 const metricsToDisplay = [];
                 if (midpointData.dbh_cm !== undefined) {
                   metricsToDisplay.push({ label: 'DBH:', value: formatNumber(midpointData.dbh_cm, 1, 'cm') });
@@ -514,19 +545,35 @@ const MiniMapContent = ({ files, currentFileId, initialCenter, initialZoom, colo
                     key={`midpoint-${file.id}-${treeId}`}
                     center={[midpointData.latitude, midpointData.longitude]}
                     radius={midpointInitialRadius}
-                    pathOptions={midpointPathOptions}
+                    pathOptions={currentPathOptions}
                     eventHandlers={{
                       mouseover: (event) => {
                         const layer = event.target;
-                        layer.setStyle(midpointHoverPathOptions);
+                        layer.setStyle(currentHoverPathOptions);
                         layer.setRadius(midpointHoverRadius);
                         layer.bringToFront();
                       },
                       mouseout: (event) => {
                         const layer = event.target;
-                        const { className, ...restInitialOptions } = midpointPathOptions;
+                        const { className, ...restInitialOptions } = currentPathOptions;
                         layer.setStyle(restInitialOptions);
                         layer.setRadius(midpointInitialRadius);
+                      },
+                      click: (event) => {
+                        // Prevent event propagation to map to avoid zooming
+                        event.originalEvent.stopPropagation();
+                        // Toggle treeID visibility, switch to treeID filter mode, and filter/split
+                        if (onTreeIDSelect) {
+                          const treeIDValue = parseInt(treeId, 10);
+                          if (!isNaN(treeIDValue)) {
+                            onTreeIDSelect(treeIDValue);
+                          }
+                        }
+                      },
+                      dblclick: (event) => {
+                        // Prevent double-click zoom on tree markers
+                        event.originalEvent.stopPropagation();
+                        event.originalEvent.preventDefault();
                       },
                     }}
                   >
@@ -584,7 +631,7 @@ const MiniMapContent = ({ files, currentFileId, initialCenter, initialZoom, colo
   );
 };
 
-const MiniMap = ({ files = [], currentFileId, mapHeight = '250px', mapWidth = '300px', colors }) => {
+const MiniMap = ({ files = [], currentFileId, mapHeight = '250px', mapWidth = '300px', colors, onTreeIDSelect, visibleTreeIDs }) => {
   const defaultInitialCenter = [1.55, 110.35]; // Sarawak, Malaysia approx.
   const defaultInitialZoom = 18; // Increased from 16 to 18 for even more zoomed in default view
 
@@ -621,6 +668,7 @@ const MiniMap = ({ files = [], currentFileId, mapHeight = '250px', mapWidth = '3
       zoom={effectiveInitialZoom}
       style={{ height: mapHeight, width: mapWidth, borderRadius: 'inherit' }}
       scrollWheelZoom={true}
+      doubleClickZoom={false}
       attributionControl={false}
       zoomControl={false}
     >
@@ -630,6 +678,8 @@ const MiniMap = ({ files = [], currentFileId, mapHeight = '250px', mapWidth = '3
         initialCenter={effectiveInitialCenter}
         initialZoom={effectiveInitialZoom}
         colors={colors}
+        onTreeIDSelect={onTreeIDSelect}
+        visibleTreeIDs={visibleTreeIDs}
       />
     </MapContainer>
   );

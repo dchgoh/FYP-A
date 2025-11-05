@@ -22,7 +22,7 @@ export const createInitialTreeIDs = (treeIDs) => {
   
   const treeIDMap = {};
   
-  uniqueTreeIDs.forEach((originalTreeID, index) => {
+  uniqueTreeIDs.forEach((originalTreeID) => {
     // Determine display name based on whether -1 exists
     let displayName;
     if (hasNegativeOne) {
@@ -37,7 +37,7 @@ export const createInitialTreeIDs = (treeIDs) => {
       id: originalTreeID,
       name: displayName,
       visible: true,
-      color: generateTreeIDColor(index),
+      color: generateTreeIDColor(originalTreeID),
       pointCount: treeIDs.filter(id => id === originalTreeID).length
     };
   });
@@ -67,8 +67,9 @@ export const findTreeIDByID = (treeID, treeIDs) => {
   return { id: treeID, isVisible: treeIDs[treeIDKey].visible };
 };
 
-const generateTreeIDColor = (index) => {
-  // Generate distinct colors for tree IDs (different from classification colors)
+export const generateTreeIDColor = (treeIDValue) => {
+  // Generate distinct colors for tree IDs based on the treeID value itself
+  // This ensures each treeID always gets the same color regardless of order or visibility
   // Using warmer, more vibrant colors to distinguish from classification
   const colors = [
     [1.0, 0.2, 0.2], // Bright Red
@@ -93,5 +94,8 @@ const generateTreeIDColor = (index) => {
     [0.8, 0.0, 0.6], // Magenta
   ];
   
-  return colors[index % colors.length];
+  // Use a hash function based on treeID value to get consistent color
+  // Handle negative values (like -1 for unclassified) by using absolute value
+  const hash = Math.abs(treeIDValue);
+  return colors[hash % colors.length];
 };

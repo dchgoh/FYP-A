@@ -119,25 +119,35 @@ export const filterPointCloudByClassifications = (originalGeometry, classificati
   if (!originalGeometry) return null;
   
   const positions = originalGeometry.attributes.position.array;
-  const colors = originalGeometry.attributes.color.array;
-  const customColors = originalGeometry.attributes.customColor.array;
   const sizes = originalGeometry.attributes.size.array;
+  
+  // Use classificationColor or originalClassification to get the actual classification colors
+  // Don't use the display color attribute which might have treeID colors
+  const classificationColors = originalGeometry.attributes.classificationColor?.array;
+  const originalClassification = originalGeometry.attributes.originalClassification?.array;
+  const classificationColorSource = originalClassification || classificationColors || originalGeometry.attributes.color.array;
   
   const newPositions = [];
   const newColors = [];
   const newCustomColors = [];
   const newSizes = [];
+  const newOriginalClassifications = [];
+  const newClassificationColors = [];
+  const indices = []; // Track which original indices were included
   
   for (let i = 0; i < positions.length; i += 3) {
-    const r = colors[i], g = colors[i+1], b = colors[i+2];
+    // Use classification color source to determine classification
+    const r = classificationColorSource[i], g = classificationColorSource[i+1], b = classificationColorSource[i+2];
     const { isVisible } = findClassificationByColor(r, g, b, classifications);
     
     if (isVisible) {
       const pointIndex = i / 3;
       newPositions.push(positions[i], positions[i+1], positions[i+2]);
-      newColors.push(colors[i], colors[i+1], colors[i+2]);
-      newCustomColors.push(customColors[i], customColors[i+1], customColors[i+2]);
+      // Use classification colors for output, not display colors
+      newColors.push(r, g, b);
+      newCustomColors.push(r, g, b);
       newSizes.push(sizes[pointIndex]);
+      indices.push(i); // Store the original index
     }
   }
   
@@ -148,6 +158,38 @@ export const filterPointCloudByClassifications = (originalGeometry, classificati
   finalGeometry.setAttribute('color', new THREE.Float32BufferAttribute(newColors, 3));
   finalGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(newCustomColors, 3));
   finalGeometry.setAttribute('size', new THREE.Float32BufferAttribute(newSizes, 1));
+  
+  // Preserve original classification data using stored indices
+  if (originalClassification) {
+    for (const originalIndex of indices) {
+      if (originalIndex < originalClassification.length) {
+        newOriginalClassifications.push(
+          originalClassification[originalIndex],
+          originalClassification[originalIndex + 1],
+          originalClassification[originalIndex + 2]
+        );
+      }
+    }
+    if (newOriginalClassifications.length > 0) {
+      finalGeometry.setAttribute('originalClassification', new THREE.Float32BufferAttribute(newOriginalClassifications, 3));
+    }
+  }
+  
+  // Preserve classificationColor attribute if it exists
+  if (classificationColors) {
+    for (const originalIndex of indices) {
+      if (originalIndex < classificationColors.length) {
+        newClassificationColors.push(
+          classificationColors[originalIndex],
+          classificationColors[originalIndex + 1],
+          classificationColors[originalIndex + 2]
+        );
+      }
+    }
+    if (newClassificationColors.length > 0) {
+      finalGeometry.setAttribute('classificationColor', new THREE.Float32BufferAttribute(newClassificationColors, 3));
+    }
+  }
   
   return finalGeometry;
 };
