@@ -683,19 +683,9 @@ end_header
     const newColors = [];
     const newCustomColors = [];
     
-    // If we have parts, the geometry already has the correct colors from the parts
-    // We should preserve those colors, not recalculate based on visibility state
-    if (parts.length > 0 && geometry.attributes.color && geometry.attributes.color.array.length > 0) {
-      // Use existing colors from parts (they already have the correct colors)
-      const existingColors = geometry.attributes.color.array;
-      const existingCustomColors = geometry.attributes.customColor?.array || existingColors;
-      for (let i = 0; i < existingColors.length; i++) {
-        newColors.push(existingColors[i]);
-      }
-      for (let i = 0; i < existingCustomColors.length; i++) {
-        newCustomColors.push(existingCustomColors[i]);
-      }
-    } else if (filterMode === 'treeID' && treeIDAttribute) {
+    // Always apply filter mode colors to respect the current filter mode
+    // This ensures that when parts are created (e.g., via lasso tool), they show the correct colors
+    if (filterMode === 'treeID' && treeIDAttribute) {
       // Apply treeID colors using existing treeIDs state (to maintain consistent colors)
       const treeIDArray = treeIDAttribute.array;
       
@@ -727,12 +717,14 @@ end_header
         }
       }
     } else if (filterMode === 'classification') {
-      // Apply classification colors - use originalClassification first, then classificationColor
+      // Apply classification colors - use classificationColor first (current), then originalClassification (original) as fallback
       let classificationArray = null;
-      if (originalClassificationAttribute) {
-        classificationArray = originalClassificationAttribute.array;
-      } else if (classificationColorAttribute) {
+      if (classificationColorAttribute) {
+        // Use classificationColor for current classification colors (after annotation)
         classificationArray = classificationColorAttribute.array;
+      } else if (originalClassificationAttribute) {
+        // Fallback to originalClassification if classificationColor doesn't exist
+        classificationArray = originalClassificationAttribute.array;
       }
       
       if (classificationArray) {

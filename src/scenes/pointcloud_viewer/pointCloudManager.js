@@ -121,11 +121,12 @@ export const filterPointCloudByClassifications = (originalGeometry, classificati
   const positions = originalGeometry.attributes.position.array;
   const sizes = originalGeometry.attributes.size.array;
   
-  // Use classificationColor or originalClassification to get the actual classification colors
+  // Use classificationColor (current) or originalClassification (old) to get the actual classification colors
   // Don't use the display color attribute which might have treeID colors
+  // Use classificationColor first (current classification after annotation), then originalClassification (original) as fallback
   const classificationColors = originalGeometry.attributes.classificationColor?.array;
   const originalClassification = originalGeometry.attributes.originalClassification?.array;
-  const classificationColorSource = originalClassification || classificationColors || originalGeometry.attributes.color.array;
+  const classificationColorSource = classificationColors || originalClassification || originalGeometry.attributes.color.array;
   
   const newPositions = [];
   const newColors = [];
@@ -281,6 +282,7 @@ export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasR
   // Get treeID data if available (use passed parameter or try geometry attribute)
   const treeIDs = treeIDData || originalGeometry.attributes.treeID?.array || null;
   const originalClassifications = originalGeometry.attributes.originalClassification?.array || null;
+  const classificationColors = originalGeometry.attributes.classificationColor?.array || null;
   
   // Create arrays for ALL new attributes
   const newPositions = [];
@@ -289,6 +291,7 @@ export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasR
   const newSizes = [];
   const newTreeIDs = [];
   const newOriginalClassifications = [];
+  const newClassificationColors = [];
   
   const point = new THREE.Vector3();
   const worldMatrix = pointCloud.matrixWorld;
@@ -323,6 +326,15 @@ export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasR
             originalClassifications[i+2]
           );
         }
+        
+        // Copy classificationColor data if available (current classification colors after annotation)
+        if (classificationColors) {
+          newClassificationColors.push(
+            classificationColors[i],
+            classificationColors[i+1],
+            classificationColors[i+2]
+          );
+        }
       }
     }
   }
@@ -343,6 +355,11 @@ export const filterPointCloudByLasso = (pointCloud, lassoPoints, camera, canvasR
   // Store original classification data as a custom attribute if available
   if (newOriginalClassifications.length > 0) {
     finalGeometry.setAttribute('originalClassification', new THREE.Float32BufferAttribute(newOriginalClassifications, 3));
+  }
+  
+  // Store classificationColor attribute if available (current classification colors after annotation)
+  if (newClassificationColors.length > 0) {
+    finalGeometry.setAttribute('classificationColor', new THREE.Float32BufferAttribute(newClassificationColors, 3));
   }
   
   return finalGeometry;

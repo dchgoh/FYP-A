@@ -120,6 +120,10 @@ export const annotateAllVisiblePoints = (setIsAnnotating, setAnnotationDialogOpe
       let originalClassificationArray = null;
       if (originalClassification) {
         originalClassificationArray = originalClassification;
+      } else if (classificationColors && selectedAnnotationType === 'classification') {
+        // When annotating classification, preserve current classificationColor as originalClassification BEFORE updating
+        originalClassificationArray = new Float32Array(classificationColors.length);
+        originalClassificationArray.set(classificationColors);
       } else if (classificationColors) {
         // If originalClassification doesn't exist but classificationColor does, preserve it
         originalClassificationArray = new Float32Array(classificationColors.length);
@@ -137,9 +141,9 @@ export const annotateAllVisiblePoints = (setIsAnnotating, setAnnotationDialogOpe
         customColors[i + 2] = annotationColor[2];
         
         // Preserve original classification colors - don't overwrite with treeID color
-        // classificationColor should keep the original classification colors
+        // classificationColor should keep the current classification colors
         if (selectedAnnotationType === 'classification') {
-          // When annotating classification, update classificationColor
+          // When annotating classification, update classificationColor with new annotation color
           if (classificationColors) {
             classificationColors[i] = annotationColor[0];
             classificationColors[i + 1] = annotationColor[1];
@@ -154,11 +158,18 @@ export const annotateAllVisiblePoints = (setIsAnnotating, setAnnotationDialogOpe
       // Create or update originalClassification attribute to preserve classification data
       if (originalClassificationArray) {
         targetGeometry.setAttribute('originalClassification', new THREE.Float32BufferAttribute(originalClassificationArray, 3));
-      } else if (classificationColors && selectedAnnotationType === 'classification') {
-        // If we annotated classification, save current classificationColor as originalClassification
-        const newOriginalClassification = new Float32Array(classificationColors.length);
-        newOriginalClassification.set(classificationColors);
-        targetGeometry.setAttribute('originalClassification', new THREE.Float32BufferAttribute(newOriginalClassification, 3));
+      }
+      
+      // Create classificationColor attribute if it doesn't exist (for classification annotation)
+      if (selectedAnnotationType === 'classification' && !targetGeometry.attributes.classificationColor) {
+        const pointCount = colors.length / 3;
+        const newClassificationColors = new Float32Array(pointCount * 3);
+        for (let i = 0; i < colors.length; i += 3) {
+          newClassificationColors[i] = annotationColor[0];
+          newClassificationColors[i + 1] = annotationColor[1];
+          newClassificationColors[i + 2] = annotationColor[2];
+        }
+        targetGeometry.setAttribute('classificationColor', new THREE.Float32BufferAttribute(newClassificationColors, 3));
       }
       
       // Ensure classificationColor is preserved when annotating with treeID

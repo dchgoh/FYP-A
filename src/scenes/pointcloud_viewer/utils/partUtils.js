@@ -116,6 +116,7 @@ export const createRemainingGeometry = (sourceGeometry, selectedGeometry, extern
   // Get additional attributes if they exist, or use external data
   const sourceTreeIDs = sourceGeometry.attributes.treeID?.array || externalTreeIDData || [];
   const sourceOriginalClassifications = sourceGeometry.attributes.originalClassification?.array || [];
+  const sourceClassificationColors = sourceGeometry.attributes.classificationColor?.array || [];
   
   const selectedPositions = selectedGeometry.attributes.position.array;
   
@@ -133,6 +134,7 @@ export const createRemainingGeometry = (sourceGeometry, selectedGeometry, extern
   const remainingSizes = [];
   const remainingTreeIDs = [];
   const remainingOriginalClassifications = [];
+  const remainingClassificationColors = [];
   
   for (let i = 0; i < sourcePositions.length; i += 3) {
     const key = `${sourcePositions[i].toFixed(3)},${sourcePositions[i+1].toFixed(3)},${sourcePositions[i+2].toFixed(3)}`;
@@ -158,6 +160,15 @@ export const createRemainingGeometry = (sourceGeometry, selectedGeometry, extern
           sourceOriginalClassifications[i+2]
         );
       }
+      
+      // Preserve classificationColor data if it exists (current classification colors after annotation)
+      if (sourceClassificationColors.length > 0) {
+        remainingClassificationColors.push(
+          sourceClassificationColors[i],
+          sourceClassificationColors[i+1],
+          sourceClassificationColors[i+2]
+        );
+      }
     }
   }
 
@@ -178,6 +189,12 @@ export const createRemainingGeometry = (sourceGeometry, selectedGeometry, extern
   if (remainingOriginalClassifications.length > 0) {
     remainingGeometry.setAttribute('originalClassification', new THREE.Float32BufferAttribute(remainingOriginalClassifications, 3));
   }
+  
+  // Preserve classificationColor attribute if any classification color data exists (current classification colors after annotation)
+  if (remainingClassificationColors.length > 0) {
+    remainingGeometry.setAttribute('classificationColor', new THREE.Float32BufferAttribute(remainingClassificationColors, 3));
+  }
+  
   return remainingGeometry;
 };
 
