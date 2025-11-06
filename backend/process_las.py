@@ -5,16 +5,7 @@ import sys
 import json
 import os
 import traceback
-import torch
-import importlib
 from scipy.optimize import least_squares
-from pathlib import Path
-import yaml
-from munch import Munch
-
-# Add the models directory to Python path
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.join(BASE_DIR, 'models'))
 
 # --- Configuration ---
 # SOURCE_EPSG_COORD_TRANSFORM is now detected automatically
@@ -27,17 +18,6 @@ DBH_HEIGHT_ABOVE_GROUND = 1.3
 DBH_VERTICAL_SLICE_THICKNESS = 0.20
 DBH_MIN_POINTS_FOR_FIT = 5
 ASSUMED_SMALL_END_DIAMETER_D2_CM = 0.0
-
-# --- Segmentation Configuration ---
-SEMANTIC_MODEL_NAME = "pointnet_sem_seg"  # Change this based on your model
-SEMANTIC_CHECKPOINT = os.path.join(BASE_DIR, "checkpoints", "pointnet_sem_seg.pth")
-INSTANCE_CONFIG = os.path.join(BASE_DIR, "configs", "config_forinstance.yaml")
-INSTANCE_CHECKPOINT = os.path.join(BASE_DIR, "checkpoints", "pointnet2_msg_best_model.pth")
-NUM_CLASSES = 7
-CHUNK_SIZE = (20.0, 20.0, 40.0)
-CHUNK_OVERLAP = 0.5
-STITCHING_IOU_THRESHOLD = 0.25
-
 
 # --- Helper Functions ---
 def log_stderr(module_name, msg):
@@ -88,13 +68,12 @@ def detect_effective_epsg(las):
     log_stderr("CRS_Detect", "Could not confidently determine CRS. Defaulting to EPSG:29874 (RSO Sarawak).")
     return 29874
 
-def extract_tree_ids_from_extra_bytes(las_file_obj, id_field_name, ignore_values, min_id_value):
+def extract_tree_ids_from_extra_bytes(las_file_obj):
     """Extract tree IDs directly from extra bytes data"""
     try:
         if hasattr(las_file_obj, 'points') and hasattr(las_file_obj.points, 'ExtraBytes'):
             extra_bytes_data = las_file_obj.points.ExtraBytes
             if extra_bytes_data.size > 0:
-                # Convert uint8 array to float32 values (first 4 bytes = treeID)
                 tree_ids_raw = extra_bytes_data[:, 0:4].view(np.float32).flatten()
                 return tree_ids_raw
         return None
@@ -111,130 +90,55 @@ def extract_tree_ids_from_lidar(
     potential_tree_ids = set()
     log_stderr("TreeID", f"Attempting to use field: '{id_field_name}' for Tree IDs.")
     
-    # Debug: Check VLRs
+    # Debug: Check VLRs (This section is now fixed)
     try:
         log_stderr("TreeID", f"Number of VLRs: {len(las_file_obj.header.vlrs)}")
         for i, vlr in enumerate(las_file_obj.header.vlrs):
-            log_stderr("TreeID", f"VLR {i}: user_id='{vlr.user_id}', record_id={vlr.record_id}")
+            # Print basic info and the object type for better debugging
+            log_stderr("TreeID", f"VLR {i}: user_id='{vlr.user_id}', record_id={vlr.record_id}, type={type(vlr).__name__}")
+            
+            # --- ROBUST LENGTH CHECKING ---
+            length_info = "N/A"
             if hasattr(vlr, 'record_length_after_header'):
-                log_stderr("TreeID", f"VLR {i} length: {vlr.record_length_after_header}")
+                length_info = vlr.record_length_after_header
             elif hasattr(vlr, 'length_after_header'):
-                log_stderr("TreeID", f"VLR {i} length: {vlr.length_after_header}")
-            else:
-                log_stderr("TreeID", f"VLR {i} length: {len(vlr.string)}")
+                length_info = vlr.length_after_header
+            elif hasattr(vlr, 'record_data'): # Most reliable fallback
+                length_info = len(vlr.record_data)
+            elif hasattr(vlr, 'string'): # Least reliable, checked last
+                length_info = len(vlr.string)
+            log_stderr("TreeID", f"VLR {i} data length: {length_info}")
+
     except Exception as e:
         log_stderr("TreeID", f"VLR debug failed: {e}")
-        import traceback
         log_stderr("TreeID", f"VLR traceback: {traceback.format_exc()}")
     
     try:
-        # Check if treeID field exists using safer methods
-        has_tree_id_direct = hasattr(las_file_obj, id_field_name)
-        has_tree_id_in_points = False
-        has_tree_id_in_extra_bytes = False
-        
-        # Try to access points structure safely
-        try:
-            if hasattr(las_file_obj, 'points'):
-                # Try to access the field directly from points
-                try:
-                    test_access = las_file_obj.points[id_field_name]
-                    has_tree_id_in_points = True
-                except (KeyError, AttributeError):
-                    has_tree_id_in_points = False
-        except Exception:
-            has_tree_id_in_points = False
-        
-        # Try to access from extra bytes if available
-        if not has_tree_id_direct and not has_tree_id_in_points:
-            try:
-                log_stderr("TreeID", f"Checking extra_bytes attribute...")
-                if hasattr(las_file_obj, 'extra_bytes'):
-                    log_stderr("TreeID", f"extra_bytes exists: {type(las_file_obj.extra_bytes)}")
-                    log_stderr("TreeID", f"extra_bytes dir: {dir(las_file_obj.extra_bytes)}")
-                    if hasattr(las_file_obj.extra_bytes, id_field_name):
-                        test_access = las_file_obj.extra_bytes[id_field_name]
-                        has_tree_id_in_extra_bytes = True
-                        log_stderr("TreeID", f"Found '{id_field_name}' in extra_bytes.")
-                    else:
-                        log_stderr("TreeID", f"'{id_field_name}' not found in extra_bytes.")
-                else:
-                    log_stderr("TreeID", f"extra_bytes attribute does not exist.")
-            except Exception as e:
-                log_stderr("TreeID", f"Extra bytes access failed: {e}")
-                import traceback
-                log_stderr("TreeID", f"Traceback: {traceback.format_exc()}")
-        
-        # Try to access extra bytes data directly from point records
-        if not has_tree_id_direct and not has_tree_id_in_points and not has_tree_id_in_extra_bytes:
-            try:
-                log_stderr("TreeID", f"Trying to access extra bytes data directly...")
-                # Check if we can access the raw extra bytes data
-                if hasattr(las_file_obj, 'points') and hasattr(las_file_obj.points, 'ExtraBytes'):
-                    extra_bytes_data = las_file_obj.points.ExtraBytes
-                    log_stderr("TreeID", f"ExtraBytes shape: {extra_bytes_data.shape}")
-                    log_stderr("TreeID", f"ExtraBytes dtype: {extra_bytes_data.dtype}")
-                    log_stderr("TreeID", f"ExtraBytes first few values: {extra_bytes_data[:5]}")
-                    
-                    # Try to interpret the extra bytes as treeID (assuming it's the first 4 bytes)
-                    if extra_bytes_data.size > 0:
-                        # For LAS format 3 with 2 extra bytes (8 bytes total), treeID should be first 4 bytes
-                        # Convert uint8 array to float32 values
-                        tree_ids_raw = extra_bytes_data[:, 0:4].view(np.float32).flatten()
-                        log_stderr("TreeID", f"Raw treeID values (first 10): {tree_ids_raw[:10]}")
-                        
-                        # Convert to numpy array and find unique values
-                        ids_per_point_np = np.array(tree_ids_raw)
-                        unique_ids_all = np.unique(ids_per_point_np)
-                        processed_ignore_values = set(ignore_values) if ignore_values is not None else set()
-
-                        for uid_val in unique_ids_all:
-                            try: uid = int(uid_val)
-                            except ValueError: continue
-                            if uid in processed_ignore_values: continue
-                            if min_id_value is not None and uid < min_id_value: continue
-                            potential_tree_ids.add(uid)
-
-                        if potential_tree_ids:
-                            log_stderr("TreeID", f"Found {len(potential_tree_ids)} tree IDs from raw extra bytes data")
-                            return potential_tree_ids
-                        else:
-                            log_stderr("TreeID", f"No valid tree IDs found in raw extra bytes data")
-                            log_stderr("TreeID", f"Unique values found: {unique_ids_all[:20]}")
-                else:
-                    log_stderr("TreeID", f"No ExtraBytes field found in points")
-            except Exception as e:
-                log_stderr("TreeID", f"Direct extra bytes access failed: {e}")
-                import traceback
-                log_stderr("TreeID", f"Direct access traceback: {traceback.format_exc()}")
-        
-        # Final fallback - return empty set if all methods failed
-        if not has_tree_id_direct and not has_tree_id_in_points and not has_tree_id_in_extra_bytes:
-            log_stderr("TreeID", f"Error: Field '{id_field_name}' NOT FOUND. Header Standard: {list(las_file_obj.header.point_format.dimension_names)}, Header Extra: {list(getattr(las_file_obj.header.point_format, 'extra_dimension_names', []))}")
-            return set()
-
-        ids_per_point_view = None
-        try:
-            ids_per_point_view = getattr(las_file_obj, id_field_name)
-            log_stderr("TreeID", f"Accessed '{id_field_name}' as direct dimension.")
-        except AttributeError:
-            if has_tree_id_in_points:
-                ids_per_point_view = las_file_obj.points[id_field_name]
-                log_stderr("TreeID", f"Accessed '{id_field_name}' from las.points structure.")
-            elif has_tree_id_in_extra_bytes:
-                ids_per_point_view = las_file_obj.extra_bytes[id_field_name]
-                log_stderr("TreeID", f"Accessed '{id_field_name}' from extra_bytes.")
+        ids_per_point_np = None
+        # Primary method: Check if the field is a standard dimension
+        if id_field_name in las_file_obj.point_format.dimension_names:
+            ids_per_point_np = las_file_obj[id_field_name]
+            log_stderr("TreeID", f"Found '{id_field_name}' as a standard dimension.")
+        # Secondary method: Check extra bytes
+        elif id_field_name in las_file_obj.point_format.extra_dimension_names:
+            ids_per_point_np = las_file_obj[id_field_name]
+            log_stderr("TreeID", f"Found '{id_field_name}' in extra dimensions.")
+        # Fallback method: try interpreting raw extra bytes data
+        else:
+            log_stderr("TreeID", f"Field '{id_field_name}' not found directly. Attempting to parse raw ExtraBytes.")
+            ids_per_point_np = extract_tree_ids_from_extra_bytes(las_file_obj)
+            if ids_per_point_np is not None:
+                log_stderr("TreeID", "Successfully parsed tree IDs from raw ExtraBytes.")
             else:
-                log_stderr("TreeID", f"Critical Error: Field '{id_field_name}' still not accessible.")
+                log_stderr("TreeID", f"Error: Field '{id_field_name}' NOT FOUND in any known location.")
                 return set()
 
-        ids_per_point_np = np.array(ids_per_point_view)
         unique_ids_all = np.unique(ids_per_point_np)
         processed_ignore_values = set(ignore_values) if ignore_values is not None else set()
 
         for uid_val in unique_ids_all:
             try: uid = int(uid_val)
-            except ValueError: continue
+            except (ValueError, TypeError): continue
             if uid in processed_ignore_values: continue
             if min_id_value is not None and uid < min_id_value: continue
             potential_tree_ids.add(uid)
@@ -248,6 +152,15 @@ def extract_tree_ids_from_lidar(
         log_stderr("TreeID", f"An error occurred during tree ID extraction: {e}\n{traceback.format_exc()}")
     return set()
 
+def get_tree_id_array(las_file_obj, id_field_name):
+    """A centralized function to get the tree ID array, regardless of its location."""
+    if id_field_name in las_file_obj.point_format.dimension_names:
+        return las_file_obj[id_field_name]
+    elif id_field_name in las_file_obj.point_format.extra_dimension_names:
+        return las_file_obj[id_field_name]
+    else:
+        # Fallback to raw extra bytes parsing
+        return extract_tree_ids_from_extra_bytes(las_file_obj)
 
 def calculate_tree_midpoints(
     las_file_obj,
@@ -259,45 +172,31 @@ def calculate_tree_midpoints(
         log_stderr("Midpoint", "No target tree IDs for midpoint calculation.")
         return {}
     try:
+        ids_for_calc_np = get_tree_id_array(las_file_obj, id_field_name)
+        if ids_for_calc_np is None:
+            log_stderr("Midpoint", f"Error: ID field '{id_field_name}' not accessible for midpoints.")
+            return {str(tid): None for tid in target_tree_ids}
+        
         x_coords_np = np.array(las_file_obj.x)
         y_coords_np = np.array(las_file_obj.y)
         z_coords_np = np.array(las_file_obj.z)
-        ids_for_calc_np = None
-        try:
-            ids_for_calc_np = np.array(getattr(las_file_obj, id_field_name))
-        except AttributeError:
-            # Try to get tree IDs from extra bytes
-            ids_for_calc_np = extract_tree_ids_from_extra_bytes(las_file_obj, id_field_name, None, None)
-            if ids_for_calc_np is None:
-                try:
-                    if hasattr(las_file_obj, 'points'):
-                        ids_for_calc_np = np.array(las_file_obj.points[id_field_name])
-                    elif hasattr(las_file_obj, 'extra_bytes') and hasattr(las_file_obj.extra_bytes, id_field_name):
-                        ids_for_calc_np = np.array(las_file_obj.extra_bytes[id_field_name])
-                    else:
-                        log_stderr("Midpoint", f"Error: ID field '{id_field_name}' not accessible for midpoints.")
-                        return {str(tid): None for tid in target_tree_ids}
-                except (KeyError, AttributeError):
-                    log_stderr("Midpoint", f"Error: ID field '{id_field_name}' not accessible for midpoints.")
-                    return {str(tid): None for tid in target_tree_ids}
-
         ids_for_calc_np = ids_for_calc_np.astype(int)
 
-        for tree_id in target_tree_ids: # target_tree_ids is a set of ints
+        for tree_id in target_tree_ids:
             mask = (ids_for_calc_np == tree_id)
-            if np.sum(mask) > 0:
+            if np.any(mask):
                 tree_midpoints_dict[str(tree_id)] = {
                     "x": np.mean(x_coords_np[mask]),
                     "y": np.mean(y_coords_np[mask]),
                     "z": np.mean(z_coords_np[mask])
                 }
             else:
-                tree_midpoints_dict[str(tree_id)] = None # Explicitly None if no points
+                tree_midpoints_dict[str(tree_id)] = None
         log_stderr("Midpoint", "Midpoint calculation complete.")
         return tree_midpoints_dict
     except Exception as e:
         log_stderr("Midpoint", f"An error occurred during midpoint calculation: {e}\n{traceback.format_exc()}")
-    return {str(tid): None for tid in target_tree_ids} # Default to None for all on error
+    return {str(tid): None for tid in target_tree_ids}
 
 def calculate_tree_heights_adjusted(
     las_file_obj,
@@ -310,33 +209,16 @@ def calculate_tree_heights_adjusted(
         log_stderr("LengthL", "No target tree IDs for Length (L) calculation.")
         return {}
     try:
+        ids_all_np = get_tree_id_array(las_file_obj, id_field_name)
+        if ids_all_np is None:
+            log_stderr("LengthL", f"Error: ID field '{id_field_name}' not accessible for Length (L).")
+            return {str(tid): None for tid in target_tree_ids}
+
         z_coords_np = np.array(las_file_obj.z)
-        ids_all_np = None
-        try:
-            ids_all_np = np.array(getattr(las_file_obj, id_field_name))
-        except AttributeError:
-            # Try to get tree IDs from extra bytes
-            ids_all_np = extract_tree_ids_from_extra_bytes(las_file_obj, id_field_name, None, None)
-            if ids_all_np is None:
-                try:
-                    if hasattr(las_file_obj, 'points'):
-                        ids_all_np = np.array(las_file_obj.points[id_field_name])
-                    elif hasattr(las_file_obj, 'extra_bytes') and hasattr(las_file_obj.extra_bytes, id_field_name):
-                        ids_all_np = np.array(las_file_obj.extra_bytes[id_field_name])
-                    else:
-                        log_stderr("LengthL", f"Error: ID field '{id_field_name}' not accessible for Length (L).")
-                        return {str(tid): None for tid in target_tree_ids}
-                except (KeyError, AttributeError):
-                    log_stderr("LengthL", f"Error: ID field '{id_field_name}' not accessible for Length (L).")
-                    return {str(tid): None for tid in target_tree_ids}
-
         ids_all_np = ids_all_np.astype(int)
-        log_stderr("LengthL_Debug", f"Shape of ids_all_np in LengthL: {ids_all_np.shape if ids_all_np is not None else 'None'}, First 5: {ids_all_np[:5] if ids_all_np is not None and ids_all_np.size > 0 else 'N/A'}")
-
 
         for tree_id in target_tree_ids:
             mask = (ids_all_np == tree_id)
-            log_stderr("LengthL_Debug", f"Tree ID {tree_id} in LengthL: Number of points found: {np.sum(mask)}")
             tree_z_points = z_coords_np[mask]
 
             if tree_z_points.size == 0:
@@ -348,7 +230,7 @@ def calculate_tree_heights_adjusted(
             total_height = max_z_tree - min_z_tree
             adjusted_total_height = total_height - adjustment_value
 
-            tree_adjusted_heights[str(tree_id)] = float(max(0, adjusted_total_height)) if not np.isnan(adjusted_total_height) else None
+            tree_adjusted_heights[str(tree_id)] = float(max(0, adjusted_total_height))
 
         log_stderr("LengthL", "Segment Length (L) calculation complete.")
         return tree_adjusted_heights
@@ -373,84 +255,55 @@ def calculate_tree_dbh(
         log_stderr("DBH_D1", "No target tree IDs for DBH (D1) calculation.")
         return {}
     try:
+        ids_all = get_tree_id_array(las_file_obj, id_field_name)
+        if ids_all is None:
+            log_stderr("DBH_D1", f"Error: ID field '{id_field_name}' not accessible for DBH (D1).")
+            return {str(tid): None for tid in target_tree_ids}
+
         x_all = np.array(las_file_obj.x)
         y_all = np.array(las_file_obj.y)
         z_all = np.array(las_file_obj.z)
-        ids_all = None
-        try:
-            ids_all = np.array(getattr(las_file_obj, id_field_name))
-        except AttributeError:
-            # Try to get tree IDs from extra bytes
-            ids_all = extract_tree_ids_from_extra_bytes(las_file_obj, id_field_name, None, None)
-            if ids_all is None:
-                try:
-                    if hasattr(las_file_obj, 'points'):
-                        ids_all = np.array(las_file_obj.points[id_field_name])
-                    elif hasattr(las_file_obj, 'extra_bytes') and hasattr(las_file_obj.extra_bytes, id_field_name):
-                        ids_all = np.array(las_file_obj.extra_bytes[id_field_name])
-                    else:
-                        log_stderr("DBH_D1", f"Error: ID field '{id_field_name}' not accessible for DBH (D1).")
-                        return {str(tid): None for tid in target_tree_ids}
-                except (KeyError, AttributeError):
-                    log_stderr("DBH_D1", f"Error: ID field '{id_field_name}' not accessible for DBH (D1).")
-                    return {str(tid): None for tid in target_tree_ids}
-
         ids_all = ids_all.astype(int)
-        log_stderr("DBH_D1_Debug", f"Shape of ids_all in DBH: {ids_all.shape if ids_all is not None else 'None'}, First 5: {ids_all[:5] if ids_all is not None and ids_all.size > 0 else 'N/A'}")
-
 
         for tree_id in target_tree_ids:
             tree_mask = (ids_all == tree_id)
-            log_stderr("DBH_D1_Debug", f"Tree ID {tree_id} in DBH: Number of points found: {np.sum(tree_mask)}")
-
             if not np.any(tree_mask):
                 tree_dbh_values[str(tree_id)] = None
                 continue
 
-            x_tree = x_all[tree_mask]
-            y_tree = y_all[tree_mask]
             z_tree = z_all[tree_mask]
-
             min_z_tree = np.min(z_tree)
             z_slice_center = min_z_tree + height_above_ground
             z_slice_min = z_slice_center - (vertical_slice_thickness / 2)
             z_slice_max = z_slice_center + (vertical_slice_thickness / 2)
+            
             slice_mask = (z_tree >= z_slice_min) & (z_tree <= z_slice_max)
+            
+            # Get x and y points for the entire tree first, then apply the slice mask
+            x_tree = x_all[tree_mask]
+            y_tree = y_all[tree_mask]
             x_slice = x_tree[slice_mask]
             y_slice = y_tree[slice_mask]
 
             if len(x_slice) < min_points_for_dbh_fit:
-                log_stderr("DBH_D1_Debug", f"Tree ID {tree_id}: Insufficient points ({len(x_slice)}) in DBH slice. Min required: {min_points_for_dbh_fit}")
                 tree_dbh_values[str(tree_id)] = None
                 continue
 
             xc_init = np.mean(x_slice)
             yc_init = np.mean(y_slice)
-            r_init_variance = np.sqrt(np.var(x_slice) + np.var(y_slice))
-            if r_init_variance < 1e-4:
-                 max_x_spread = np.max(x_slice) - np.min(x_slice)
-                 max_y_spread = np.max(y_slice) - np.min(y_slice)
-                 r_init_spread = max(max_x_spread, max_y_spread) / 2.0
-                 r_init = r_init_spread if r_init_spread > 0.001 else 0.01
-            else:
-                 r_init = r_init_variance
-
+            r_init = np.sqrt(np.mean((x_slice - xc_init)**2 + (y_slice - yc_init)**2))
+            
             initial_params = [xc_init, yc_init, r_init if r_init > 0.001 else 0.01]
 
             try:
-                result = least_squares(_circle_residuals, initial_params, args=(x_slice, y_slice), method='lm', ftol=1e-5, xtol=1e-5)
+                result = least_squares(_circle_residuals, initial_params, args=(x_slice, y_slice), method='lm')
                 if result.success:
                     _xc_fit, _yc_fit, r_fit = result.x
-                    if r_fit > 0.001 :
-                        tree_dbh_values[str(tree_id)] = float(2 * r_fit)
-                    else:
-                        log_stderr("DBH_D1_Debug", f"Tree ID {tree_id}: Circle fit radius too small or non-positive: {r_fit}")
-                        tree_dbh_values[str(tree_id)] = None
+                    tree_dbh_values[str(tree_id)] = float(2 * r_fit) if r_fit > 0 else None
                 else:
-                    log_stderr("DBH_D1_Debug", f"Tree ID {tree_id}: Circle fit optimization failed. Status: {result.status}")
                     tree_dbh_values[str(tree_id)] = None
             except Exception as e_fit:
-                log_stderr("DBH_D1", f"Tree ID {tree_id}: Error during circle fitting: {e_fit}\n{traceback.format_exc()}")
+                log_stderr("DBH_D1", f"Tree ID {tree_id}: Error during circle fitting: {e_fit}")
                 tree_dbh_values[str(tree_id)] = None
 
         log_stderr("DBH_D1", "DBH (D1) calculation attempt complete.")
@@ -460,13 +313,15 @@ def calculate_tree_dbh(
     return {str(tid): None for tid in target_tree_ids}
 
 def calculate_smalians_volume(d1_cm, d2_cm, length_m):
-    if d1_cm is None or d2_cm is None or length_m is None or \
-       np.isnan(d1_cm) or np.isnan(d2_cm) or np.isnan(length_m) or \
-       length_m <= 0 or d1_cm < 0 or d2_cm < 0:
+    if d1_cm is None or length_m is None or length_m <= 0 or d1_cm <= 0:
         return None
-    smalian_constant = 0.00003927 # (pi / (4 * 10000)) for d in cm, length in m -> m^3
+    smalian_constant = np.pi / 40000
     try:
-        volume_m3 = smalian_constant * (float(d1_cm)**2 + float(d2_cm)**2) * float(length_m)
+        d1_m = d1_cm / 100.0
+        d2_m = d2_cm / 100.0
+        base_area1 = smalian_constant * (d1_cm**2)
+        base_area2 = smalian_constant * (d2_cm**2)
+        volume_m3 = ((base_area1 + base_area2) / 2) * length_m
         return volume_m3 if not np.isnan(volume_m3) else None
     except (ValueError, TypeError):
         return None
@@ -492,12 +347,12 @@ if __name__ == "__main__":
         "tree_midpoints_wgs84": {},
         "tree_segment_lengths_L_m": {},
         "tree_dbhs_d1_cm": {},
-        "tree_stem_volumes_m3": {},          # Renamed for clarity, this is the "Generic stem volume"
-        "tree_above_ground_volumes_m3": {}, # New
-        "tree_total_volumes_m3": {},        # New
-        "tree_biomass_tonnes": {},          # New
-        "tree_carbon_tonnes": {},           # New
-        "tree_co2_equivalent_tonnes": {},   # New
+        "tree_stem_volumes_m3": {},
+        "tree_above_ground_volumes_m3": {},
+        "tree_total_volumes_m3": {},
+        "tree_biomass_tonnes": {},
+        "tree_carbon_tonnes": {},
+        "tree_co2_equivalent_tonnes": {},
         "assumed_d2_cm_for_volume": ASSUMED_SMALL_END_DIAMETER_D2_CM,
         "conversion_factors_used": {
             "above_ground_expansion": 1.25,
@@ -512,27 +367,26 @@ if __name__ == "__main__":
 
     try:
         log_stderr("Main", f"Reading LAS file: {las_file_path}")
-        # Try reading with strict validation first
         try:
             las = laspy.read(las_file_path)
         except laspy.errors.LaspyException as e_strict:
-            # If strict validation fails due to point size mismatch, try lax mode
             log_stderr("Main", f"Strict validation failed: {e_strict}. Attempting lax validation...")
             las = laspy.read(las_file_path, lax=True)
             output_results["warnings"].append(f"LAS file read with lax validation due to format inconsistencies: {e_strict}")
         
         log_stderr("Main", f"LAS file read successfully. Point count: {len(las.points)}")
 
-        # --- New Coordinate Transformation Logic ---
         transformer_to_wgs84 = None
         source_epsg = detect_effective_epsg(las)
         output_results["detected_source_epsg"] = source_epsg
         
         if source_epsg != TARGET_EPSG_COORD_TRANSFORM:
             try:
-                source_crs_obj = CRS.from_epsg(source_epsg)
-                target_crs_obj = CRS.from_epsg(TARGET_EPSG_COORD_TRANSFORM)
-                transformer_to_wgs84 = Transformer.from_crs(source_crs_obj, target_crs_obj, always_xy=True)
+                transformer_to_wgs84 = Transformer.from_crs(
+                    CRS.from_epsg(source_epsg), 
+                    CRS.from_epsg(TARGET_EPSG_COORD_TRANSFORM), 
+                    always_xy=True
+                )
                 log_stderr("Main", f"CRS Transformer created for EPSG:{source_epsg} -> EPSG:{TARGET_EPSG_COORD_TRANSFORM}")
             except Exception as e_crs:
                 err_msg = f"Error setting up CRS transformer for EPSG:{source_epsg}: {e_crs}"
@@ -550,10 +404,8 @@ if __name__ == "__main__":
                 except Exception as e_coord:
                     err_msg = f"Error transforming first point: {e_coord}"
                     log_stderr("Main", err_msg); output_results["errors"].append(err_msg)
-            elif source_epsg == TARGET_EPSG_COORD_TRANSFORM: # If source is already WGS84
+            elif source_epsg == TARGET_EPSG_COORD_TRANSFORM:
                 output_results["longitude"], output_results["latitude"] = float(first_point_x), float(first_point_y)
-            else:
-                 output_results["warnings"].append(f"First point Lon/Lat not calculated (transformer failed for source EPSG {source_epsg}).")
         else:
             output_results["warnings"].append("LAS file has no points. Skipping first point transform.")
 
@@ -565,7 +417,7 @@ if __name__ == "__main__":
 
         if extracted_ids_set:
             midpoints_original_crs = calculate_tree_midpoints(las, ID_FIELD_NAME_FOR_TREES, extracted_ids_set)
-            output_results["tree_midpoints_original_crs"] = midpoints_original_crs if midpoints_original_crs else {}
+            output_results["tree_midpoints_original_crs"] = midpoints_original_crs
 
             for tree_id_str, coords_dict in midpoints_original_crs.items():
                 if coords_dict:
@@ -574,90 +426,42 @@ if __name__ == "__main__":
                             mp_lon, mp_lat = transformer_to_wgs84.transform(coords_dict["x"], coords_dict["y"])
                             output_results["tree_midpoints_wgs84"][tree_id_str] = {"longitude": mp_lon, "latitude": mp_lat, "z_original": coords_dict["z"]}
                         except Exception as e_mp_transform:
-                            err_msg = f"Error transforming midpoint for tree ID {tree_id_str}: {e_mp_transform}"
-                            log_stderr("Main", err_msg); output_results["errors"].append(err_msg)
-                            output_results["tree_midpoints_wgs84"][tree_id_str] = {"longitude": None, "latitude": None, "z_original": coords_dict.get("z"), "error": "Transformation failed"}
-                    elif source_epsg == TARGET_EPSG_COORD_TRANSFORM: # If source is already WGS84
+                            output_results["tree_midpoints_wgs84"][tree_id_str] = {"error": f"Transformation failed: {e_mp_transform}"}
+                    elif source_epsg == TARGET_EPSG_COORD_TRANSFORM:
                         output_results["tree_midpoints_wgs84"][tree_id_str] = {"longitude": float(coords_dict["x"]), "latitude": float(coords_dict["y"]), "z_original": coords_dict["z"]}
 
-            segment_lengths_L_m_dict = calculate_tree_heights_adjusted(las, ID_FIELD_NAME_FOR_TREES, extracted_ids_set, HEIGHT_ADJUSTMENT_VALUE_FOR_L)
-            output_results["tree_segment_lengths_L_m"] = segment_lengths_L_m_dict if segment_lengths_L_m_dict else {}
+            output_results["tree_segment_lengths_L_m"] = calculate_tree_heights_adjusted(las, ID_FIELD_NAME_FOR_TREES, extracted_ids_set, HEIGHT_ADJUSTMENT_VALUE_FOR_L)
 
             tree_dbhs_d1_meters_dict = calculate_tree_dbh(las, ID_FIELD_NAME_FOR_TREES, extracted_ids_set, DBH_HEIGHT_ABOVE_GROUND, DBH_VERTICAL_SLICE_THICKNESS, DBH_MIN_POINTS_FOR_FIT)
+            output_results["tree_dbhs_d1_cm"] = {tid: round(dbh_m * 100, 2) if dbh_m is not None else None for tid, dbh_m in tree_dbhs_d1_meters_dict.items()}
 
-            temp_dbhs_d1_cm = {}
-            if tree_dbhs_d1_meters_dict:
-                for tree_id_str, dbh_m in tree_dbhs_d1_meters_dict.items():
-                    if dbh_m is not None and not np.isnan(dbh_m):
-                        temp_dbhs_d1_cm[tree_id_str] = round(dbh_m * 100, 2) # Convert m to cm
-                    else:
-                        temp_dbhs_d1_cm[tree_id_str] = None
-            output_results["tree_dbhs_d1_cm"] = temp_dbhs_d1_cm
-
-            # Initialize dictionaries for all derived metrics
-            temp_stem_volumes_m3 = {}
-            temp_above_ground_volumes_m3 = {}
-            temp_total_volumes_m3 = {}
-            temp_biomass_tonnes = {}
-            temp_carbon_tonnes = {}
-            temp_co2_tonnes = {}
-
-            d2_for_volume_cm = ASSUMED_SMALL_END_DIAMETER_D2_CM
             factors = output_results["conversion_factors_used"]
+            for tree_id in extracted_ids_list_str:
+                d1_cm = output_results["tree_dbhs_d1_cm"].get(tree_id)
+                length_m = output_results["tree_segment_lengths_L_m"].get(tree_id)
+                d2_cm = ASSUMED_SMALL_END_DIAMETER_D2_CM
 
-            for tree_id_str_key in extracted_ids_list_str:
-                d1_cm = output_results["tree_dbhs_d1_cm"].get(tree_id_str_key)
-                length_m = output_results["tree_segment_lengths_L_m"].get(tree_id_str_key)
-
-                log_stderr("VolumeCalcInput", f"Tree ID: {tree_id_str_key} -> D1_cm: {d1_cm}, D2_cm: {d2_for_volume_cm}, L_m: {length_m}")
-
-                # Step 0: Calculate Generic Stem Volume (using Smalian's in this script)
-                stem_volume_m3 = calculate_smalians_volume(d1_cm, d2_for_volume_cm, length_m)
-                log_stderr("VolumeCalcOutput", f"Tree ID: {tree_id_str_key} -> Calculated Stem Volume (m³): {stem_volume_m3}")
-                temp_stem_volumes_m3[tree_id_str_key] = round(stem_volume_m3, 6) if stem_volume_m3 is not None else None
-
-                # Initialize derived values for this tree
-                above_ground_volume_m3 = None
-                total_volume_m3 = None
-                biomass_t = None
-                carbon_t = None
-                co2_t = None
+                stem_volume_m3 = calculate_smalians_volume(d1_cm, d2_cm, length_m)
+                output_results["tree_stem_volumes_m3"][tree_id] = round(stem_volume_m3, 6) if stem_volume_m3 is not None else None
 
                 if stem_volume_m3 is not None:
-                    # Step 1: Above ground volume (m³) = 1.25 × stem volume
                     above_ground_volume_m3 = stem_volume_m3 * factors["above_ground_expansion"]
-                    temp_above_ground_volumes_m3[tree_id_str_key] = round(above_ground_volume_m3, 6)
-
-                    # Step 2: Total volume (m³) = 1.25 × above ground volume
                     total_volume_m3 = above_ground_volume_m3 * factors["root_to_shoot_ratio_for_total_volume"]
-                    temp_total_volumes_m3[tree_id_str_key] = round(total_volume_m3, 6)
-
-                    # Step 3: Biomass (t) = total volume × 0.5 t/m³
                     biomass_t = total_volume_m3 * factors["basic_density_t_per_m3"]
-                    temp_biomass_tonnes[tree_id_str_key] = round(biomass_t, 6)
-
-                    # Step 4: C(t) = biomass × 0.5
                     carbon_t = biomass_t * factors["biomass_to_carbon_fraction"]
-                    temp_carbon_tonnes[tree_id_str_key] = round(carbon_t, 6)
-
-                    # Step 5: CO₂ (t) = C × 3.67
                     co2_t = carbon_t * factors["carbon_to_co2_expansion"]
-                    temp_co2_tonnes[tree_id_str_key] = round(co2_t, 6)
+                    
+                    output_results["tree_above_ground_volumes_m3"][tree_id] = round(above_ground_volume_m3, 6)
+                    output_results["tree_total_volumes_m3"][tree_id] = round(total_volume_m3, 6)
+                    output_results["tree_biomass_tonnes"][tree_id] = round(biomass_t, 6)
+                    output_results["tree_carbon_tonnes"][tree_id] = round(carbon_t, 6)
+                    output_results["tree_co2_equivalent_tonnes"][tree_id] = round(co2_t, 6)
                 else:
-                    # If stem volume is None, all subsequent values are also None
-                    temp_above_ground_volumes_m3[tree_id_str_key] = None
-                    temp_total_volumes_m3[tree_id_str_key] = None
-                    temp_biomass_tonnes[tree_id_str_key] = None
-                    temp_carbon_tonnes[tree_id_str_key] = None
-                    temp_co2_tonnes[tree_id_str_key] = None
-
-            # Assign all calculated values to the output results
-            output_results["tree_stem_volumes_m3"] = temp_stem_volumes_m3
-            output_results["tree_above_ground_volumes_m3"] = temp_above_ground_volumes_m3
-            output_results["tree_total_volumes_m3"] = temp_total_volumes_m3
-            output_results["tree_biomass_tonnes"] = temp_biomass_tonnes
-            output_results["tree_carbon_tonnes"] = temp_carbon_tonnes
-            output_results["tree_co2_equivalent_tonnes"] = temp_co2_tonnes
+                    output_results["tree_above_ground_volumes_m3"][tree_id] = None
+                    output_results["tree_total_volumes_m3"][tree_id] = None
+                    output_results["tree_biomass_tonnes"][tree_id] = None
+                    output_results["tree_carbon_tonnes"][tree_id] = None
+                    output_results["tree_co2_equivalent_tonnes"][tree_id] = None
         else:
             output_results["warnings"].append("No tree IDs extracted. Skipping calculations.")
 
@@ -667,10 +471,10 @@ if __name__ == "__main__":
     except laspy.errors.LaspyException as e_las:
         err_msg = f"Python Error: Critical LAS file error ({las_file_path}): {e_las}"
         log_stderr("MainCRITICAL", err_msg); output_results["errors"].append(err_msg)
-        print(json.dumps(output_results, indent=2)) # Still print results gathered so far + errors
+        print(json.dumps(output_results, indent=2))
         sys.exit(1)
     except Exception as e_main:
         err_msg = f"Python Error: Unexpected critical error ({las_file_path}): {e_main}\n{traceback.format_exc()}"
         log_stderr("MainCRITICAL", err_msg); output_results["errors"].append(err_msg)
-        print(json.dumps(output_results, indent=2)) # Still print results gathered so far + errors
+        print(json.dumps(output_results, indent=2))
         sys.exit(1)
