@@ -222,6 +222,7 @@ export const mergeParts = (setParts, setSelectedParts) => (partIds) => {
     const allSizes = [];
     const allTreeIDs = [];
     const allOriginalClassifications = [];
+    const allClassificationColors = [];
     
     partsToMerge.forEach(part => {
       const positions = part.geometry.attributes.position.array;
@@ -232,6 +233,7 @@ export const mergeParts = (setParts, setSelectedParts) => (partIds) => {
       // Handle treeID attribute if it exists
       const treeIDs = part.geometry.attributes.treeID?.array || [];
       const originalClassifications = part.geometry.attributes.originalClassification?.array || [];
+      const classificationColors = part.geometry.attributes.classificationColor?.array || [];
       
       // Debug: Check treeID data for this part
       if (treeIDs.length > 0) {
@@ -264,6 +266,22 @@ export const mergeParts = (setParts, setSelectedParts) => (partIds) => {
             originalClassifications[i+2]
           );
         }
+        
+        // Preserve classificationColor data (current classification colors after annotation)
+        if (classificationColors.length > 0) {
+          allClassificationColors.push(
+            classificationColors[i],
+            classificationColors[i+1],
+            classificationColors[i+2]
+          );
+        } else if (originalClassifications.length > 0) {
+          // If no classificationColor but have originalClassification, use that
+          allClassificationColors.push(
+            originalClassifications[i],
+            originalClassifications[i+1],
+            originalClassifications[i+2]
+          );
+        }
       }
       
       for (let i = 0; i < sizes.length; i++) {
@@ -286,6 +304,11 @@ export const mergeParts = (setParts, setSelectedParts) => (partIds) => {
     // Preserve original classification attribute if any classification data exists
     if (allOriginalClassifications.length > 0) {
       mergedGeometry.setAttribute('originalClassification', new THREE.Float32BufferAttribute(allOriginalClassifications, 3));
+    }
+    
+    // Preserve classificationColor attribute if any classification color data exists (current classification colors after annotation)
+    if (allClassificationColors.length > 0) {
+      mergedGeometry.setAttribute('classificationColor', new THREE.Float32BufferAttribute(allClassificationColors, 3));
     }
     
     // Create merged part
