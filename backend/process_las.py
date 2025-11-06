@@ -17,7 +17,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(BASE_DIR, 'models'))
 
 # --- Configuration ---
-SOURCE_EPSG_COORD_TRANSFORM = 29874
+# SOURCE_EPSG_COORD_TRANSFORM is now detected automatically
 TARGET_EPSG_COORD_TRANSFORM = 4326
 ID_FIELD_NAME_FOR_TREES = "treeID"
 VALUES_TO_IGNORE_FOR_TREES = {0}
@@ -43,76 +43,50 @@ STITCHING_IOU_THRESHOLD = 0.25
 def log_stderr(module_name, msg):
     print(f"Python ({module_name}): {msg}", file=sys.stderr)
 
-def load_semantic_model():
-    try:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        MODEL = importlib.import_module(SEMANTIC_MODEL_NAME)
-        classifier = MODEL.get_model(NUM_CLASSES).to(device)
-        checkpoint = torch.load(SEMANTIC_CHECKPOINT, map_location=device)
-        classifier.load_state_dict(checkpoint['model_state_dict'])
-        classifier.eval()
-        return classifier, device
-    except Exception as e:
-        log_stderr("Semantic Model", f"Failed to load semantic model: {e}")
-        raise
+def detect_effective_epsg(las):
+    """
+    Intelligently detects the most likely EPSG code from the LAS file header or coordinate values.
+    """
+    log_stderr("CRS_Detect", "Attempting to detect effective EPSG...")
+    crs = las.header.parse_crs()
+    epsg = None
+    if crs:
+        auth = crs.to_authority()
+        if auth:
+            try:
+                epsg = int(auth[1])
+                log_stderr("CRS_Detect", f"Found EPSG:{epsg} in LAS header.")
+            except (ValueError, TypeError):
+                log_stderr("CRS_Detect", f"Could not parse authority from header: {auth}")
 
-def process_semantic_segmentation(points, colors, classifier, device):
-    """Run semantic segmentation on the point cloud"""
-    try:
-        num_points = points.shape[0]
-        predictions = np.zeros(num_points, dtype=np.int64)
-        points_mean = np.mean(points, axis=0)
-        points = points - points_mean
-        
-        # Process in batches
-        batch_size = 16
-        num_point_model = 1024
-        num_batches = int(np.ceil(num_points / (batch_size * num_point_model)))
-        
-        with torch.no_grad():
-            for batch_idx in range(num_batches):
-                start_idx = batch_idx * batch_size * num_point_model
-                end_idx = min(start_idx + batch_size * num_point_model, num_points)
-                
-                batch_points = points[start_idx:end_idx]
-                batch_colors = colors[start_idx:end_idx]
-                batch_features = np.concatenate([batch_points, batch_colors], axis=1)
-                batch_features = torch.FloatTensor(batch_features).to(device)
-                
-                batch_predictions = classifier(batch_features.unsqueeze(0))
-                pred_val = batch_predictions.max(dim=1)[1]
-                predictions[start_idx:end_idx] = pred_val.cpu().numpy()
-        
-        return predictions
-    except Exception as e:
-        log_stderr("Semantic Segmentation", f"Failed to process semantic segmentation: {e}")
-        raise
+    # Compute coordinate ranges and averages if points exist
+    if len(las.points) > 0:
+        x_mean, y_mean = np.mean(las.x), np.mean(las.y)
+    else:
+        x_mean, y_mean = 0, 0 # Default if no points
 
-def process_instance_segmentation(input_path, semantic_labels):
-    """Run instance segmentation using the enhanced pipeline"""
-    try:
-        from run_inference_local_enhanced import main as instance_main
-        output_path = input_path.replace('.las', '_instance.las')
-        
-        # Prepare arguments for instance segmentation
-        class Args:
-            def __init__(self):
-                self.input_las = input_path
-                self.output_las = output_path
-                self.config = INSTANCE_CONFIG
-                self.checkpoint = INSTANCE_CHECKPOINT
-                self.sem_model = SEMANTIC_MODEL_NAME
-                self.sem_checkpoint = SEMANTIC_CHECKPOINT
-                self.gpu = '0'
-                self.num_point_model = 1024
-                self.batch_size = 16
-        
-        args = Args()
-        instance_main(args, semantic_labels)
-        return output_path
-    except Exception as e:
-        log_stderr("Instance Segmentation", f"Failed to process instance segmentation: {e}")
-        raise
+    # --- Logic to choose effective EPSG ---
+    if epsg is not None and epsg not in [0, 4298]:
+        log_stderr("CRS_Detect", f"Using detected CRS from header: EPSG:{epsg}")
+        return epsg
+
+    # If coordinates look like degrees (common for WGS84)
+    if -180 < x_mean < 180 and -90 < y_mean < 90:
+        log_stderr("CRS_Detect", "Coordinates appear to be in geographic degrees. Assuming EPSG:4326 (WGS84).")
+        return 4326
+
+    # If coordinates look like projected meters but CRS is unknown/invalid
+    if x_mean > 10000 and y_mean > 10000:
+        log_stderr("CRS_Detect", "No valid CRS found but coordinates look projected. Assuming default of EPSG:29874 (RSO Sarawak).")
+        return 29874
+
+    # If header specified EPSG:4298 (Timbalai 1948), it needs transformation
+    if epsg == 4298:
+        log_stderr("CRS_Detect", "CRS is Timbalai 1948 (EPSG:4298). Will proceed with transformation to WGS84.")
+        return 4298
+
+    log_stderr("CRS_Detect", "Could not confidently determine CRS. Defaulting to EPSG:29874 (RSO Sarawak).")
+    return 29874
 
 def extract_tree_ids_from_extra_bytes(las_file_obj, id_field_name, ignore_values, min_id_value):
     """Extract tree IDs directly from extra bytes data"""
@@ -511,6 +485,7 @@ if __name__ == "__main__":
     output_results = {
         "latitude": None,
         "longitude": None,
+        "detected_source_epsg": None,
         "tree_ids": [],
         "num_trees": 0,
         "tree_midpoints_original_crs": {},
@@ -548,16 +523,23 @@ if __name__ == "__main__":
         
         log_stderr("Main", f"LAS file read successfully. Point count: {len(las.points)}")
 
+        # --- New Coordinate Transformation Logic ---
         transformer_to_wgs84 = None
-        if SOURCE_EPSG_COORD_TRANSFORM != TARGET_EPSG_COORD_TRANSFORM:
+        source_epsg = detect_effective_epsg(las)
+        output_results["detected_source_epsg"] = source_epsg
+        
+        if source_epsg != TARGET_EPSG_COORD_TRANSFORM:
             try:
-                source_crs_obj = CRS.from_epsg(SOURCE_EPSG_COORD_TRANSFORM)
+                source_crs_obj = CRS.from_epsg(source_epsg)
                 target_crs_obj = CRS.from_epsg(TARGET_EPSG_COORD_TRANSFORM)
                 transformer_to_wgs84 = Transformer.from_crs(source_crs_obj, target_crs_obj, always_xy=True)
+                log_stderr("Main", f"CRS Transformer created for EPSG:{source_epsg} -> EPSG:{TARGET_EPSG_COORD_TRANSFORM}")
             except Exception as e_crs:
-                err_msg = f"Error setting up CRS transformer: {e_crs}"
+                err_msg = f"Error setting up CRS transformer for EPSG:{source_epsg}: {e_crs}"
                 log_stderr("Main", err_msg)
                 output_results["errors"].append(err_msg)
+        else:
+            log_stderr("Main", f"Source CRS (EPSG:{source_epsg}) is already target WGS84. No transformation needed.")
 
         if len(las.points) > 0:
             first_point_x, first_point_y = las.x[0], las.y[0]
@@ -568,13 +550,10 @@ if __name__ == "__main__":
                 except Exception as e_coord:
                     err_msg = f"Error transforming first point: {e_coord}"
                     log_stderr("Main", err_msg); output_results["errors"].append(err_msg)
-                    if SOURCE_EPSG_COORD_TRANSFORM == 4326:
-                         output_results["longitude"], output_results["latitude"] = float(first_point_x), float(first_point_y)
-                         output_results["warnings"].append("Used original X/Y as Lon/Lat (transform error, source EPSG:4326).")
-            elif SOURCE_EPSG_COORD_TRANSFORM == 4326: # If source is already WGS84
+            elif source_epsg == TARGET_EPSG_COORD_TRANSFORM: # If source is already WGS84
                 output_results["longitude"], output_results["latitude"] = float(first_point_x), float(first_point_y)
             else:
-                 output_results["warnings"].append(f"First point Lon/Lat not calc (Source EPSG {SOURCE_EPSG_COORD_TRANSFORM} != WGS84, no transform).")
+                 output_results["warnings"].append(f"First point Lon/Lat not calculated (transformer failed for source EPSG {source_epsg}).")
         else:
             output_results["warnings"].append("LAS file has no points. Skipping first point transform.")
 
@@ -588,9 +567,9 @@ if __name__ == "__main__":
             midpoints_original_crs = calculate_tree_midpoints(las, ID_FIELD_NAME_FOR_TREES, extracted_ids_set)
             output_results["tree_midpoints_original_crs"] = midpoints_original_crs if midpoints_original_crs else {}
 
-            if midpoints_original_crs and transformer_to_wgs84:
-                for tree_id_str, coords_dict in midpoints_original_crs.items():
-                    if coords_dict:
+            for tree_id_str, coords_dict in midpoints_original_crs.items():
+                if coords_dict:
+                    if transformer_to_wgs84:
                         try:
                             mp_lon, mp_lat = transformer_to_wgs84.transform(coords_dict["x"], coords_dict["y"])
                             output_results["tree_midpoints_wgs84"][tree_id_str] = {"longitude": mp_lon, "latitude": mp_lat, "z_original": coords_dict["z"]}
@@ -598,9 +577,8 @@ if __name__ == "__main__":
                             err_msg = f"Error transforming midpoint for tree ID {tree_id_str}: {e_mp_transform}"
                             log_stderr("Main", err_msg); output_results["errors"].append(err_msg)
                             output_results["tree_midpoints_wgs84"][tree_id_str] = {"longitude": None, "latitude": None, "z_original": coords_dict.get("z"), "error": "Transformation failed"}
-                    elif SOURCE_EPSG_COORD_TRANSFORM == 4326 and coords_dict: # If source is already WGS84
+                    elif source_epsg == TARGET_EPSG_COORD_TRANSFORM: # If source is already WGS84
                         output_results["tree_midpoints_wgs84"][tree_id_str] = {"longitude": float(coords_dict["x"]), "latitude": float(coords_dict["y"]), "z_original": coords_dict["z"]}
-
 
             segment_lengths_L_m_dict = calculate_tree_heights_adjusted(las, ID_FIELD_NAME_FOR_TREES, extracted_ids_set, HEIGHT_ADJUSTMENT_VALUE_FOR_L)
             output_results["tree_segment_lengths_L_m"] = segment_lengths_L_m_dict if segment_lengths_L_m_dict else {}
