@@ -559,10 +559,15 @@ end_header
       pointDataView.setUint8(offset + 14, returnByte);
       
       // Classification (convert color back to classification)
-      // Use original classification colors if available, otherwise use display colors
+      // Use classificationColor (current) if available, otherwise fall back to originalClassification or display colors
+      const classificationColors = geometry.attributes.classificationColor?.array;
       const originalClassification = geometry.attributes.originalClassification?.array;
       let r, g, b;
-      if (originalClassification) {
+      if (classificationColors) {
+        r = classificationColors[posIndex];
+        g = classificationColors[posIndex + 1];
+        b = classificationColors[posIndex + 2];
+      } else if (originalClassification) {
         r = originalClassification[posIndex];
         g = originalClassification[posIndex + 1];
         b = originalClassification[posIndex + 2];

@@ -28,6 +28,8 @@ from isbnet.data import build_dataset, build_dataloader
 CHUNK_SIZE = (40.0, 40.0, 40.0) # This now matches SAMPLE_WINDOW_SIZE in v4
 # ==========================================
 CHUNK_OVERLAP = 0.5
+# Maximum points per chunk to avoid GPU OOM (for 4GB GPUs, use ~100k-150k points)
+MAX_POINTS_PER_CHUNK = 150000
 # NEW: Threshold for merging instances. If two bounding boxes overlap more than this,
 # they are considered the same object. 0.15 is a reasonable starting value.
 STITCHING_IOU_THRESHOLD = 0.15
@@ -72,14 +74,45 @@ def preprocess_las_to_temp_chunks(las_path, temp_dir):
                 max_bound = min_bound + np.array(CHUNK_SIZE)
                 chunk_point_indices = np.where(np.all((xyz_shifted >= min_bound) & (xyz_shifted < max_bound), axis=1))[0]
                 if len(chunk_point_indices) < 100: continue
-                chunk_xyz_shifted = xyz_shifted[chunk_point_indices]
-                chunk_mean = chunk_xyz_shifted.mean(0)
-                chunk_xyz_final = chunk_xyz_shifted - chunk_mean # <-- Stage 2 Normalization (Correct)
-                dummy_sem = np.zeros(len(chunk_point_indices), dtype=np.int64)
-                dummy_inst = np.full(len(chunk_point_indices), -100, dtype=np.int64)
-                chunk_name = f"chunk_{i}_{j}_{k}"
-                torch.save((chunk_xyz_final, colors_raw[chunk_point_indices], dummy_sem, dummy_inst), os.path.join(temp_dir, f"{chunk_name}.pth"))
-                original_indices_map[chunk_name] = chunk_point_indices
+                
+                # If chunk has too many points, subdivide it further
+                if len(chunk_point_indices) > MAX_POINTS_PER_CHUNK:
+                    # Subdivide this chunk into smaller sub-chunks
+                    chunk_xyz = xyz_shifted[chunk_point_indices]
+                    chunk_colors = colors_raw[chunk_point_indices]
+                    
+                    # Calculate sub-chunk size (divide into 2x2x2 = 8 sub-chunks)
+                    sub_chunk_size = np.array(CHUNK_SIZE) / 2.0
+                    sub_chunk_step = sub_chunk_size * (1 - CHUNK_OVERLAP)
+                    
+                    for si in range(2):
+                        for sj in range(2):
+                            for sk in range(2):
+                                sub_min = min_bound + np.array([si, sj, sk]) * sub_chunk_size
+                                sub_max = sub_min + sub_chunk_size
+                                sub_indices_local = np.where(np.all((chunk_xyz >= sub_min) & (chunk_xyz < sub_max), axis=1))[0]
+                                if len(sub_indices_local) < 100: continue
+                                
+                                # Get original indices for this sub-chunk
+                                sub_chunk_point_indices = chunk_point_indices[sub_indices_local]
+                                sub_chunk_xyz_shifted = xyz_shifted[sub_chunk_point_indices]
+                                sub_chunk_mean = sub_chunk_xyz_shifted.mean(0)
+                                sub_chunk_xyz_final = sub_chunk_xyz_shifted - sub_chunk_mean
+                                dummy_sem = np.zeros(len(sub_chunk_point_indices), dtype=np.int64)
+                                dummy_inst = np.full(len(sub_chunk_point_indices), -100, dtype=np.int64)
+                                chunk_name = f"chunk_{i}_{j}_{k}_sub_{si}_{sj}_{sk}"
+                                torch.save((sub_chunk_xyz_final, colors_raw[sub_chunk_point_indices], dummy_sem, dummy_inst), os.path.join(temp_dir, f"{chunk_name}.pth"))
+                                original_indices_map[chunk_name] = sub_chunk_point_indices
+                else:
+                    # Normal chunk processing
+                    chunk_xyz_shifted = xyz_shifted[chunk_point_indices]
+                    chunk_mean = chunk_xyz_shifted.mean(0)
+                    chunk_xyz_final = chunk_xyz_shifted - chunk_mean # <-- Stage 2 Normalization (Correct)
+                    dummy_sem = np.zeros(len(chunk_point_indices), dtype=np.int64)
+                    dummy_inst = np.full(len(chunk_point_indices), -100, dtype=np.int64)
+                    chunk_name = f"chunk_{i}_{j}_{k}"
+                    torch.save((chunk_xyz_final, colors_raw[chunk_point_indices], dummy_sem, dummy_inst), os.path.join(temp_dir, f"{chunk_name}.pth"))
+                    original_indices_map[chunk_name] = chunk_point_indices
     pbar.close()
     print(f"Created {len(original_indices_map)} temporary chunk files.")
     return las, original_indices_map
@@ -209,10 +242,15 @@ def main():
         all_chunk_results = []
         logger.info(f"\nStage 2: Running inference on {len(dataset)} chunks...")
         with torch.no_grad():
-            for batch in tqdm(dataloader, desc="Inferring"):
+            for batch_idx, batch in enumerate(tqdm(dataloader, desc="Inferring")):
                 for key in batch:
                     if isinstance(batch[key], torch.Tensor):
                         batch[key] = batch[key].to(device)
+                
+                # Clear GPU cache periodically to help with memory
+                if batch_idx % 10 == 0 and device.type == 'cuda':
+                    torch.cuda.empty_cache()
+                
                 with torch.amp.autocast('cuda', enabled=(device.type == 'cuda')):
                     res = model(batch)
                 res["scan_id"] = batch["scan_ids"][0]
@@ -220,6 +258,10 @@ def main():
                     if isinstance(res[k], torch.Tensor):
                         res[k] = res[k].cpu()
                 all_chunk_results.append(res)
+                
+                # Clear GPU cache after each batch
+                if device.type == 'cuda':
+                    torch.cuda.empty_cache()
         
         stitch_and_save_las(args.output_las, original_las, all_chunk_results, original_indices_map)
         

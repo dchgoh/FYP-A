@@ -223,35 +223,106 @@ export const annotateAllVisiblePoints = (setIsAnnotating, setAnnotationDialogOpe
           originalGeometry.setAttribute('originalClassification', new THREE.Float32BufferAttribute(preservedOriginalClassification, 3));
         }
         
-        // Create a Map for faster lookup
-        const positionMap = new Map();
-        for (let i = 0; i < originalPositions.length; i += 3) {
-          const key = `${originalPositions[i].toFixed(3)},${originalPositions[i+1].toFixed(3)},${originalPositions[i+2].toFixed(3)}`;
-          positionMap.set(key, i);
+        // Use tolerance-based matching instead of exact string matching
+        // This is more robust for floating point precision issues
+        const TOLERANCE = 0.001; // 1mm tolerance for position matching
+        const TOLERANCE_SQ = TOLERANCE * TOLERANCE;
+        
+        // Helper function to calculate squared distance between two points
+        const squaredDistance = (x1, y1, z1, x2, y2, z2) => {
+          const dx = x1 - x2;
+          const dy = y1 - y2;
+          const dz = z1 - z2;
+          return dx * dx + dy * dy + dz * dz;
+        };
+        
+        // Create a spatial hash for faster lookup
+        // Use a grid-based spatial hash to reduce search space
+        const CELL_SIZE = TOLERANCE * 2; // Cell size should be larger than tolerance
+        const spatialHash = new Map();
+        
+        // Build spatial hash for original positions
+        for (let j = 0; j < originalPositions.length; j += 3) {
+          const ox = originalPositions[j];
+          const oy = originalPositions[j + 1];
+          const oz = originalPositions[j + 2];
+          
+          // Calculate grid cell coordinates
+          const cellX = Math.floor(ox / CELL_SIZE);
+          const cellY = Math.floor(oy / CELL_SIZE);
+          const cellZ = Math.floor(oz / CELL_SIZE);
+          const cellKey = `${cellX},${cellY},${cellZ}`;
+          
+          if (!spatialHash.has(cellKey)) {
+            spatialHash.set(cellKey, []);
+          }
+          spatialHash.get(cellKey).push(j);
         }
+        
+        // Track matched indices to avoid duplicate matches
+        const matchedIndices = new Set();
         
         // Update original geometry for matching points
         for (let i = 0; i < targetPositions.length; i += 3) {
-          const key = `${targetPositions[i].toFixed(3)},${targetPositions[i+1].toFixed(3)},${targetPositions[i+2].toFixed(3)}`;
-          const colorIndex = positionMap.get(key);
+          const tx = targetPositions[i];
+          const ty = targetPositions[i + 1];
+          const tz = targetPositions[i + 2];
           
-          if (colorIndex !== undefined) {
-            const pointIndex = colorIndex / 3;
+          // Calculate grid cell coordinates for target point
+          const cellX = Math.floor(tx / CELL_SIZE);
+          const cellY = Math.floor(ty / CELL_SIZE);
+          const cellZ = Math.floor(tz / CELL_SIZE);
+          
+          let bestMatchIndex = -1;
+          let bestMatchDistance = Infinity;
+          
+          // Check current cell and neighboring cells (3x3x3 = 27 cells)
+          for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dz = -1; dz <= 1; dz++) {
+                const cellKey = `${cellX + dx},${cellY + dy},${cellZ + dz}`;
+                const cellIndices = spatialHash.get(cellKey);
+                
+                if (cellIndices) {
+                  for (const j of cellIndices) {
+                    // Skip if this point was already matched
+                    if (matchedIndices.has(j)) continue;
+                    
+                    const ox = originalPositions[j];
+                    const oy = originalPositions[j + 1];
+                    const oz = originalPositions[j + 2];
+                    
+                    const distSq = squaredDistance(tx, ty, tz, ox, oy, oz);
+                    
+                    if (distSq < bestMatchDistance) {
+                      bestMatchDistance = distSq;
+                      bestMatchIndex = j;
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
+          // If we found a match within tolerance, update it
+          if (bestMatchIndex !== -1 && bestMatchDistance <= TOLERANCE_SQ) {
+            matchedIndices.add(bestMatchIndex);
+            const pointIndex = bestMatchIndex / 3;
             
             // Update display colors with annotation color
-            originalColors[colorIndex] = annotationColor[0];
-            originalColors[colorIndex + 1] = annotationColor[1];
-            originalColors[colorIndex + 2] = annotationColor[2];
-            originalCustomColors[colorIndex] = annotationColor[0];
-            originalCustomColors[colorIndex + 1] = annotationColor[1];
-            originalCustomColors[colorIndex + 2] = annotationColor[2];
+            originalColors[bestMatchIndex] = annotationColor[0];
+            originalColors[bestMatchIndex + 1] = annotationColor[1];
+            originalColors[bestMatchIndex + 2] = annotationColor[2];
+            originalCustomColors[bestMatchIndex] = annotationColor[0];
+            originalCustomColors[bestMatchIndex + 1] = annotationColor[1];
+            originalCustomColors[bestMatchIndex + 2] = annotationColor[2];
             
             // Preserve original classification colors - only update if annotating classification
             if (selectedAnnotationType === 'classification' && originalClassificationColors) {
               // When annotating classification, update classificationColor
-              originalClassificationColors[colorIndex] = annotationColor[0];
-              originalClassificationColors[colorIndex + 1] = annotationColor[1];
-              originalClassificationColors[colorIndex + 2] = annotationColor[2];
+              originalClassificationColors[bestMatchIndex] = annotationColor[0];
+              originalClassificationColors[bestMatchIndex + 1] = annotationColor[1];
+              originalClassificationColors[bestMatchIndex + 2] = annotationColor[2];
             }
             // When annotating treeID, don't overwrite classificationColor - preserve it
             
@@ -288,20 +359,35 @@ export const annotateAllVisiblePoints = (setIsAnnotating, setAnnotationDialogOpe
           originalGeometry.attributes.treeID.needsUpdate = true;
         }
         
-        // Rename parts when annotating with treeID
-        if (selectedAnnotationType === 'treeID' && annotationTreeID !== null && setParts) {
-          const hasNegativeOne = Object.keys(treeIDs).some(key => parseInt(key) === -1);
-          let newPartName;
-          if (hasNegativeOne) {
-            newPartName = annotationTreeID === -1 ? 'Unclassified' : `Tree ${annotationTreeID}`;
-          } else {
-            newPartName = annotationTreeID === 0 ? 'Unclassified' : `Tree ${annotationTreeID}`;
-          }
-          
+        // Update the parts array with the updated geometry
+        // This ensures the changes persist when parts are displayed
+        if (setParts) {
           setParts(prev => prev.map(part => {
-            // Rename all selected parts
             if (selectedParts.includes(part.id)) {
-              return { ...part, name: newPartName };
+              // Update part name if annotating with treeID
+              let newPartName = part.name;
+              if (selectedAnnotationType === 'treeID' && annotationTreeID !== null) {
+                const hasNegativeOne = Object.keys(treeIDs).some(key => parseInt(key) === -1);
+                if (hasNegativeOne) {
+                  newPartName = annotationTreeID === -1 ? 'Unclassified' : `Tree ${annotationTreeID}`;
+                } else {
+                  newPartName = annotationTreeID === 0 ? 'Unclassified' : `Tree ${annotationTreeID}`;
+                }
+              }
+              
+              // The targetGeometry has already been updated with the annotation
+              // We need to clone it to ensure we have a fresh reference
+              // Clone all attributes properly
+              const updatedGeometry = new THREE.BufferGeometry();
+              const attributes = ['position', 'color', 'customColor', 'size', 'treeID', 'originalClassification', 'classificationColor'];
+              attributes.forEach(attrName => {
+                if (targetGeometry.attributes[attrName]) {
+                  const attr = targetGeometry.attributes[attrName];
+                  updatedGeometry.setAttribute(attrName, attr.clone());
+                }
+              });
+              
+              return { ...part, geometry: updatedGeometry, name: newPartName };
             }
             return part;
           }));
