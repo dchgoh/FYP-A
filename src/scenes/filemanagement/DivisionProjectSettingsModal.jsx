@@ -27,7 +27,7 @@ const DivisionProjectSettingsModal = ({
                         <List dense>
                             {divisionsList.map((division) => {
                                 const isDeletingThis = deletingDivisionId === division.id;
-                                return (<ListItem key={division.id} secondaryAction={<Tooltip title={`Delete Division "${division.name}"`}><span><IconButton edge="end" onClick={() => handleDeleteDivision(division.id, division.name)} disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk} size="small">{isDeletingThis ? <CircularProgress size={20} color="inherit"/> : <DeleteIcon fontSize="small"/>}</IconButton></span></Tooltip>} sx={{ '&:hover':{backgroundColor:colors.primary[500]} }} divider><ListItemText primary={division.name} /></ListItem>);
+                                return (<ListItem key={division.id} secondaryAction={<Tooltip title={`Delete Division "${division.name}"`}><span><IconButton edge="end" onClick={() => handleDeleteDivision(division.id, division.name)} disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk} size="small">{isDeletingThis ? <CircularProgress size={20} color="inherit"/> : <DeleteIcon fontSize="small" sx={{ '&:hover': { color: colors.redAccent[500] } }}/>}</IconButton></span></Tooltip>} divider><ListItemText primary={division.name} /></ListItem>);
                             })}
                         </List>
                     )}
@@ -41,14 +41,13 @@ const DivisionProjectSettingsModal = ({
                         <List dense>
                             {projectsList.map((project) => {
                                 const isDeletingThis = deletingProjectId === project.id;
-                                return (<ListItem key={project.id} secondaryAction={<Tooltip title={`Delete Project "${project.name}"`}><span><IconButton edge="end" onClick={() => handleDeleteProject(project.id, project.name)} disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk} size="small">{isDeletingThis ? <CircularProgress size={20} color="inherit"/> : <DeleteIcon fontSize="small"/>}</IconButton></span></Tooltip>} sx={{ '&:hover':{backgroundColor:colors.primary[500]} }} divider><ListItemText primary={project.name} secondary={`Division: ${project.division_name || 'N/A'}`}/></ListItem>);
+                                return (<ListItem key={project.id} secondaryAction={<Tooltip title={`Delete Project "${project.name}"`}><span><IconButton edge="end" onClick={() => handleDeleteProject(project.id, project.name)} disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk} size="small">{isDeletingThis ? <CircularProgress size={20} color="inherit"/> : <DeleteIcon fontSize="small" sx={{ '&:hover': { color: colors.redAccent[500] } }}/>}</IconButton></span></Tooltip>} divider><ListItemText primary={project.name} secondary={`Division: ${project.division_name || 'N/A'}`}/></ListItem>);
                             })}
                         </List>
                     )}
                     {userRole === ROLES.ADMIN && (<Button variant="contained" startIcon={<AddCircleOutlineIcon />} sx={{ mt: 1 }} onClick={handleOpenCreateProjectModal} fullWidth disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk || loadingDivisionsList}>New Project</Button>)}
                 </Box>
             </DialogContent>
-            <DialogActions sx={{ p: theme.spacing(1, 3) }}><Button onClick={handleCloseDivisionProjectSettingsModal} disabled={!!deletingDivisionId || !!deletingProjectId || isDeletingBulk} variant="outlined">Close</Button></DialogActions>
         </Dialog>
     );
 };

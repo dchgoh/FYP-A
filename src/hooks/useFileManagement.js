@@ -1537,7 +1537,7 @@ export const useFileManagement = () => {
         setCreateProjectModalOpen, setNewProjectName, setSelectedDivisionIdForCreation, setCreateDivisionModalOpen,
         setNewDivisionName, setIsProjectSettingsModalOpen, setIsDivisionProjectSettingsModalOpen, setReassignModalOpen,
         setFileToReassign, setSelectedProjectIdForReassign, setNewPlotNameForReassign,
-        setSelectedManagerToAddInModal,
+        setSelectedManagerToAddInModal,setSelectedFileIds,
 
         // Handlers
         handleMenuClick, handleMenuClose, handleDownload, handleRemove, handleStopProcessing, handleStartProcessing,
