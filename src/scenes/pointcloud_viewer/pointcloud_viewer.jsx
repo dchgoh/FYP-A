@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Box, Button, Typography, Paper, Alert, CircularProgress, useTheme, FormControlLabel, Checkbox, FormControl, InputLabel, Select, MenuItem, IconButton, Slider, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Menu, ListItemIcon, ListItemText, Divider} from '@mui/material';
 import { tokens } from '../../theme';
-import { Map, Close, Gesture, HistoryEdu, DeleteSweep, Edit, Save, Delete, Merge } from '@mui/icons-material';
+import { Map, Close, Gesture, HistoryEdu, DeleteSweep, Edit, Save, Delete, Merge, Refresh } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import * as THREE from 'three';
@@ -109,7 +109,7 @@ const PointCloudViewer = ({ isCollapsed }) => {
   }, [pointDensity, pointCloud]);
 
   // --- MiniMap State ---
-  const [showMiniMap, setShowMiniMap] = useState(false);
+  const [showMiniMap, setShowMiniMap] = useState(true);
   const [miniMapFiles, setMiniMapFiles] = useState([]);
   const [isLoadingMiniMapFiles, setIsLoadingMiniMapFiles] = useState(false);
   const [errorMiniMapFiles, setErrorMiniMapFiles] = useState(null);
@@ -134,6 +134,8 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const MINIMAP_ESTIMATED_HEIGHT_XS = 200;
   const BUTTON_FIXED_SIZE = 40;
   const MINIMAP_BUTTON_GAP = 10;
+
+  const defaultViewRef = useRef(null);
 
   const handleToolSelect = (toolName) => {
     setActiveTool(prev => (prev === toolName ? null : toolName));
@@ -947,6 +949,49 @@ end_header
     });
   };
 
+  const handleResetView = useCallback(() => {
+    if (!sceneManagerRef.current) return;
+
+    const camera = sceneManagerRef.current.camera;
+    const controls = sceneManagerRef.current.controls;
+    const defaultView = defaultViewRef.current;
+
+    if (defaultView && pointCloud) {
+      camera.position.copy(defaultView.cameraPosition);
+      camera.quaternion.copy(defaultView.cameraQuaternion);
+      camera.up.copy(defaultView.cameraUp);
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld(true);
+
+      pointCloud.position.copy(defaultView.pointCloudPosition);
+      pointCloud.quaternion.copy(defaultView.pointCloudQuaternion);
+      pointCloud.rotation.setFromQuaternion(pointCloud.quaternion);
+      pointCloud.updateMatrixWorld(true);
+
+      minDistanceRef.current = defaultView.minDistance;
+      maxDistanceRef.current = defaultView.maxDistance;
+
+      if (controls) {
+        controls.setDistanceBounds(minDistanceRef.current, maxDistanceRef.current);
+      }
+      return;
+    }
+
+    if (originalGeometry) {
+      if (!originalGeometry.boundingSphere) {
+        originalGeometry.computeBoundingSphere();
+      }
+      const distanceBounds = sceneManagerRef.current.setCameraTopView(originalGeometry);
+      if (distanceBounds) {
+        minDistanceRef.current = distanceBounds.minDistance;
+        maxDistanceRef.current = distanceBounds.maxDistance;
+        if (controls) {
+          controls.setDistanceBounds(minDistanceRef.current, maxDistanceRef.current);
+        }
+      }
+    }
+  }, [pointCloud, originalGeometry]);
+
   useEffect(() => {
     const fetchAllFilesForMap = async () => {
       const storedToken = localStorage.getItem('authToken');
@@ -1109,6 +1154,7 @@ end_header
             if (boundingBox) disposeBoundingBox(boundingBox);
             setBoundingBox(null);
             setPointCloud(null);
+          defaultViewRef.current = null;
             
             // Clear parts state to prevent conflicts
             setParts([]);
@@ -1172,6 +1218,16 @@ end_header
           maxDistanceRef.current = distanceBounds.maxDistance;
           sceneManagerRef.current.controls.setDistanceBounds(minDistanceRef.current, maxDistanceRef.current);
           sceneManagerRef.current.controls.setDragObjects([newPointCloud]);
+
+          defaultViewRef.current = {
+            cameraPosition: sceneManagerRef.current.camera.position.clone(),
+            cameraQuaternion: sceneManagerRef.current.camera.quaternion.clone(),
+            cameraUp: sceneManagerRef.current.camera.up.clone(),
+            pointCloudPosition: newPointCloud.position.clone(),
+            pointCloudQuaternion: newPointCloud.quaternion.clone(),
+            minDistance: distanceBounds.minDistance,
+            maxDistance: distanceBounds.maxDistance,
+          };
           setError(null);
           setTimeout(resolve, 10);
         });
@@ -1843,9 +1899,14 @@ end_header
           </Box>
 
           {/* MiniMap Toggle Button & Container */}
-          <IconButton onClick={toggleMiniMap} sx={{ position: 'absolute', top: '15px', left: '315px', zIndex: 1002, backgroundColor: 'rgba(0,0,0,0.2)', color: 'white', '&:hover': {backgroundColor: 'rgba(0,0,0,0.4)'}}}>
-            {showMiniMap ? <Close /> : <Map />}
-          </IconButton>
+          <Box sx={{ position: 'absolute', top: '15px', left: '315px', zIndex: 1002, display: 'flex', gap: '10px' }}>
+            <IconButton onClick={toggleMiniMap} sx={{ backgroundColor: 'rgba(0,0,0,0.2)', color: 'white', '&:hover': {backgroundColor: 'rgba(0,0,0,0.4)'} }}>
+              {showMiniMap ? <Close /> : <Map />}
+            </IconButton>
+            <IconButton onClick={handleResetView} sx={{ backgroundColor: 'rgba(0,0,0,0.2)', color: 'white', '&:hover': {backgroundColor: 'rgba(0,0,0,0.4)'} }} title="Reset View">
+              <Refresh />
+            </IconButton>
+          </Box>
           {showMiniMap && (
             <Box sx={miniMapContainerStyle}>
                 {isLoadingMiniMapFiles && <CircularProgress/>}
