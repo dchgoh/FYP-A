@@ -87,6 +87,12 @@ export const useFileManagement = () => {
         setSnackbar({ open: true, message, severity });
     }, []); 
     
+    const areFiltersDefault = useMemo(() => {
+        return filterDivisionId === 'all' && filterProjectId === 'all';
+        // If you add a plot name filter to this toolbar later, you would add it here too:
+        // && filterPlotName === 'all'
+    }, [filterDivisionId, filterProjectId]);
+
     const handleSnackbarClose = (event, reason) => {
         if (reason === "clickaway") return;
         setSnackbar(prev => ({ ...prev, open: false }));
@@ -263,6 +269,12 @@ export const useFileManagement = () => {
           userRole,
           showSnackbar 
       ]);
+      
+      const handleResetFilters = useCallback(() => {
+        setFilterDivisionId('all');
+        setFilterProjectId('all');
+        // The useEffect that depends on these filters will automatically trigger a refetch of the files.
+    }, []);
     
       const fetchAllDataManagersForModal = useCallback(async (token) => {
           if (!token) return;
@@ -1570,10 +1582,10 @@ export const useFileManagement = () => {
         handleOpenProjectSettingsModal, handleCloseProjectSettingsModal, handleModalAccordionChange,
         handleSelectManagerChangeInModal, handleAssignManagerInModal, handleRemoveManagerInModal,
         handleOpenReassignModal, handleCloseReassignModal,
-        handleOpenExportModal, handleCloseExportModal, handleExportFileSelection, handleSelectAllForExport,
+        handleOpenExportModal, handleCloseExportModal, handleExportFileSelection, handleSelectAllForExport, handleResetFilters,
         
         // Derived State & Utils
         canPerformAction, filteredProjectsForDropdown, getProcessingFiles, numTotalSelectableForDelete,
-        getUnassignedManagersForModalProject
+        getUnassignedManagersForModalProject, areFiltersDefault,
     };
 };
