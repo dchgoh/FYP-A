@@ -508,16 +508,21 @@ export const useFileManagement = () => {
             return; 
         }
         
-        handleMenuClose(); // Close menu before confirmation
-        
-        const conf = window.confirm(`Start processing "${fileToStart.name}"? This will restart the segmentation process.`);
-        if (!conf) return;
+        handleMenuClose();
+
+        // No confirmation needed for a quick action like this, but you can add it back if you prefer.
+        // const conf = window.confirm(`Start processing "${fileToStart.name}"?`);
+        // if (!conf) return;
     
         const token = localStorage.getItem('authToken');
         if (!token) { 
             showSnackbar("Auth required.", "error"); 
             return; 
         }
+
+        // --- IMPROVEMENT: OPTIMISTIC UI UPDATE ---
+        // This makes the spinner appear INSTANTLY for the user.
+        setFilesBeingProcessed(prev => new Set(prev).add(fileToStart.id));
         
         try {
             const res = await axios.post(`${API_BASE_URL}/files/${fileId}/start`, {}, { 
@@ -526,13 +531,26 @@ export const useFileManagement = () => {
             
             if (res.data.success) {
                 showSnackbar(`Processing started for "${fileToStart.name}".`, "success");
-                fetchFiles(); // Refresh file list
+                // The polling mechanism will eventually update the status, but a manual fetch ensures it happens sooner.
+                fetchFiles(); 
             } else { 
                 showSnackbar(res.data.message || "Start processing failed.", "warning"); 
+                // If it fails, remove the spinner immediately.
+                setFilesBeingProcessed(prev => {
+                    const next = new Set(prev);
+                    next.delete(fileToStart.id);
+                    return next;
+                });
             }
         } catch (e) {
             console.error("Start processing error:", e);
             showSnackbar(e.response?.data?.message || "Server error starting processing.", "error");
+            // Also remove the spinner on error.
+            setFilesBeingProcessed(prev => {
+                const next = new Set(prev);
+                next.delete(fileToStart.id);
+                return next;
+            });
         }
       };
     
