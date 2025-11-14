@@ -336,6 +336,30 @@ def predict_full_cloud(args):
     # Modified: load_large_point_cloud now returns has_rgb
     points_large_raw, input_has_rgb = load_large_point_cloud(args.input_file, args.num_features)
     
+    # Preserve original LAS header (including CRS/EPSG) if input is LAS/LAZ
+    original_las_header = None
+    original_las_crs = None
+    if Path(args.input_file).suffix.lower() in ['.las', '.laz']:
+        try:
+            with laspy.open(str(args.input_file)) as f:
+                original_las = f.read()
+                original_las_header = original_las.header
+                log_string(f"Read original LAS header with {len(original_las_header.vlrs)} VLR(s)")
+                # Try to extract CRS information (requires pyproj, but VLRs will preserve CRS even without it)
+                try:
+                    crs = original_las_header.parse_crs()
+                    if crs:
+                        original_las_crs = crs
+                        log_string(f"Parsed original CRS from input file: {crs}")
+                except ImportError as e_import:
+                    # pyproj not available - that's okay, we'll preserve CRS via VLRs
+                    log_string(f"Note: pyproj not available, will preserve CRS via VLRs: {e_import}")
+                except Exception as e_crs:
+                    # Other errors - still okay, VLRs should preserve CRS
+                    log_string(f"Note: Could not parse CRS (will preserve via VLRs): {e_crs}")
+        except Exception as e_header:
+            log_string(f"Warning: Could not read original LAS header: {e_header}")
+    
     if points_large_raw is None:
         log_string(f"Failed to load point cloud from {args.input_file}. Exiting.")
         sys.exit(1)
@@ -469,15 +493,67 @@ def predict_full_cloud(args):
                     header = laspy.LasHeader(version="1.4", point_format=1)
 
                 # Set scales and offsets (important for precision)
-                # Use min of coords for offset, and a small scale
-                min_coords = np.min(points_large_raw[:, :3], axis=0)
-                header.offsets = min_coords
-                header.scales = np.array([0.001, 0.001, 0.001]) # Adjust if higher precision needed
+                # Try to preserve original scales/offsets if available, otherwise use min of coords
+                if original_las_header is not None:
+                    try:
+                        header.offsets = original_las_header.offsets
+                        header.scales = original_las_header.scales
+                        log_string(f"Preserved original offsets: {header.offsets}, scales: {header.scales}")
+                    except Exception as e_offsets:
+                        log_string(f"Warning: Could not preserve original offsets/scales: {e_offsets}. Using computed values.")
+                        min_coords = np.min(points_large_raw[:, :3], axis=0)
+                        header.offsets = min_coords
+                        header.scales = np.array([0.001, 0.001, 0.001])
+                else:
+                    min_coords = np.min(points_large_raw[:, :3], axis=0)
+                    header.offsets = min_coords
+                    header.scales = np.array([0.001, 0.001, 0.001]) # Adjust if higher precision needed
 
                 las = laspy.LasData(header)
                 las.x = points_large_raw[:, 0]
                 las.y = points_large_raw[:, 1]
                 las.z = points_large_raw[:, 2]
+                
+                # Preserve CRS/EPSG and all VLRs from original file
+                # The most reliable way is to copy all VLRs, especially GeoTIFF VLRs which contain CRS info
+                if original_las_header is not None:
+                    try:
+                        # Copy ALL VLRs from original header to preserve CRS and other metadata
+                        # This is the most reliable method to preserve coordinate system information
+                        vlrs_copied = 0
+                        for vlr in original_las_header.vlrs:
+                            try:
+                                las.header.vlrs.append(vlr)
+                                vlrs_copied += 1
+                            except Exception as e_vlr_copy:
+                                log_string(f"Warning: Could not copy VLR {vlr.user_id}:{vlr.record_id}: {e_vlr_copy}")
+                        
+                        if vlrs_copied > 0:
+                            log_string(f"Copied {vlrs_copied} VLR(s) from original file (including CRS information)")
+                        
+                        # Also try to log CRS info if we have the CRS object (optional, for logging only)
+                        if original_las_crs is not None:
+                            try:
+                                # Try to get EPSG code for logging (requires pyproj)
+                                try:
+                                    from pyproj import CRS as PyprojCRS
+                                    epsg_code = None
+                                    if hasattr(original_las_crs, 'to_epsg'):
+                                        epsg_code = original_las_crs.to_epsg()
+                                    elif hasattr(original_las_crs, 'to_authority'):
+                                        auth = original_las_crs.to_authority()
+                                        if auth and auth[0].upper() == 'EPSG':
+                                            epsg_code = int(auth[1])
+                                    
+                                    if epsg_code:
+                                        log_string(f"Original file CRS: EPSG:{epsg_code} (preserved via VLRs)")
+                                except ImportError:
+                                    # pyproj not available - that's fine, VLRs are already copied
+                                    log_string(f"CRS object found (EPSG info requires pyproj, but VLRs preserve CRS)")
+                            except Exception as e_crs_verify:
+                                log_string(f"Note: Could not verify CRS (VLRs already copied): {e_crs_verify}")
+                    except Exception as e_vlr_all:
+                        log_string(f"Warning: Could not copy VLRs from original file: {e_vlr_all}")
                 
                 # Add classification (labels should be uint8 for standard LAS classification)
                 # Ensure labels are within valid range for uint8 (0-255)
