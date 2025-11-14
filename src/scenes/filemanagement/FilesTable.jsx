@@ -7,7 +7,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import StopIcon from '@mui/icons-material/Stop';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow'; // IMPORT ADDED
 
 const ACTIVE_PIPELINE_PROCESSING_STATUSES = ['segmenting', 'processing_las_data', 'processing'];
 
@@ -15,7 +15,8 @@ const FilesTable = ({
     colors, theme, files, isLoading, isLoadingPermissions, selectedFileIds,
     handleSelectAllClick, handleRowCheckboxClick, canPerformAction,
     filesBeingProcessed, deletingProjectId, deletingDivisionId, isDeletingBulk,
-    handleDownload, handleRemove, handleViewPointCloud, handleStopProcessing, handleStartProcessing,
+    handleDownload, handleRemove, handleViewPointCloud, handleStopProcessing,
+    handleStartProcessing, // PROP ADDED
     handleOpenReassignModal, numTotalSelectableForDelete
 }) => {
     const [anchorEl, setAnchorEl] = useState(null);
@@ -109,13 +110,13 @@ const FilesTable = ({
                                                 </Typography>
                                             </Box>
                                             {canPerformAction('stop', file) && (
-                                                <IconButton 
-                                                    size="small" 
+                                                <IconButton
+                                                    size="small"
                                                     onClick={(e) => { e.stopPropagation(); handleStopProcessing(file); }}
-                                                    sx={{ 
-                                                        color: colors.redAccent[400], 
+                                                    sx={{
+                                                        color: colors.redAccent[400],
                                                         padding: '2px',
-                                                        '&:hover': { 
+                                                        '&:hover': {
                                                             backgroundColor: 'rgba(244, 67, 54, 0.1)',
                                                             color: colors.redAccent[300]
                                                         }
@@ -126,22 +127,23 @@ const FilesTable = ({
                                                 </IconButton>
                                             )}
                                         </Box>
+                                    // *** THIS IS THE NEW LOGIC BLOCK ***
                                     ) : file.status === 'stopped' ? (
                                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
                                             <Typography variant="caption" sx={{ color: statusColor }}>{statusText}</Typography>
                                             {canPerformAction('start', file) && (
-                                                <IconButton 
-                                                    size="small" 
+                                                <IconButton
+                                                    size="small"
                                                     onClick={(e) => { e.stopPropagation(); handleStartProcessing(file); }}
-                                                    sx={{ 
-                                                        color: colors.greenAccent[400], 
+                                                    sx={{
+                                                        color: colors.greenAccent[400],
                                                         padding: '2px',
-                                                        '&:hover': { 
+                                                        '&:hover': {
                                                             backgroundColor: 'rgba(76, 175, 80, 0.1)',
                                                             color: colors.greenAccent[300]
                                                         }
                                                     }}
-                                                    title="Start Processing"
+                                                    title="Resume Processing"
                                                 >
                                                     <PlayArrowIcon fontSize="small" />
                                                 </IconButton>
@@ -183,7 +185,7 @@ const FilesTable = ({
                                                 <ListItemText>Remove File</ListItemText>
                                             </MenuItem>
                                         )}
-                                        
+
                                     </Menu>
                                 </TableCell>
                             </TableRow>
@@ -194,4 +196,5 @@ const FilesTable = ({
         </TableContainer>
     );
 };
+
 export default FilesTable;
