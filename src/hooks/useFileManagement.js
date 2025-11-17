@@ -1365,6 +1365,98 @@ export const useFileManagement = () => {
         }
 
         try {
+            // Helper function to create Excel file for a single file
+            const createExcelForFile = (fileGroup) => {
+                const meta = fileGroup.metadata;
+                const wb = XLSX.utils.book_new();
+                const wsData = [];
+                
+                // Add title row
+                wsData.push(['TREE MEASUREMENTS EXPORT REPORT']);
+                wsData.push(['Generated: ' + new Date().toLocaleString()]);
+                wsData.push([]); // Empty row
+                
+                // File metadata header
+                wsData.push(['FILE INFORMATION']);
+                wsData.push(['File ID:', meta.file_id]);
+                wsData.push(['File Name:', meta.file_name]);
+                wsData.push(['Plot Name:', meta.plot_name || 'N/A']);
+                wsData.push(['Division:', meta.division_name || 'N/A']);
+                wsData.push(['Project:', meta.project_name || 'N/A']);
+                wsData.push(['Upload Date:', meta.upload_date]);
+                wsData.push(['File Location:', `${meta.file_latitude || 'N/A'}, ${meta.file_longitude || 'N/A'}`]);
+                wsData.push(['Total Trees in File:', meta.tree_count_in_file]);
+                wsData.push([]); // Empty row
+                
+                // Tree measurements header
+                wsData.push([
+                    'Tree ID',
+                    'Latitude',
+                    'Longitude',
+                    'Height (m)',
+                    'DBH (cm)',
+                    'Stem Volume (m³)',
+                    'Above Ground Volume (m³)',
+                    'Total Volume (m³)',
+                    'Biomass (tonnes)',
+                    'Carbon (tonnes)',
+                    'CO2 Equivalent (tonnes)',
+                    'Assumed D2 (cm)'
+                ]);
+                
+                // Tree measurements data
+                fileGroup.trees.forEach(tree => {
+                    wsData.push([
+                        tree.tree_id,
+                        tree.tree_latitude,
+                        tree.tree_longitude,
+                        tree.tree_height_m,
+                        tree.tree_dbh_cm,
+                        tree.tree_stem_volume_m3,
+                        tree.tree_above_ground_volume_m3,
+                        tree.tree_total_volume_m3,
+                        tree.tree_biomass_tonnes,
+                        tree.tree_carbon_tonnes,
+                        tree.tree_co2_equivalent_tonnes,
+                        tree.assumed_d2_cm_for_volume
+                    ]);
+                });
+
+                // Create worksheet from array
+                const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+                // Set column widths for better readability
+                const colWidths = [
+                    { wch: 15 }, // Tree ID / Labels
+                    { wch: 15 }, // Latitude / Values
+                    { wch: 15 }, // Longitude
+                    { wch: 15 }, // Height
+                    { wch: 15 }, // DBH
+                    { wch: 20 }, // Stem Volume
+                    { wch: 25 }, // Above Ground Volume
+                    { wch: 18 }, // Total Volume
+                    { wch: 18 }, // Biomass
+                    { wch: 15 }, // Carbon
+                    { wch: 22 }, // CO2 Equivalent
+                    { wch: 18 }  // Assumed D2
+                ];
+                ws['!cols'] = colWidths;
+
+                // Add worksheet to workbook
+                XLSX.utils.book_append_sheet(wb, ws, 'Tree Measurements');
+
+                // Generate Excel file
+                const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                const data = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+                // Generate filename with file name and timestamp
+                const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+                const safeFileName = meta.file_name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+                const filename = `tree_measurements_${safeFileName}_${timestamp}.xlsx`;
+
+                return { data, filename, treeCount: fileGroup.trees.length };
+            };
+
             showSnackbar("Preparing tree data export...", "info");
 
             // Fetch detailed tree data from the API for selected files
@@ -1425,110 +1517,33 @@ export const useFileManagement = () => {
                 fileGroups[tree.file_id].trees.push(tree);
             });
 
-            // Create workbook
-            const wb = XLSX.utils.book_new();
-            
-            // Build worksheet data manually for better control
-            const wsData = [];
-            
-            // Add title row
-            wsData.push(['TREE MEASUREMENTS EXPORT REPORT']);
-            wsData.push(['Generated: ' + new Date().toLocaleString()]);
-            wsData.push([]); // Empty row
-            
-            // Process each file group
-            Object.values(fileGroups).forEach((fileGroup, fileIndex) => {
-                const meta = fileGroup.metadata;
+            // If multiple files, export each as a separate file
+            if (filesToExport.length > 1) {
+                const fileGroupArray = Object.values(fileGroups);
+                let exportedCount = 0;
                 
-                // File metadata header
-                wsData.push(['FILE INFORMATION']);
-                wsData.push(['File ID:', meta.file_id]);
-                wsData.push(['File Name:', meta.file_name]);
-                wsData.push(['Plot Name:', meta.plot_name || 'N/A']);
-                wsData.push(['Division:', meta.division_name || 'N/A']);
-                wsData.push(['Project:', meta.project_name || 'N/A']);
-                wsData.push(['Upload Date:', meta.upload_date]);
-                wsData.push(['File Location:', `${meta.file_latitude || 'N/A'}, ${meta.file_longitude || 'N/A'}`]);
-                wsData.push(['Total Trees in File:', meta.tree_count_in_file]);
-                wsData.push([]); // Empty row
-                
-                // Tree measurements header
-                wsData.push([
-                    'Tree ID',
-                    'Latitude',
-                    'Longitude',
-                    'Height (m)',
-                    'DBH (cm)',
-                    'Stem Volume (m³)',
-                    'Above Ground Volume (m³)',
-                    'Total Volume (m³)',
-                    'Biomass (tonnes)',
-                    'Carbon (tonnes)',
-                    'CO2 Equivalent (tonnes)',
-                    'Assumed D2 (cm)'
-                ]);
-                
-                // Tree measurements data
-                fileGroup.trees.forEach(tree => {
-                    wsData.push([
-                        tree.tree_id,
-                        tree.tree_latitude,
-                        tree.tree_longitude,
-                        tree.tree_height_m,
-                        tree.tree_dbh_cm,
-                        tree.tree_stem_volume_m3,
-                        tree.tree_above_ground_volume_m3,
-                        tree.tree_total_volume_m3,
-                        tree.tree_biomass_tonnes,
-                        tree.tree_carbon_tonnes,
-                        tree.tree_co2_equivalent_tonnes,
-                        tree.assumed_d2_cm_for_volume
-                    ]);
-                });
-                
-                // Add spacing between files if there are more files
-                if (fileIndex < Object.values(fileGroups).length - 1) {
-                    wsData.push([]);
-                    wsData.push([]);
-                    wsData.push(['─'.repeat(50)]); // Separator line
-                    wsData.push([]);
+                // Export each file with a small delay to avoid browser blocking multiple downloads
+                for (let i = 0; i < fileGroupArray.length; i++) {
+                    const fileGroup = fileGroupArray[i];
+                    const { data, filename, treeCount } = createExcelForFile(fileGroup);
+                    
+                    // Add a small delay between downloads (except for the first one)
+                    if (i > 0) {
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                    }
+                    
+                    saveAs(data, filename);
+                    exportedCount++;
                 }
-            });
-
-            // Create worksheet from array
-            const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-            // Set column widths for better readability
-            const colWidths = [
-                { wch: 15 }, // Tree ID / Labels
-                { wch: 15 }, // Latitude / Values
-                { wch: 15 }, // Longitude
-                { wch: 15 }, // Height
-                { wch: 15 }, // DBH
-                { wch: 20 }, // Stem Volume
-                { wch: 25 }, // Above Ground Volume
-                { wch: 18 }, // Total Volume
-                { wch: 18 }, // Biomass
-                { wch: 15 }, // Carbon
-                { wch: 22 }, // CO2 Equivalent
-                { wch: 18 }  // Assumed D2
-            ];
-            ws['!cols'] = colWidths;
-
-            // Add worksheet to workbook
-            XLSX.utils.book_append_sheet(wb, ws, 'Tree Measurements');
-
-            // Generate Excel file
-            const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-            const data = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-
-            // Generate filename with timestamp
-            const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-            const filename = `tree_measurements_export_${timestamp}.xlsx`;
-
-            // Download the file
-            saveAs(data, filename);
-            showSnackbar(`Tree measurements exported successfully! ${totalTrees} trees from ${filesToExport.length} selected files saved as ${filename}`, "success");
+                
+                showSnackbar(`Successfully exported ${exportedCount} file(s)! Each file contains its own tree measurements.`, "success");
+            } else {
+                // Single file export - use the same logic but simpler
+                const fileGroup = Object.values(fileGroups)[0];
+                const { data, filename, treeCount } = createExcelForFile(fileGroup);
+                saveAs(data, filename);
+                showSnackbar(`Tree measurements exported successfully! ${treeCount} trees saved as ${filename}`, "success");
+            }
 
         } catch (error) {
             console.error("Error exporting tree data to Excel:", error);
