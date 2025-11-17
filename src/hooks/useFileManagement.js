@@ -14,6 +14,9 @@ const ROLES = {
 };
 const ACTIVE_PIPELINE_PROCESSING_STATUSES = [
     'segmenting',
+    'segmented_ready_for_las',  // After first segmentation, before ISBNet
+    'isbnet_completed',           // After ISBNet completes, before LAS processing
+    'isbnet_failed',             // If ISBNet fails (still need to show status)
     'processing_las_data',
     'processing'
 ];
@@ -139,7 +142,7 @@ export const useFileManagement = () => {
                     return true;
                 case 'stop': // DM can stop processing for files they manage or unassigned
                      return file && (file.project_id === null || assignedProjectIdsForDM.includes(file.project_id)) && 
-                            ['segmenting', 'processing_las_data', 'uploaded'].includes(file.status);
+                            ACTIVE_PIPELINE_PROCESSING_STATUSES.concat(['uploaded']).includes(file.status);
                 case 'start': // DM can start processing for files they manage or unassigned
                      return file && (file.project_id === null || assignedProjectIdsForDM.includes(file.project_id)) && 
                             file.status === 'stopped';

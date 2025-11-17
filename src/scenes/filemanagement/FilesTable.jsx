@@ -9,7 +9,14 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import StopIcon from '@mui/icons-material/Stop';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'; // IMPORT ADDED
 
-const ACTIVE_PIPELINE_PROCESSING_STATUSES = ['segmenting', 'processing_las_data', 'processing'];
+const ACTIVE_PIPELINE_PROCESSING_STATUSES = [
+    'segmenting',
+    'segmented_ready_for_las',  // After first segmentation, before ISBNet
+    'isbnet_completed',           // After ISBNet completes, before LAS processing
+    'isbnet_failed',             // If ISBNet fails (still need to show status)
+    'processing_las_data',
+    'processing'
+];
 
 const FilesTable = ({
     colors, theme, files, isLoading, isLoadingPermissions, selectedFileIds,

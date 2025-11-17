@@ -20,17 +20,7 @@ async function processLasData (fileIdToUpdate, stored_path_absolute) {
         }
 
         console.log(`[LAS Service] (FileID ${fileIdToUpdate}): Spawning LAS processing script "${pythonScriptPath}" with arg "${stored_path_absolute}"`);
-        try {
-            await pool.query(
-                "UPDATE uploaded_files SET status = 'processing_las_data', processing_error = NULL WHERE id = $1",
-                [fileIdToUpdate]
-            );
-            console.log(`[LAS Service] (FileID ${fileIdToUpdate}): Status set to 'processing_las_data'.`);
-        } catch (dbErr) {
-            const errMsg = `[LAS Service] DB Error (FileID ${fileIdToUpdate}) setting status to 'processing_las_data': ${dbErr.message}`;
-            console.error(errMsg);
-            return reject(new Error(errMsg));
-        }
+        // Note: Status is managed by the queue service, so we don't update it here to avoid race conditions
 
         const pythonProcess = spawn(pythonCommand, [pythonScriptPath, stored_path_absolute]);
 

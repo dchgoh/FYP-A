@@ -87,13 +87,31 @@ const activeProcesses = new Map();
 
 async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
     console.log(`[SegmentationService] (FileID ${fileId}): Starting for ${inputFileAbsolutePath}`);
+
+    if (activeProcesses.has(fileId)) {
+        console.warn(`[SegmentationService] (FileID ${fileId}): Segmentation already running. Reusing existing process promise.`);
+        return activeProcesses.get(fileId).promise;
+    }
+
     await pool.query("UPDATE uploaded_files SET status = 'segmenting', processing_error = NULL WHERE id = $1", [fileId]);
 
     // Allocate GPU for this job
     const allocatedGpuId = await gpuManager.allocateGPU(fileId, 2000); // Request 2GB GPU memory
     const gpuArg = allocatedGpuId !== null ? allocatedGpuId.toString() : 'cpu';
 
-    return new Promise((resolve, reject) => {
+    let processEntry;
+
+    const segmentationPromise = new Promise((resolve, reject) => {
+        processEntry = {
+            process: null,
+            startTime: Date.now(),
+            filePath: inputFileAbsolutePath,
+            backupPath: null,
+            promise: null,
+            resolve,
+            reject
+        };
+
         const pythonVenvExecutable = process.platform === "win32"
             ? path.join(projectRootDir, 'venv', 'Scripts', 'python.exe')
             : path.join(projectRootDir, 'venv', 'bin', 'python');
@@ -189,12 +207,10 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
         let segStdout = '', segStderr = '';
         
         // Track the active process
-        activeProcesses.set(fileId, {
-            process: segmentationProcess,
-            startTime: Date.now(),
-            filePath: inputFileAbsolutePath,
-            backupPath: originalFileBackupPath
-        });
+        processEntry.process = segmentationProcess;
+        processEntry.startTime = Date.now();
+        processEntry.backupPath = originalFileBackupPath;
+        activeProcesses.set(fileId, processEntry);
         
         segmentationProcess.stdout.on('data', (data) => { 
             const output = data.toString();
@@ -238,12 +254,17 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
             console.error(`[SegmentationService] Error (FileID ${fileId}): Failed to start. Err: ${error.message}`);
             
             // Remove from active processes
+            const entry = activeProcesses.get(fileId);
             activeProcesses.delete(fileId);
             
             if (originalFileBackupPath && fs.existsSync(originalFileBackupPath)) { /* restore backup */ try { fs.renameSync(originalFileBackupPath, inputFileAbsolutePath); } catch (e) {console.error('Backup restore failed', e)} }
             try { await pool.query("UPDATE uploaded_files SET status = 'failed', processing_error = $1 WHERE id = $2", [`Seg Spawn Err: ${error.message.substring(0,200)}`, fileId]); } catch (dbErr) {/* log */}
             // Release GPU allocation on process error
             gpuManager.releaseGPU(fileId);
+            if (entry && typeof entry.reject === 'function') {
+                entry.reject(new Error(`[SegmentationService] Spawn error: ${error.message}. Stderr: ${segStderr.substring(0, 100)}`));
+                return;
+            }
             reject(new Error(`[SegmentationService] Spawn error: ${error.message}. Stderr: ${segStderr.substring(0, 100)}`));
         });
 
@@ -251,6 +272,7 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
             console.log(`\n[SegmentationService] (FileID ${fileId}): Script exited with code ${code}.`);
             
             // Remove from active processes
+            const entry = activeProcesses.get(fileId);
             activeProcesses.delete(fileId);
             
             if (code === 0) {
@@ -312,11 +334,22 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
                         // Update DB after ISBNet
                         await pool.query("UPDATE uploaded_files SET status = 'isbnet_completed', processing_error = NULL WHERE id = $1", [fileId]);
 
-                        resolve({ success: true, message: "Segmentation + ISBNet inference completed.", stdout: segStdout + "\n" + inferenceResult.stdout });
+                        const result = { success: true, message: "Segmentation + ISBNet inference completed.", stdout: segStdout + "\n" + inferenceResult.stdout };
+                        if (entry && typeof entry.resolve === 'function') {
+                            entry.resolve(result);
+                        } else {
+                            resolve(result);
+                        }
+                        return;
                     } catch (isberr) {
                         console.error(`[SegmentationService] (FileID ${fileId}): ISBNet failed:`, isberr);
                         await pool.query("UPDATE uploaded_files SET status = 'isbnet_failed', processing_error = $1 WHERE id = $2", [isberr.message, fileId]);
-                        reject(new Error(`[SegmentationService] ISBNet failed: ${isberr.message}`));
+                        if (entry && typeof entry.reject === 'function') {
+                            entry.reject(new Error(`[SegmentationService] ISBNet failed: ${isberr.message}`));
+                        } else {
+                            reject(new Error(`[SegmentationService] ISBNet failed: ${isberr.message}`));
+                        }
+                        return;
                     }
 
                 }
@@ -327,10 +360,21 @@ async function runSegmentation(fileId, inputFileAbsolutePath, projectRootDir) {
                 try { clearProgress(fileId); } catch (_) { /* noop */ }
                 // Release GPU allocation on failure
                 gpuManager.releaseGPU(fileId);
-                reject(new Error(errMsg));
+                if (entry && typeof entry.reject === 'function') {
+                    entry.reject(new Error(errMsg));
+                } else {
+                    reject(new Error(errMsg));
+                }
+                return;
             }
         });
     });
+
+    if (processEntry) {
+        processEntry.promise = segmentationPromise;
+    }
+
+    return segmentationPromise;
 }
 
 async function stopSegmentation(fileId) {

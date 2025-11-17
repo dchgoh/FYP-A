@@ -138,8 +138,9 @@ processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, asy
             console.log(`[Queue] Job ${job.id}: Starting enhanced segmentation for file ${fileId}`);
             await updateJobStatus(fileId, 'segmenting', 'Running AI semantic and instance segmentation');
             
+            let segmentationResult;
             try {
-                await enhancedSegmentationService.runSegmentation(fileId, filePath, projectRootDir);
+                segmentationResult = await enhancedSegmentationService.runSegmentation(fileId, filePath, projectRootDir);
             } catch (segError) {
                 // Check if job was cancelled during segmentation
                 if (!(await shouldJobContinue(job, fileId))) {
@@ -154,7 +155,12 @@ processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, asy
                 throw new Error('Job was cancelled after segmentation');
             }
 
-            // Verify segmentation success
+            // Verify segmentation success - check both return value and database status
+            if (!segmentationResult || !segmentationResult.success) {
+                throw new Error('Segmentation did not complete successfully');
+            }
+
+            // Verify database status immediately after segmentation completes
             const segStatusCheck = await pool.query("SELECT status FROM uploaded_files WHERE id = $1", [fileId]);
             const status = segStatusCheck.rows.length > 0 ? segStatusCheck.rows[0].status : null;
             if (!status || (status !== 'enhanced_segmentation_complete' && status !== 'isbnet_completed')) {
@@ -162,7 +168,13 @@ processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, asy
                 if (status === 'stopped') {
                     throw new Error('Processing was stopped by user');
                 }
-                throw new Error(`Enhanced segmentation failed. Status: ${status}`);
+                // If status is already processing_las_data, it means LAS processing started prematurely
+                // This shouldn't happen, but if it does, we should still proceed
+                if (status === 'processing_las_data') {
+                    console.warn(`[Queue] Job ${job.id}: Status already set to 'processing_las_data' before verification. This may indicate a race condition, but proceeding.`);
+                } else {
+                    throw new Error(`Enhanced segmentation failed. Status: ${status}`);
+                }
             }
 
             // Check before LAS processing
