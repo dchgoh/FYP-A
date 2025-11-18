@@ -280,7 +280,9 @@ const Dashboard = ({ isCollapsed }) => {
         if (currentData.length === 0) return { labels: [], datasets: [] };
         
         const bins = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, Infinity];
-        const labels = bins.slice(0, -1).map((bin, index) => index === bins.length - 2 ? `≥${bins[index]}m` : `${bin}-${bins[index + 1]}m`);
+        const labels = bins.slice(0, -1).map((bin, index) => 
+            index === bins.length - 2 ? `≥${bins[index]}` : `${bin}-${bins[index + 1]}`
+        );
         const counts = Array(labels.length).fill(0);
 
         currentData.forEach(height => {
@@ -298,25 +300,39 @@ const Dashboard = ({ isCollapsed }) => {
         };
     }, [dashboardData.allTreeHeightsData, colors]);
 
-    const treeHeightHistogramOptions = useMemo(() => ({
-        maintainAspectRatio: false, responsive: true,
-        plugins: {
-            legend: { display: true, position: "bottom", labels: { color: colors.grey[100] } },
-            title: { display: true, text: 'Tree Height Distribution (Adjusted)', color: colors.grey[100], font: { size: 16 }, padding: { bottom: 30 } },
-            datalabels: { display: true, color: colors.grey[100], anchor: 'end', align: 'top', formatter: (value) => value > 0 ? value : '' },
-        },
-        scales: {
-            x: { title: { display: true, text: 'Height Range (m)', color: colors.grey[300] }, ticks: { color: colors.grey[100] }, grid: { color: colors.grey[800] } },
-            y: { title: { display: true, text: 'Number of Trees', color: colors.grey[300] }, ticks: { color: colors.grey[100], stepSize: Math.max(1, Math.ceil(Math.max(...(treeHeightHistogramData.datasets[0]?.data || [0])) / 10)) }, grid: { color: colors.grey[800] }, beginAtZero: true },
-        },
-    }), [colors, treeHeightHistogramData]);
+    const treeHeightHistogramOptions = useMemo(() => {
+        const dataValues = treeHeightHistogramData.datasets[0]?.data || [0];
+        const maxValue = Math.max(...dataValues);
+        const suggestedMax = maxValue > 0 ? Math.ceil(maxValue * 1.2) : 10;
+
+        return {
+            maintainAspectRatio: false, responsive: true,
+            plugins: {
+                legend: { display: true, position: "bottom", labels: { color: colors.grey[100] } },
+                title: { display: true, text: 'Tree Height Distribution (Adjusted)', color: colors.grey[100], font: { size: 16 }, padding: { bottom: 30 } },
+                datalabels: { display: true, color: colors.grey[100], anchor: 'end', align: 'top', formatter: (value) => value > 0 ? value : '' },
+            },
+            scales: {
+                x: { title: { display: true, text: 'Height Range (m)', color: colors.grey[300] }, ticks: { color: colors.grey[100] }, grid: { color: colors.grey[800] } },
+                y: { 
+                    title: { display: true, text: 'Number of Trees', color: colors.grey[300] }, 
+                    ticks: { color: colors.grey[100] }, 
+                    grid: { color: colors.grey[800] }, 
+                    beginAtZero: true,
+                    max: suggestedMax 
+                },
+            },
+        };
+    }, [colors, treeHeightHistogramData]);
 
     const treeDbhHistogramData = useMemo(() => {
         const currentData = Array.isArray(dashboardData.allTreeDbhsData) ? dashboardData.allTreeDbhsData : [];
         if (currentData.length === 0) return { labels: [], datasets: [] };
 
         const bins = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, Infinity];
-        const labels = bins.slice(0, -1).map((bin, index) => index === bins.length - 2 ? `≥${bins[index]}cm` : `${bin}-${bins[index + 1]}cm`);
+        const labels = bins.slice(0, -1).map((bin, index) => 
+            index === bins.length - 2 ? `≥${bins[index]}` : `${bin}-${bins[index + 1]}`
+        );
         const counts = Array(labels.length).fill(0);
 
         currentData.forEach(dbh => {
@@ -334,25 +350,37 @@ const Dashboard = ({ isCollapsed }) => {
         };
     }, [dashboardData.allTreeDbhsData, colors]);
 
-    const treeDbhHistogramOptions = useMemo(() => ({
-        maintainAspectRatio: false, responsive: true,
-        plugins: {
-            legend: { display: true, position: "bottom", labels: { color: colors.grey[100] } },
-            title: { display: true, text: 'Tree Diameter (DBH) Distribution', color: colors.grey[100], font: { size: 16 }, padding: { bottom: 30 } },
-            datalabels: { display: true, color: colors.grey[100], anchor: 'end', align: 'top', formatter: (value) => value > 0 ? value : '' },
-        },
-        scales: {
-            x: { title: { display: true, text: 'DBH Range (cm)', color: colors.grey[300] }, ticks: { color: colors.grey[100] }, grid: { color: colors.grey[800] } },
-            y: { title: { display: true, text: 'Number of Trees', color: colors.grey[300] }, ticks: { color: colors.grey[100], stepSize: Math.max(1, Math.ceil(Math.max(...(treeDbhHistogramData.datasets[0]?.data || [0])) / 10)) }, grid: { color: colors.grey[800] }, beginAtZero: true },
-        },
-    }), [colors, treeDbhHistogramData]);
+    const treeDbhHistogramOptions = useMemo(() => {
+        const dataValues = treeDbhHistogramData.datasets[0]?.data || [0];
+        const maxValue = Math.max(...dataValues);
+        const suggestedMax = maxValue > 0 ? Math.ceil(maxValue * 1.2) : 10;
+
+        return {
+            maintainAspectRatio: false, responsive: true,
+            plugins: {
+                legend: { display: true, position: "bottom", labels: { color: colors.grey[100] } },
+                title: { display: true, text: 'Tree Diameter (DBH) Distribution', color: colors.grey[100], font: { size: 16 }, padding: { bottom: 30 } },
+                datalabels: { display: true, color: colors.grey[100], anchor: 'end', align: 'top', formatter: (value) => value > 0 ? value : '' },
+            },
+            scales: {
+                x: { title: { display: true, text: 'DBH Range (cm)', color: colors.grey[300] }, ticks: { color: colors.grey[100] }, grid: { color: colors.grey[800] } },
+                y: { 
+                    title: { display: true, text: 'Number of Trees', color: colors.grey[300] }, 
+                    ticks: { color: colors.grey[100] },
+                    grid: { color: colors.grey[800] }, 
+                    beginAtZero: true,
+                    max: suggestedMax
+                },
+            },
+        };
+    }, [colors, treeDbhHistogramData]);
 
     const treeVolumeHistogramData = useMemo(() => {
         const currentData = Array.isArray(dashboardData.allTreeVolumesData) ? dashboardData.allTreeVolumesData : [];
         if (currentData.length === 0) return { labels: [], datasets: [] };
 
         const bins = [0, 0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 5, Infinity];
-        const labels = bins.slice(0, -1).map((bin, index) => index === bins.length - 2 ? `≥${bins[index]}m³` : `${bin}-${bins[index + 1]}m³`);
+        const labels = bins.slice(0, -1).map((bin, index) => index === bins.length - 2 ? `≥${bins[index]}` : `${bin}-${bins[index + 1]}`);
         const counts = Array(labels.length).fill(0);
 
         currentData.forEach(volume => {
@@ -370,18 +398,30 @@ const Dashboard = ({ isCollapsed }) => {
         };
     }, [dashboardData.allTreeVolumesData, colors]);
 
-    const treeVolumeHistogramOptions = useMemo(() => ({
-        maintainAspectRatio: false, responsive: true,
-        plugins: {
-            legend: { display: true, position: "bottom", labels: { color: colors.grey[100] } },
-            title: { display: true, text: 'Tree Volume Distribution (m³)', color: colors.grey[100], font: { size: 16 }, padding: { bottom: 30 } },
-            datalabels: { display: true, color: colors.grey[100], anchor: 'end', align: 'top', formatter: (value) => value > 0 ? value : '' },
-        },
-        scales: {
-            x: { title: { display: true, text: 'Volume Range (m³)', color: colors.grey[300] }, ticks: { color: colors.grey[100] }, grid: { color: colors.grey[800] } },
-            y: { title: { display: true, text: 'Number of Trees', color: colors.grey[300] }, ticks: { color: colors.grey[100], stepSize: Math.max(1, Math.ceil(Math.max(...(treeVolumeHistogramData.datasets[0]?.data || [0])) / 10)) }, grid: { color: colors.grey[800] }, beginAtZero: true },
-        },
-    }), [colors, treeVolumeHistogramData]);
+    const treeVolumeHistogramOptions = useMemo(() => {
+        const dataValues = treeVolumeHistogramData.datasets[0]?.data || [0];
+        const maxValue = Math.max(...dataValues);
+        const suggestedMax = maxValue > 0 ? Math.ceil(maxValue * 1.2) : 10;
+
+        return {
+            maintainAspectRatio: false, responsive: true,
+            plugins: {
+                legend: { display: true, position: "bottom", labels: { color: colors.grey[100] } },
+                title: { display: true, text: 'Tree Volume Distribution (m³)', color: colors.grey[100], font: { size: 16 }, padding: { bottom: 30 } },
+                datalabels: { display: true, color: colors.grey[100], anchor: 'end', align: 'top', formatter: (value) => value > 0 ? value : '' },
+            },
+            scales: {
+                x: { title: { display: true, text: 'Volume Range (m³)', color: colors.grey[300] }, ticks: { color: colors.grey[100] }, grid: { color: colors.grey[800] } },
+                y: { 
+                    title: { display: true, text: 'Number of Trees', color: colors.grey[300] }, 
+                    ticks: { color: colors.grey[100] },
+                    grid: { color: colors.grey[800] }, 
+                    beginAtZero: true,
+                    max: suggestedMax
+                },
+            },
+        };
+    }, [colors, treeVolumeHistogramData]);
 
     // --- Main Component Styles ---
     const styles = {
