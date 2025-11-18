@@ -1,19 +1,18 @@
-import React, { useState } from 'react';
-import { Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Typography, IconButton, Menu, MenuItem, CircularProgress, ListItemIcon, ListItemText, Checkbox } from '@mui/material';
+import React, { useState } from 'react'; // COMMA REMOVED - THIS IS THE FIX
+import { Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Typography, IconButton, Menu, MenuItem, CircularProgress, ListItemIcon, ListItemText, Checkbox, Button } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
-import TransformIcon from '@mui/icons-material/Transform';
 import DownloadIcon from '@mui/icons-material/Download';
 import DeleteIcon from '@mui/icons-material/Delete';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import StopIcon from '@mui/icons-material/Stop';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow'; // IMPORT ADDED
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 
 const ACTIVE_PIPELINE_PROCESSING_STATUSES = [
     'segmenting',
-    'segmented_ready_for_las',  // After first segmentation, before ISBNet
-    'isbnet_completed',           // After ISBNet completes, before LAS processing
-    'isbnet_failed',             // If ISBNet fails (still need to show status)
+    'segmented_ready_for_las',
+    'isbnet_completed',
+    'isbnet_failed',
     'processing_las_data',
     'processing'
 ];
@@ -23,7 +22,7 @@ const FilesTable = ({
     handleSelectAllClick, handleRowCheckboxClick, canPerformAction,
     filesBeingProcessed, deletingProjectId, deletingDivisionId, isDeletingBulk,
     handleDownload, handleRemove, handleViewPointCloud, handleStopProcessing,
-    handleStartProcessing, // PROP ADDED
+    handleStartProcessing,
     handleOpenReassignModal, numTotalSelectableForDelete
 }) => {
     const [anchorEl, setAnchorEl] = useState(null);
@@ -65,6 +64,7 @@ const FilesTable = ({
                         <TableCell sx={styles.headCell}>Size</TableCell>
                         <TableCell sx={styles.headCell}>Uploaded</TableCell>
                         <TableCell sx={{...styles.headCell, textAlign:'center'}}>Status</TableCell>
+                        <TableCell sx={{...styles.headCell, textAlign:'center'}}>View Point Cloud</TableCell>
                         <TableCell sx={{...styles.headCell, textAlign:'center'}}>Actions</TableCell>
                     </TableRow>
                 </TableHead>
@@ -83,7 +83,7 @@ const FilesTable = ({
                         else if (file.status === 'failed' || file.status.startsWith('error')) { statusText = "Failed"; statusColor = colors.redAccent[400]; }
                         else if (file.status === 'uploaded') { statusText = "Queued"; statusColor = colors.orangeAccent ? colors.orangeAccent[400] : colors.grey[400]; }
 
-                        const hasAnyAction = canPerformAction('reassign', file) || canPerformAction('download', file) || (canPerformAction('view', file) && isReady) || canDeleteThisFile;
+                        const hasAnyAction = canPerformAction('reassign', file) || canPerformAction('download', file) || canDeleteThisFile;
 
                         const progressPercent = (() => {
                             const candidates = [
@@ -120,21 +120,13 @@ const FilesTable = ({
                                                 <IconButton
                                                     size="small"
                                                     onClick={(e) => { e.stopPropagation(); handleStopProcessing(file); }}
-                                                    sx={{
-                                                        color: colors.redAccent[400],
-                                                        padding: '2px',
-                                                        '&:hover': {
-                                                            backgroundColor: 'rgba(244, 67, 54, 0.1)',
-                                                            color: colors.redAccent[300]
-                                                        }
-                                                    }}
+                                                    sx={{ color: colors.redAccent[400], padding: '2px', '&:hover': { backgroundColor: 'rgba(244, 67, 54, 0.1)', color: colors.redAccent[300] } }}
                                                     title="Stop Processing"
                                                 >
                                                     <StopIcon fontSize="small" />
                                                 </IconButton>
                                             )}
                                         </Box>
-                                    // *** THIS IS THE NEW LOGIC BLOCK ***
                                     ) : file.status === 'stopped' ? (
                                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
                                             <Typography variant="caption" sx={{ color: statusColor }}>{statusText}</Typography>
@@ -142,14 +134,7 @@ const FilesTable = ({
                                                 <IconButton
                                                     size="small"
                                                     onClick={(e) => { e.stopPropagation(); handleStartProcessing(file); }}
-                                                    sx={{
-                                                        color: colors.greenAccent[400],
-                                                        padding: '2px',
-                                                        '&:hover': {
-                                                            backgroundColor: 'rgba(76, 175, 80, 0.1)',
-                                                            color: colors.greenAccent[300]
-                                                        }
-                                                    }}
+                                                    sx={{ color: colors.greenAccent[400], padding: '2px', '&:hover': { backgroundColor: 'rgba(76, 175, 80, 0.1)', color: colors.greenAccent[300] } }}
                                                     title="Resume Processing"
                                                 >
                                                     <PlayArrowIcon fontSize="small" />
@@ -159,6 +144,30 @@ const FilesTable = ({
                                     ) : (
                                         <Typography variant="caption" sx={{ color: statusColor }}>{statusText}</Typography>
                                     )}
+                                </TableCell>
+                                <TableCell sx={{ ...styles.bodyCell, textAlign: 'center' }}>
+                                    <Button
+                                        variant="contained"
+                                        size="small"
+                                        startIcon={<VisibilityIcon />}
+                                        disabled={!isReady || !canPerformAction('view', file)}
+                                        onClick={(e) => { e.stopPropagation(); handleViewPointCloud(file); }}
+                                        sx={{
+                                            fontSize: { xs: '0.65rem', sm: '0.75rem' },
+                                            padding: '2px 8px',
+                                            backgroundColor: (isReady && canPerformAction('view', file)) ? colors.greenAccent[600] : colors.grey[700],
+                                            color: (isReady && canPerformAction('view', file)) ? colors.grey[100] : colors.grey[500],
+                                            '&:hover': {
+                                                backgroundColor: (isReady && canPerformAction('view', file)) ? colors.greenAccent[500] : colors.grey[700],
+                                            },
+                                            '&.Mui-disabled': {
+                                                backgroundColor: colors.grey[700],
+                                                color: colors.grey[500]
+                                            }
+                                        }}
+                                    >
+                                        View
+                                    </Button>
                                 </TableCell>
                                 <TableCell sx={{ ...styles.bodyCell, textAlign: 'center' }}>
                                     <IconButton aria-label={`actions for ${file.name}`} onClick={(e) => handleMenuClick(e, file)} sx={styles.actionButton} size="small" disabled={isEffectivelyConverting || !hasAnyAction || isGlobalDeleteActive} title="More Actions">
@@ -171,28 +180,18 @@ const FilesTable = ({
                                                 <ListItemText>Edit / Reassign</ListItemText>
                                             </MenuItem>
                                         )}
-
                                         {canPerformAction('download', file) && (
                                             <MenuItem onClick={(event) => { handleMenuClose(event); handleDownload(selectedFile); }}>
                                                 <ListItemIcon sx={styles.menuItemIcon}><DownloadIcon fontSize="small" /></ListItemIcon>
                                                 <ListItemText>Download</ListItemText>
                                             </MenuItem>
                                         )}
-
-                                        {canPerformAction('view', file) && isReady && (
-                                            <MenuItem onClick={(event) => { handleMenuClose(event); handleViewPointCloud(selectedFile); }}>
-                                                <ListItemIcon sx={styles.menuItemIcon}><VisibilityIcon fontSize="small" /></ListItemIcon>
-                                                <ListItemText>View Point Cloud</ListItemText>
-                                            </MenuItem>
-                                        )}
-
                                         {canDeleteThisFile && (
                                             <MenuItem onClick={(event) => { handleMenuClose(event); handleRemove(selectedFile); }} sx={{ color: colors.redAccent[400] }}>
                                                 <ListItemIcon sx={styles.menuItemIcon}><DeleteIcon fontSize="small" /></ListItemIcon>
                                                 <ListItemText>Remove File</ListItemText>
                                             </MenuItem>
                                         )}
-
                                     </Menu>
                                 </TableCell>
                             </TableRow>

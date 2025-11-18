@@ -34,8 +34,15 @@ const ReassignModal = ({
                 </FormControl>
             </DialogContent>
             <DialogActions sx={styles.dialogActions}>
-                <Button onClick={handleCloseReassignModal} color="secondary" disabled={isReassigning}>Cancel</Button>
-                <Button onClick={handleReassignFile} color="primary" disabled={isReassigning || !newPlotNameForReassign.trim() || (selectedProjectIdForReassign === (fileToReassign?.project_id ?? '') && newPlotNameForReassign.trim() === (fileToReassign?.plot_name || ''))} variant="contained">
+                {/* --- MODIFIED CANCEL BUTTON --- */}
+                <Button onClick={handleCloseReassignModal} color="warning" variant="contained" disabled={isReassigning}>Cancel</Button>
+                {/* --- MODIFIED SAVE BUTTON --- */}
+                <Button 
+                    onClick={handleReassignFile} 
+                    color="success" 
+                    disabled={isReassigning || !newPlotNameForReassign.trim() || (selectedProjectIdForReassign === (fileToReassign?.project_id ?? '') && newPlotNameForReassign.trim() === (fileToReassign?.plot_name || ''))} 
+                    variant="contained"
+                >
                     {isReassigning ? <CircularProgress size={24} color="inherit"/> : "Save Changes"}
                 </Button>
             </DialogActions>

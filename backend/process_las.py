@@ -444,7 +444,6 @@ if __name__ == "__main__":
                 length_m = output_results["tree_segment_lengths_L_m"].get(tree_id)
                 d2_cm = ASSUMED_SMALL_END_DIAMETER_D2_CM
 
-                # --- START OF MODIFICATION ---
                 # If DBH is above the threshold, nullify all subsequent calculations for this tree
                 if d1_cm is not None and d1_cm > MAX_DBH_CM_THRESHOLD:
                     log_stderr("Main", f"Tree ID {tree_id} DBH ({d1_cm} cm) exceeds threshold of {MAX_DBH_CM_THRESHOLD} cm. Nullifying all metrics for this tree.")
@@ -458,8 +457,6 @@ if __name__ == "__main__":
                     # Add a warning for the specific tree
                     output_results["warnings"].append(f"Tree {tree_id} DBH was unusually large ({d1_cm} cm) and was discarded.")
                     continue # Skip to the next tree
-                # --- END OF MODIFICATION ---
-
 
                 stem_volume_m3 = calculate_smalians_volume(d1_cm, d2_cm, length_m)
                 output_results["tree_stem_volumes_m3"][tree_id] = round(stem_volume_m3, 6) if stem_volume_m3 is not None else None
