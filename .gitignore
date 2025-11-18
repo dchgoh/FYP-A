@@ -35,3 +35,6 @@ backend/venv/share/man/man1/isympy.1
 /backend/pointclouds
 /backend/utils/__pycache__
 /backend/tools
+/backend/tmp
+/backend/build
+/backend/isbnet
