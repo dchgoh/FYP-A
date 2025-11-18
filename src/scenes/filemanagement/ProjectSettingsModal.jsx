@@ -89,8 +89,17 @@ const ProjectSettingsModal = ({
                     </Box>
                 )}
             </DialogContent>
-            <DialogActions sx={styles.modalDialogActions}><Button onClick={handleCloseProjectSettingsModal} color="inherit" disabled={!!processingAssignmentInModal || !!deletingProjectId || isDeletingBulk}>Close</Button></DialogActions>
-        </Dialog>
+                <DialogActions sx={styles.modalDialogActions}>
+                    <Button 
+                        onClick={handleCloseProjectSettingsModal} 
+                        color="warning" 
+                        variant="contained" 
+                        disabled={!!processingAssignmentInModal || !!deletingProjectId || isDeletingBulk}
+                    >
+                        Close
+                    </Button>
+                </DialogActions>
+            </Dialog>
     );
 };
 

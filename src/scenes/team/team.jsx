@@ -38,7 +38,7 @@ const Team = ({ isCollapsed }) => {
         headCell: { color: colors.grey[100], fontWeight: "bold" },
         bodyCell: { color: colors.grey[100] },
         dialogTitle: { backgroundColor: colors.primary[700], color: colors.grey[100] },
-        dialogContent: { backgroundColor: colors.grey[800] },
+        dialogContent: { backgroundColor: colors.white, marginTop: "20px" },
         dialogActions: { backgroundColor: colors.primary[700] }
     };
 
@@ -64,8 +64,8 @@ const Team = ({ isCollapsed }) => {
                         </TextField>
                     </DialogContent>
                     <DialogActions sx={styles.dialogActions}>
-                        <Button onClick={handleCloseModal}>Cancel</Button>
-                        <Button onClick={handleSubmit} variant="contained">{isEditMode ? "Save Changes" : "Add User"}</Button>
+                        <Button onClick={handleCloseModal} color="warning" variant="contained">Cancel</Button>
+                        <Button onClick={handleSubmit} variant="contained" color="success">{isEditMode ? "Save Changes" : "Add User"}</Button>
                     </DialogActions>
                 </Dialog>
 
@@ -75,8 +75,8 @@ const Team = ({ isCollapsed }) => {
                         <DialogContentText sx={{ color: colors.grey[200] }}>Are you sure you want to delete "{userToDelete?.username}"?</DialogContentText>
                     </DialogContent>
                     <DialogActions sx={styles.dialogActions}>
-                        <Button onClick={handleCloseConfirmDeleteModal}>Cancel</Button>
-                        <Button onClick={handleDeleteUser} color="error">Delete</Button>
+                        <Button onClick={handleCloseConfirmDeleteModal} color="warning" variant="contained">Cancel</Button>
+                        <Button onClick={handleDeleteUser} color="error" variant="contained">Delete</Button>
                     </DialogActions>
                 </Dialog>
 

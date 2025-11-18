@@ -296,7 +296,7 @@ const Dashboard = ({ isCollapsed }) => {
         });
         return {
             labels,
-            datasets: [{ label: "Tree Count by Adjusted Height", data: counts, backgroundColor: colors.greenAccent[500], borderColor: colors.greenAccent[700], borderWidth: 1 }],
+            datasets: [{ label: "Tree Count by Height", data: counts, backgroundColor: colors.greenAccent[500], borderColor: colors.greenAccent[700], borderWidth: 1 }],
         };
     }, [dashboardData.allTreeHeightsData, colors]);
 
@@ -346,7 +346,12 @@ const Dashboard = ({ isCollapsed }) => {
         });
         return {
             labels,
-            datasets: [{ label: "Tree Count by DBH", data: counts, backgroundColor: colors.blueAccent[500], borderColor: colors.blueAccent[700], borderWidth: 1 }],
+            datasets: [{ 
+            label: "Tree Count by Diameter of Breast Height", 
+            data: counts, 
+            backgroundColor: colors.blueAccent[400],
+            borderWidth: 1 
+        }],
         };
     }, [dashboardData.allTreeDbhsData, colors]);
 

@@ -50,8 +50,9 @@ const FileUploadModal = ({
                 <FormControlLabel control={<Switch checked={skipSegmentation} onChange={(e) => setSkipSegmentation(e.target.checked)} disabled={isUploading} />} label="Skip Tree Segmentation" sx={{ mt: 1, color: colors.grey[300] }} />
             </DialogContent>
             <DialogActions sx={styles.dialogActions}>
-                {isUploading ? (<Button onClick={handleCancelUpload} variant="outlined" sx={{ color: colors.redAccent[400], borderColor: colors.redAccent[400], '&:hover': { color: colors.grey[100], borderColor: colors.redAccent[500], backgroundColor: colors.redAccent[500] } }}>Cancel Upload</Button>)
-                : (<Button onClick={handleCloseUploadModal} variant="outlined" sx={{ color: colors.grey[100], borderColor: colors.grey[500], '&:hover': { color: colors.black, borderColor: colors.redAccent[400], backgroundColor: colors.redAccent[500] } }}>Cancel</Button>)}
+                {/* --- MODIFIED LINES --- */}
+                {isUploading ? (<Button onClick={handleCancelUpload} variant="contained" color="warning">Cancel Upload</Button>)
+                : (<Button onClick={handleCloseUploadModal} variant="contained" color="warning">Cancel</Button>)}
                 <Button onClick={handleFileUpload} disabled={isUploading || !newFile || !selectedProjectId || !plotName.trim()} variant="contained" sx={{ backgroundColor: colors.greenAccent[500], color: colors.grey[100], '&:hover': { backgroundColor: colors.greenAccent[400] }, '&.Mui-disabled': { backgroundColor: colors.grey[600], color: colors.grey[400] } }}>
                     {isUploading ? <CircularProgress size={24} color="inherit"/> : "Upload"}
                 </Button>

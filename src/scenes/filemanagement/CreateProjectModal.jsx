@@ -26,7 +26,24 @@ const CreateProjectModal = ({
                 </FormControl>
                 <TextField autoFocus margin="dense" label="Project Name" type="text" fullWidth required variant="outlined" value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} disabled={isCreatingProject} />
             </DialogContent>
-            <DialogActions sx={{ p: theme.spacing(2, 3) }}><Button onClick={handleCloseCreateProjectModal} color="error" disabled={isCreatingProject}>Cancel</Button><Button onClick={handleCreateProject} color="primary" disabled={isCreatingProject || !newProjectName.trim() || !selectedDivisionIdForCreation} variant="contained">{isCreatingProject ? <CircularProgress size={24} color="inherit"/> : "Create"}</Button></DialogActions>
+            <DialogActions sx={{ p: theme.spacing(2, 3) }}>
+                <Button 
+                    onClick={handleCloseCreateProjectModal} 
+                    color="warning" 
+                    variant="contained" 
+                    disabled={isCreatingProject}
+                >
+                    Cancel
+                </Button>
+                <Button 
+                    onClick={handleCreateProject} 
+                    color="success" 
+                    disabled={isCreatingProject || !newProjectName.trim() || !selectedDivisionIdForCreation} 
+                    variant="contained"
+                >
+                    {isCreatingProject ? <CircularProgress size={24} color="inherit"/> : "Create"}
+                </Button>
+            </DialogActions>
         </Dialog>
     );
 };
