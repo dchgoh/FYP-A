@@ -1830,6 +1830,37 @@ end_header
     return visibleMap;
   }, [parts]);
 
+  // Helper function to check if a part has multiple colors
+  const hasMultipleColors = (part) => {
+    if (part.type === 'classification' && part.classificationId) {
+      // Classification parts have a single color
+      return false;
+    } else if (part.type === 'treeID' && part.treeIDId) {
+      // TreeID parts have a single color
+      return false;
+    } else if (part.geometry && part.geometry.attributes && part.geometry.attributes.color) {
+      // Check if all colors in the geometry are the same
+      const colors = part.geometry.attributes.color.array;
+      if (colors.length < 6) return false; // Need at least 2 points to compare
+      
+      const firstR = colors[0];
+      const firstG = colors[1];
+      const firstB = colors[2];
+      
+      // Check if any point has a different color (with small tolerance for floating point)
+      const tolerance = 0.01;
+      for (let i = 3; i < colors.length; i += 3) {
+        if (Math.abs(colors[i] - firstR) > tolerance ||
+            Math.abs(colors[i + 1] - firstG) > tolerance ||
+            Math.abs(colors[i + 2] - firstB) > tolerance) {
+          return true; // Found different color
+        }
+      }
+      return false; // All colors are the same
+    }
+    return false; // Can't determine, assume single color
+  };
+
   // Helper function to get the color for a part
   const getPartColor = (part) => {
     if (part.type === 'classification' && part.classificationId && classifications[part.classificationId]) {
@@ -2214,6 +2245,7 @@ end_header
                     {parts.map(part => {
                       const isSelected = selectedParts.includes(part.id);
                       const partColor = getPartColor(part);
+                      const showColor = !hasMultipleColors(part);
                       
                       return (
                       <Box 
@@ -2242,16 +2274,18 @@ end_header
                       >
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
-                            <Box
-                              sx={{
-                                width: 16,
-                                height: 16,
-                                backgroundColor: partColor,
-                                borderRadius: '2px',
-                                border: `1px solid ${colors.grey[600]}`,
-                                flexShrink: 0
-                              }}
-                            />
+                            {showColor && (
+                              <Box
+                                sx={{
+                                  width: 16,
+                                  height: 16,
+                                  backgroundColor: partColor,
+                                  borderRadius: '2px',
+                                  border: `1px solid ${colors.grey[600]}`,
+                                  flexShrink: 0
+                                }}
+                              />
+                            )}
                             <Typography sx={styles.annotationName}>
                               {part.name}
                             </Typography>
@@ -2303,6 +2337,57 @@ end_header
                     
                     {annotationSelectionExpanded && (
                       <Box>
+                        {/* Selection Tool */}
+                        <Box sx={{ mt: 2 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography gutterBottom variant="body2" sx={{ color: colors.grey[300], mb: 0 }}>
+                              Selection Tool
+                            </Typography>
+                            <IconButton
+                              onClick={() => setSelectionHelpDialogOpen(true)}
+                              size="small"
+                              sx={{
+                                color: colors.grey[400],
+                                '&:hover': {
+                                  color: colors.greenAccent[400],
+                                  backgroundColor: 'rgba(0,0,0,0.1)',
+                                },
+                              }}
+                              title="How to use Selection Tool"
+                            >
+                              <HelpOutline fontSize="small" />
+                            </IconButton>
+                          </Box>
+                          {isProcessingLasso && (
+                            <Box sx={styles.loadingContainer}>
+                                <CircularProgress size={18}/>
+                                <Typography sx={styles.loadingText}>Processing Selection...</Typography>
+                            </Box>
+                          )}
+                          <Button
+                            variant="contained"
+                            onClick={() => handleToolSelect('lasso')}
+                            disabled={isProcessingLasso}
+                            fullWidth
+                            sx={{
+                              mb: 2,
+                              backgroundColor: activeTool === 'lasso' ? colors.greenAccent[600] : colors.greenAccent[900],
+                              color: colors.grey[100],
+                              fontWeight: 'bold',
+                              '&:hover': {
+                                backgroundColor: activeTool === 'lasso' ? colors.greenAccent[600] : colors.greenAccent[600]
+                              },
+                              '&:disabled': {
+                                opacity: 0.5,
+                                backgroundColor: colors.grey[700]
+                              }
+                            }}
+                            startIcon={<Gesture />}
+                          >
+                            Lasso Tool{activeTool === 'lasso' ? ' (activate)' : ''}
+                          </Button>
+                        </Box>
+                        
                         {/* Annotation Tool */}
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, mt: 2 }}>
                           <Typography variant="body2" sx={{ color: colors.grey[300] }}>
@@ -2347,57 +2432,6 @@ end_header
                         >
                           Annotate Selected Part
                         </Button>
-                        
-                        {/* Selection Tool */}
-                        <Box sx={{ mt: 2 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography gutterBottom variant="body2" sx={{ color: colors.grey[300], mb: 0 }}>
-                              Selection Tool
-                            </Typography>
-                            <IconButton
-                              onClick={() => setSelectionHelpDialogOpen(true)}
-                              size="small"
-                              sx={{
-                                color: colors.grey[400],
-                                '&:hover': {
-                                  color: colors.greenAccent[400],
-                                  backgroundColor: 'rgba(0,0,0,0.1)',
-                                },
-                              }}
-                              title="How to use Selection Tool"
-                            >
-                              <HelpOutline fontSize="small" />
-                            </IconButton>
-                          </Box>
-                          {isProcessingLasso && (
-                            <Box sx={styles.loadingContainer}>
-                                <CircularProgress size={18}/>
-                                <Typography sx={styles.loadingText}>Processing Selection...</Typography>
-                            </Box>
-                          )}
-                          <Button
-                            variant="contained"
-                            onClick={() => handleToolSelect('lasso')}
-                            disabled={isProcessingLasso}
-                            fullWidth
-                            sx={{
-                              mb: 2,
-                              backgroundColor: activeTool === 'lasso' ? colors.greenAccent[600] : colors.greenAccent[800],
-                              color: colors.grey[100],
-                              fontWeight: 'bold',
-                              '&:hover': {
-                                backgroundColor: activeTool === 'lasso' ? colors.greenAccent[600] : colors.greenAccent[700]
-                              },
-                              '&:disabled': {
-                                opacity: 0.5,
-                                backgroundColor: colors.grey[700]
-                              }
-                            }}
-                            startIcon={<Gesture />}
-                          >
-                            Lasso Tool{activeTool === 'lasso' ? ' (activate)' : ''}
-                          </Button>
-                        </Box>
                         
                       </Box>
                     )}
@@ -2554,12 +2588,11 @@ end_header
                   disabled={isAnnotating || parts.length === 0 || selectedParts.length !== 1}
                   sx={{ 
                     backgroundColor: 'rgba(0,0,0,0.2)', 
-                    color: !isAnnotating && parts.length > 0 && selectedParts.length === 1 ? 'white' : 'rgba(255,255,255,0.7)',
+                    color: !isAnnotating && parts.length > 0 && selectedParts.length === 1 ? 'white' : 'rgba(255,255,255,0.5)',
                     fontWeight: !isAnnotating && parts.length > 0 && selectedParts.length === 1 ? 'bold' : 'normal',
                     '&:hover': !isAnnotating && parts.length > 0 && selectedParts.length === 1 ? {backgroundColor: 'rgba(0,0,0,0.4)'} : {},
                     '&:disabled': {
-                      color: 'rgba(255,255,255,0.7)',
-                      backgroundColor: 'rgba(0,0,0,0.3)',
+                      color: 'rgba(255,255,255,0.5)',
                       opacity: 1
                     }
                   }}
@@ -2574,12 +2607,11 @@ end_header
                   onClick={() => handleToolSelect('lasso')}
                   disabled={isProcessingLasso}
                   sx={{ 
-                    backgroundColor: activeTool === 'lasso' ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.2)', 
-                    color: activeTool === 'lasso' ? 'white' : 'rgba(255,255,255,0.5)',
+                    backgroundColor: activeTool === 'lasso' ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.2)', 
+                    color: activeTool === 'lasso' ? 'white' : 'rgba(255,255,255,0.6)',
                     fontWeight: activeTool === 'lasso' ? 'bold' : 'normal',
-                    opacity: activeTool === 'lasso' ? 1 : 0.5,
                     '&:hover': {backgroundColor: 'rgba(0,0,0,0.4)'},
-                    '&:disabled': {
+                    '&:disabled': { 
                       color: 'rgba(255,255,255,0.5)',
                       opacity: 0.5
                     }
