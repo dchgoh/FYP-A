@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Box, Button, Typography, Paper, Alert, CircularProgress, useTheme, FormControlLabel, Checkbox, FormControl, InputLabel, Select, MenuItem, IconButton, Slider, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Menu, ListItemIcon, ListItemText, Divider} from '@mui/material';
+import { Box, Button, Typography, Paper, Alert, CircularProgress, useTheme, FormControlLabel, Checkbox, FormControl, InputLabel, Select, MenuItem, IconButton, Slider, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Menu, ListItemIcon, ListItemText, Divider, Tooltip} from '@mui/material';
 import { tokens } from '../../theme';
-import { Map, Close, Gesture, HistoryEdu, DeleteSweep, Edit, Save, Delete, Merge, Refresh } from '@mui/icons-material';
+import { Map, Close, Gesture, HistoryEdu, DeleteSweep, Edit, Save, Delete, Merge, Refresh, ExpandMore, Undo, Redo, HelpOutline } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import * as THREE from 'three';
@@ -83,6 +83,13 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const [selectedAnnotationValue, setSelectedAnnotationValue] = useState(null);
   const [isAnnotating, setIsAnnotating] = useState(false);
   const [annotationDialogOpen, setAnnotationDialogOpen] = useState(false);
+  const [annotationHelpDialogOpen, setAnnotationHelpDialogOpen] = useState(false);
+  const [selectionHelpDialogOpen, setSelectionHelpDialogOpen] = useState(false);
+  const [partListHelpDialogOpen, setPartListHelpDialogOpen] = useState(false);
+  const [splitWarningDialogOpen, setSplitWarningDialogOpen] = useState(false);
+  const [pendingSplitType, setPendingSplitType] = useState(null); // 'classification' or 'treeID'
+  const [lastConfirmedSplit, setLastConfirmedSplit] = useState(null); // 'classification' or 'treeID' or null
+  const [pendingMiniMapTreeID, setPendingMiniMapTreeID] = useState(null); // treeID value from minimap click
   
   // --- Rename State ---
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
@@ -93,6 +100,18 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [savePartId, setSavePartId] = useState(null);
   const [saveFileName, setSaveFileName] = useState('');
+  
+  // --- File Information Expand/Collapse State ---
+  const [fileInfoExpanded, setFileInfoExpanded] = useState(true);
+  const [annotationSelectionExpanded, setAnnotationSelectionExpanded] = useState(true);
+  const [toolsControlsExpanded, setToolsControlsExpanded] = useState(true);
+  
+  // --- Undo/Redo State ---
+  const [history, setHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const maxHistorySize = 50;
+  const isRestoringRef = useRef(false);
+  const shouldSaveHistoryRef = useRef(false);
 
   // This effect updates the shader when the slider value changes
   useEffect(() => {
@@ -143,7 +162,7 @@ const PointCloudViewer = ({ isCollapsed }) => {
 
   // Create function instances with state setters
   const handlePartClickInstance = handlePartClick(setActivePartId, activePartId);
-  const handleTogglePartVisibilityInstance = handleTogglePartVisibility(setParts);
+  const handleTogglePartVisibilityBase = handleTogglePartVisibility(setParts);
   const combineVisiblePartsInstance = () => combineVisibleParts(parts, originalGeometry);
   const deletePartInstance = deletePart(setParts, setActivePartId);
   const mergePartsInstance = mergeParts(setParts, setSelectedParts);
@@ -162,28 +181,6 @@ const PointCloudViewer = ({ isCollapsed }) => {
 
   const handleCloseContextMenu = () => {
     setContextMenu(null);
-  };
-
-  const handleDeletePart = (partId) => {
-    deletePartInstance(partId);
-    setSelectedParts(prev => prev.filter(id => id !== partId));
-    handleCloseContextMenu();
-  };
-
-  const handleDeleteSelectedParts = () => {
-    selectedParts.forEach(partId => {
-      deletePartInstance(partId);
-    });
-    setSelectedParts([]);
-    handleCloseContextMenu();
-  };
-
-  const handleMergeSelectedParts = () => {
-    if (selectedParts.length >= 2) {
-      mergePartsInstance(selectedParts);
-      setSelectedParts([]);
-    }
-    handleCloseContextMenu();
   };
 
   const handleRenamePart = (partId) => {
@@ -804,6 +801,115 @@ end_header
    }
   }, [parts, pointCloud, originalGeometry, updatePointCloudColors, filterMode, treeIDs, treeIDData]);
 
+  // Helper function to create a state snapshot for undo/redo (defined early for use in lasso handler)
+  const createStateSnapshot = useCallback(() => {
+    if (!originalGeometry) return null;
+    
+    // Helper to deep clone a geometry with all its attributes
+    const deepCloneGeometry = (geometry) => {
+      if (!geometry) return null;
+      const cloned = geometry.clone();
+      
+      // Deep clone all attributes to avoid reference issues
+      Object.keys(geometry.attributes).forEach(key => {
+        const attr = geometry.attributes[key];
+        if (attr && attr.array) {
+          // Create a new array with copied values
+          const clonedArray = new attr.array.constructor(attr.array);
+          cloned.setAttribute(key, new THREE.BufferAttribute(clonedArray, attr.itemSize));
+        }
+      });
+      
+      return cloned;
+    };
+    
+    // Clone geometries for all parts with deep cloning
+    const partsSnapshot = parts.map(part => ({
+      ...part,
+      geometry: part.geometry ? deepCloneGeometry(part.geometry) : null
+    }));
+    
+    // Deep clone original geometry
+    const originalGeometrySnapshot = deepCloneGeometry(originalGeometry);
+    
+    // Deep clone treeIDs
+    const treeIDsSnapshot = JSON.parse(JSON.stringify(treeIDs));
+    
+    // Deep clone treeIDData array
+    const treeIDDataSnapshot = treeIDData ? [...treeIDData] : null;
+    
+    return {
+      parts: partsSnapshot,
+      originalGeometry: originalGeometrySnapshot,
+      treeIDs: treeIDsSnapshot,
+      treeIDData: treeIDDataSnapshot
+    };
+  }, [parts, originalGeometry, treeIDs, treeIDData]);
+
+  // Wrapper to save history before toggling visibility (defined after createStateSnapshot)
+  const handleTogglePartVisibilityInstance = useCallback((partId) => {
+    // Save state BEFORE the action (if first time, this becomes the initial state)
+    if (history.length === 0) {
+      const beforeSnapshot = createStateSnapshot();
+      if (beforeSnapshot) {
+        setHistory([beforeSnapshot]);
+        setHistoryIndex(0);
+      }
+    }
+    shouldSaveHistoryRef.current = true;
+    handleTogglePartVisibilityBase(partId);
+  }, [handleTogglePartVisibilityBase, createStateSnapshot, history.length]);
+
+  // Delete and merge handlers (defined after createStateSnapshot)
+  const handleDeletePart = useCallback((partId) => {
+    // Save state BEFORE the action (if first time, this becomes the initial state)
+    if (history.length === 0) {
+      const beforeSnapshot = createStateSnapshot();
+      if (beforeSnapshot) {
+        setHistory([beforeSnapshot]);
+        setHistoryIndex(0);
+      }
+    }
+    shouldSaveHistoryRef.current = true;
+    deletePartInstance(partId);
+    setSelectedParts(prev => prev.filter(id => id !== partId));
+    handleCloseContextMenu();
+  }, [createStateSnapshot, history.length, deletePartInstance, setSelectedParts]);
+
+  const handleDeleteSelectedParts = useCallback(() => {
+    // Save state BEFORE the action (if first time, this becomes the initial state)
+    if (history.length === 0) {
+      const beforeSnapshot = createStateSnapshot();
+      if (beforeSnapshot) {
+        setHistory([beforeSnapshot]);
+        setHistoryIndex(0);
+      }
+    }
+    shouldSaveHistoryRef.current = true;
+    selectedParts.forEach(partId => {
+      deletePartInstance(partId);
+    });
+    setSelectedParts([]);
+    handleCloseContextMenu();
+  }, [createStateSnapshot, history.length, selectedParts, deletePartInstance, setSelectedParts]);
+
+  const handleMergeSelectedParts = useCallback(() => {
+    if (selectedParts.length >= 2) {
+      // Save state BEFORE the action (if first time, this becomes the initial state)
+      if (history.length === 0) {
+        const beforeSnapshot = createStateSnapshot();
+        if (beforeSnapshot) {
+          setHistory([beforeSnapshot]);
+          setHistoryIndex(0);
+        }
+      }
+      shouldSaveHistoryRef.current = true;
+      mergePartsInstance(selectedParts);
+      setSelectedParts([]);
+    }
+    handleCloseContextMenu();
+  }, [createStateSnapshot, history.length, selectedParts, mergePartsInstance, setSelectedParts]);
+
    useEffect(() => {
     const canvasContainerElement = canvasRef.current?.parentElement;
     if (!canvasContainerElement || !sceneManagerRef.current || !pointCloud) return;
@@ -819,6 +925,15 @@ end_header
         setIsProcessingLasso(true);
         setActiveTool(null);
          setTimeout(() => {
+           // Save state BEFORE the action (if first time, this becomes the initial state)
+           if (history.length === 0) {
+             const beforeSnapshot = createStateSnapshot();
+             if (beforeSnapshot) {
+               setHistory([beforeSnapshot]);
+               setHistoryIndex(0);
+             }
+           }
+           
            const canvasRect = canvasContainerElement.getBoundingClientRect();
            const sourceGeometry = selectedParts.length === 0
              ? originalGeometry
@@ -871,6 +986,9 @@ end_header
                  setParts(prev => [...prev, newPart, remainingPart]);
                  setSelectedParts([newPart.id]);
                }
+               
+               // Mark that we should save to history after lasso selection
+               shouldSaveHistoryRef.current = true;
              } else {
                // No points selected (empty space), just clear the canvas
                console.log('No points selected in the lasso area');
@@ -892,7 +1010,7 @@ end_header
         sceneManagerRef.current.controls.enabled = true;
       }
     };
-  }, [activeTool, pointCloud, parts, selectedParts, originalGeometry]);
+  }, [activeTool, pointCloud, parts, selectedParts, originalGeometry, createStateSnapshot, history.length]);
 
 
   // (All existing code from here... updateMiniMapPosition down to return statement remains the same)
@@ -1160,6 +1278,10 @@ end_header
             setParts([]);
             setSelectedParts([]);
             setActivePartId(null);
+            
+            // Reset undo/redo history when loading new file
+            setHistory([]);
+            setHistoryIndex(-1);
           }
           resolve();
         });
@@ -1264,66 +1386,116 @@ end_header
     setShowBoundingBox(newVisibility);
   };
 
-  const handleSplitPointCloud = () => {
+  const performSplitByClassification = () => {
     if (!pointCloud || !originalGeometry) return;
     
     const newParts = [];
     
-    if (filterMode === 'classification') {
-      // Split by classification - create a custom filter for each classification
-      Object.entries(classifications).forEach(([id, classification]) => {
-        const filteredGeometry = filterPointCloudBySingleClassification(originalGeometry, id, classification, treeIDData);
-        if (filteredGeometry && filteredGeometry.attributes && filteredGeometry.attributes.position && filteredGeometry.attributes.position.count > 0) {
-          newParts.push({
-            id: Date.now() + Math.random(),
-            name: classification.name,
-            geometry: filteredGeometry,
-            visible: true,
-            type: 'classification',
-            classificationId: id
-          });
-        }
-      });
-    } else if (filterMode === 'treeID' && treeIDData) {
-      // Split by treeID - create a custom filter for each treeID
-      // Check if -1 exists to determine which is Unclassified
-      const hasNegativeOne = Object.keys(treeIDs).some(key => parseInt(key) === -1);
-      
-      // Sort entries: Unclassified first, then regular treeIDs
-      const sortedEntries = Object.entries(treeIDs).sort(([idA, treeIDA], [idB, treeIDB]) => {
-        const numA = parseInt(idA);
-        const numB = parseInt(idB);
-        
-        // Determine which value is unclassified
-        const aIsUnclassified = hasNegativeOne ? (numA === -1) : (numA === 0);
-        const bIsUnclassified = hasNegativeOne ? (numB === -1) : (numB === 0);
-        
-        // Unclassified goes to the very first position
-        if (aIsUnclassified && !bIsUnclassified) return -1;
-        if (!aIsUnclassified && bIsUnclassified) return 1;
-        
-        // Both are regular treeIDs: sort numerically
-        return numA - numB;
-      });
-      
-      sortedEntries.forEach(([id, treeID]) => {
-        const filteredGeometry = filterPointCloudBySingleTreeID(originalGeometry, id, treeID, treeIDData);
-        if (filteredGeometry && filteredGeometry.attributes && filteredGeometry.attributes.position && filteredGeometry.attributes.position.count > 0) {
-          newParts.push({
-            id: Date.now() + Math.random(),
-            name: treeID.name,
-            geometry: filteredGeometry,
-            visible: true,
-            type: 'treeID',
-            treeIDId: id
-          });
-        }
-      });
-    }
+    // Split by classification - create a custom filter for each classification
+    Object.entries(classifications).forEach(([id, classification]) => {
+      const filteredGeometry = filterPointCloudBySingleClassification(originalGeometry, id, classification, treeIDData);
+      if (filteredGeometry && filteredGeometry.attributes && filteredGeometry.attributes.position && filteredGeometry.attributes.position.count > 0) {
+        newParts.push({
+          id: Date.now() + Math.random(),
+          name: classification.name,
+          geometry: filteredGeometry,
+          visible: true,
+          type: 'classification',
+          classificationId: id
+        });
+      }
+    });
     
     if (newParts.length > 0) {
       setParts(newParts);
       setSelectedParts([]); // Clear selection after splitting
+    }
+  };
+
+  const performSplitByTreeID = () => {
+    if (!pointCloud || !originalGeometry || !treeIDData) return;
+    
+    const newParts = [];
+    
+    // Split by treeID - create a custom filter for each treeID
+    // Check if -1 exists to determine which is Unclassified
+    const hasNegativeOne = Object.keys(treeIDs).some(key => parseInt(key) === -1);
+    
+    // Sort entries: Unclassified first, then regular treeIDs
+    const sortedEntries = Object.entries(treeIDs).sort(([idA, treeIDA], [idB, treeIDB]) => {
+      const numA = parseInt(idA);
+      const numB = parseInt(idB);
+      
+      // Determine which value is unclassified
+      const aIsUnclassified = hasNegativeOne ? (numA === -1) : (numA === 0);
+      const bIsUnclassified = hasNegativeOne ? (numB === -1) : (numB === 0);
+      
+      // Unclassified goes to the very first position
+      if (aIsUnclassified && !bIsUnclassified) return -1;
+      if (!aIsUnclassified && bIsUnclassified) return 1;
+      
+      // Both are regular treeIDs: sort numerically
+      return numA - numB;
+    });
+    
+    sortedEntries.forEach(([id, treeID]) => {
+      const filteredGeometry = filterPointCloudBySingleTreeID(originalGeometry, id, treeID, treeIDData);
+      if (filteredGeometry && filteredGeometry.attributes && filteredGeometry.attributes.position && filteredGeometry.attributes.position.count > 0) {
+        newParts.push({
+          id: Date.now() + Math.random(),
+          name: treeID.name,
+          geometry: filteredGeometry,
+          visible: true,
+          type: 'treeID',
+          treeIDId: id
+        });
+      }
+    });
+    
+    if (newParts.length > 0) {
+      setParts(newParts);
+      setSelectedParts([]); // Clear selection after splitting
+    }
+  };
+
+  const handleSplitByClassification = () => {
+    if (parts.length > 0) {
+      setPendingSplitType('classification');
+      setSplitWarningDialogOpen(true);
+    } else {
+      performSplitByClassification();
+      setLastConfirmedSplit('classification');
+    }
+  };
+
+  const handleSplitByTreeID = () => {
+    if (parts.length > 0) {
+      setPendingSplitType('treeID');
+      setSplitWarningDialogOpen(true);
+    } else {
+      performSplitByTreeID();
+      setLastConfirmedSplit('treeID');
+    }
+  };
+
+  const handleConfirmSplit = () => {
+    setSplitWarningDialogOpen(false);
+    const splitType = pendingSplitType;
+    setPendingSplitType(null);
+    
+    if (splitType === 'classification') {
+      setFilterMode('classification');
+      performSplitByClassification();
+      setLastConfirmedSplit('classification');
+    } else if (splitType === 'treeID') {
+      setFilterMode('treeID');
+      performSplitByTreeID();
+      setLastConfirmedSplit('treeID');
+    } else if (splitType === 'minimap' && pendingMiniMapTreeID !== null) {
+      setFilterMode('treeID');
+      const treeIDValue = pendingMiniMapTreeID;
+      setPendingMiniMapTreeID(null);
+      performTreeIDSelectFromMiniMap(treeIDValue);
     }
   };
 
@@ -1512,12 +1684,9 @@ end_header
     }
   };
 
-  // Handler for treeID selection from minimap
-  const handleTreeIDSelectFromMiniMap = (treeIDValue) => {
+  // Perform treeID selection from minimap (actual implementation)
+  const performTreeIDSelectFromMiniMap = (treeIDValue) => {
     if (!treeIDData || !originalGeometry) return;
-    
-    // Switch to treeID filter mode
-    setFilterMode('treeID');
     
     // Check if parts exist and are split by treeID
     const partsAreTreeIDSplit = parts.length > 0 && parts.every(part => part.type === 'treeID');
@@ -1540,6 +1709,12 @@ end_header
             : part // Keep other parts as they are
         )
       );
+      
+      // Select the clicked part in the point cloud list
+      if (clickedPart) {
+        setSelectedParts([clickedPart.id]);
+        setActivePartId(clickedPart.id);
+      }
     } else {
       // Need to split by treeID first - show only the clicked treeID
       const newParts = [];
@@ -1574,7 +1749,15 @@ end_header
       
       if (newParts.length > 0) {
         setParts(newParts);
-        setSelectedParts([]);
+        
+        // Find and select the clicked treeID part
+        const clickedPart = newParts.find(part => part.treeIDId === treeIDString);
+        if (clickedPart) {
+          setSelectedParts([clickedPart.id]);
+          setActivePartId(clickedPart.id);
+        } else {
+          setSelectedParts([]);
+        }
         
         // Update treeID visibility state: clicked treeID visible, others hidden
         const newTreeIDs = { ...treeIDs };
@@ -1588,7 +1771,22 @@ end_header
           }
         });
         setTreeIDs(newTreeIDs);
+        setLastConfirmedSplit('treeID'); // Update split type after minimap click
       }
+    }
+  };
+
+  // Handler for treeID selection from minimap
+  const handleTreeIDSelectFromMiniMap = (treeIDValue) => {
+    if (!treeIDData || !originalGeometry) return;
+    
+    // Check if currently split by classification - show warning
+    if (lastConfirmedSplit === 'classification') {
+      setPendingMiniMapTreeID(treeIDValue);
+      setPendingSplitType('minimap'); // Special type for minimap
+      setSplitWarningDialogOpen(true);
+    } else {
+      performTreeIDSelectFromMiniMap(treeIDValue);
     }
   };
 
@@ -1596,7 +1794,22 @@ end_header
   // Create annotation function instances with state setters
   const handleAnnotationTypeChangeInstance = handleAnnotationTypeChange(setSelectedAnnotationType, setSelectedAnnotationValue);
   const handleAnnotationValueSelectInstance = handleAnnotationValueSelect(setSelectedAnnotationValue);
-  const annotateAllVisiblePointsInstance = annotateAllVisiblePoints(setIsAnnotating, setAnnotationDialogOpen, selectedAnnotationValue, selectedAnnotationType, classifications, treeIDs, pointCloud, parts, selectedParts, originalGeometry, combineVisiblePartsInstance, setTreeIDs, setTreeIDData, treeIDData, setParts);
+  const annotateAllVisiblePointsBase = annotateAllVisiblePoints(setIsAnnotating, setAnnotationDialogOpen, selectedAnnotationValue, selectedAnnotationType, classifications, treeIDs, pointCloud, parts, selectedParts, originalGeometry, combineVisiblePartsInstance, setTreeIDs, setTreeIDData, treeIDData, setParts);
+  
+  // Wrapper to mark that annotation was applied for undo/redo
+  const annotateAllVisiblePointsInstance = useCallback(() => {
+    // Save state BEFORE the action (if first time, this becomes the initial state)
+    if (history.length === 0) {
+      const beforeSnapshot = createStateSnapshot();
+      if (beforeSnapshot) {
+        setHistory([beforeSnapshot]);
+        setHistoryIndex(0);
+      }
+    }
+    shouldSaveHistoryRef.current = true;
+    annotateAllVisiblePointsBase();
+  }, [annotateAllVisiblePointsBase, createStateSnapshot, history.length]);
+  
   const handleAnnotationDialogCloseInstance = handleAnnotationDialogClose(setAnnotationDialogOpen, setSelectedAnnotationValue);
 
 
@@ -1616,6 +1829,192 @@ end_header
     }
     return visibleMap;
   }, [parts]);
+
+  // Helper function to get the color for a part
+  const getPartColor = (part) => {
+    if (part.type === 'classification' && part.classificationId && classifications[part.classificationId]) {
+      const color = classifications[part.classificationId].color;
+      return `rgb(${color.map(c => Math.round(c * 255)).join(',')})`;
+    } else if (part.type === 'treeID' && part.treeIDId && treeIDs[part.treeIDId]) {
+      const color = treeIDs[part.treeIDId].color;
+      return `rgb(${color.map(c => Math.round(c * 255)).join(',')})`;
+    } else if (part.geometry && part.geometry.attributes && part.geometry.attributes.color) {
+      // For other types, try to get average color from geometry
+      const colors = part.geometry.attributes.color.array;
+      if (colors.length >= 3) {
+        // Get average color from first few points
+        let r = 0, g = 0, b = 0;
+        const sampleSize = Math.min(100, colors.length / 3);
+        for (let i = 0; i < sampleSize; i++) {
+          r += colors[i * 3];
+          g += colors[i * 3 + 1];
+          b += colors[i * 3 + 2];
+        }
+        r = Math.round((r / sampleSize) * 255);
+        g = Math.round((g / sampleSize) * 255);
+        b = Math.round((b / sampleSize) * 255);
+        return `rgb(${r},${g},${b})`;
+      }
+    }
+    // Default gray color
+    return 'rgb(128,128,128)';
+  };
+
+  // Helper function to restore state from snapshot
+  const restoreStateSnapshot = useCallback((snapshot) => {
+    if (!snapshot) return;
+    
+    isRestoringRef.current = true;
+    
+    // Restore parts
+    setParts(snapshot.parts);
+    
+    // Restore original geometry
+    if (snapshot.originalGeometry) {
+      setOriginalGeometry(snapshot.originalGeometry);
+    }
+    
+    // Restore treeIDs
+    setTreeIDs(snapshot.treeIDs);
+    
+    // Restore treeIDData
+    if (snapshot.treeIDData) {
+      setTreeIDData(snapshot.treeIDData);
+    }
+    
+    // Reset flag after a short delay to allow state updates to complete
+    setTimeout(() => {
+      isRestoringRef.current = false;
+    }, 100);
+  }, []);
+
+  // Save state to history (saves state AFTER an action)
+  const saveToHistory = useCallback(() => {
+    const snapshot = createStateSnapshot();
+    if (!snapshot) return;
+    
+    setHistory(prev => {
+      // Remove any history after current index (when undoing and then making new changes)
+      const newHistory = prev.slice(0, historyIndex + 1);
+      // Add new snapshot (state after action)
+      newHistory.push(snapshot);
+      // Limit history size
+      if (newHistory.length > maxHistorySize) {
+        return newHistory.slice(-maxHistorySize);
+      }
+      return newHistory;
+    });
+    setHistoryIndex(prev => {
+      const newIndex = Math.min(prev + 1, maxHistorySize - 1);
+      return newIndex;
+    });
+  }, [createStateSnapshot, historyIndex]);
+
+  // Undo function
+  const handleUndo = useCallback(() => {
+    if (historyIndex > 0) {
+      const newIndex = historyIndex - 1;
+      setHistoryIndex(newIndex);
+      restoreStateSnapshot(history[newIndex]);
+    }
+  }, [history, historyIndex, restoreStateSnapshot]);
+
+  // Redo function
+  const handleRedo = useCallback(() => {
+    if (historyIndex < history.length - 1) {
+      const newIndex = historyIndex + 1;
+      setHistoryIndex(newIndex);
+      restoreStateSnapshot(history[newIndex]);
+    }
+  }, [history, historyIndex, restoreStateSnapshot]);
+
+  // Check if undo is available (for lasso/annotation/checkbox/delete/merge actions)
+  // Only enable if we have history beyond the initial state
+  const canUndo = historyIndex > 0 && history.length > 1;
+  
+  // Check if redo is available (for lasso/annotation/checkbox/delete/merge actions)
+  const canRedo = historyIndex < history.length - 1 && history.length > 1;
+
+  // Keyboard shortcuts for undo/redo (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z)
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      const isModifierPressed = event.ctrlKey || event.metaKey;
+      if (!isModifierPressed) return;
+
+      const activeElement = document.activeElement;
+      if (activeElement && ['INPUT', 'TEXTAREA'].includes(activeElement.tagName)) return;
+      if (activeElement && activeElement.isContentEditable) return;
+
+      const key = event.key.toLowerCase();
+      if (key === 'z' && !event.shiftKey && canUndo) {
+        event.preventDefault();
+        handleUndo();
+      } else if ((key === 'y' || (key === 'z' && event.shiftKey)) && canRedo) {
+        event.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo, canUndo, canRedo]);
+
+  // Track lasso selection completion for undo/redo
+  useEffect(() => {
+    if (isRestoringRef.current || !originalGeometry) return;
+    
+    // Save to history after lasso selection creates parts
+    if (shouldSaveHistoryRef.current && !isProcessingLasso) {
+      shouldSaveHistoryRef.current = false;
+      const timeoutId = setTimeout(() => {
+        if (!isRestoringRef.current) {
+          saveToHistory();
+        }
+      }, 100);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isProcessingLasso, saveToHistory, originalGeometry]);
+
+  // Track annotation completion for undo/redo
+  useEffect(() => {
+    if (isRestoringRef.current || !originalGeometry) return;
+    
+    // When annotation completes (isAnnotating goes from true to false)
+    if (!isAnnotating && shouldSaveHistoryRef.current) {
+      // Wait a bit longer to ensure all state updates (including treeIDData) are complete
+      const timeoutId = setTimeout(() => {
+        if (!isRestoringRef.current && shouldSaveHistoryRef.current) {
+          shouldSaveHistoryRef.current = false;
+          saveToHistory();
+        }
+      }, 300);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isAnnotating, saveToHistory, originalGeometry, treeIDData]);
+
+  // Track checkbox visibility changes, delete, and merge for undo/redo
+  useEffect(() => {
+    if (isRestoringRef.current || !originalGeometry) return;
+    
+    // Save to history after visibility checkbox changes, delete, or merge
+    if (shouldSaveHistoryRef.current) {
+      // Use a debounce to batch rapid changes
+      const timeoutId = setTimeout(() => {
+        if (!isRestoringRef.current && shouldSaveHistoryRef.current) {
+          shouldSaveHistoryRef.current = false;
+          saveToHistory();
+        }
+      }, 200);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [parts, saveToHistory, originalGeometry]);
+
+  // Initialize history when originalGeometry is first loaded
+  // Don't initialize automatically - only save when lasso/annotation/checkbox/delete/merge actions occur
+  // This ensures undo/redo is only available for those specific actions
 
   return (
     <Box 
@@ -1640,11 +2039,37 @@ end_header
                 
                 {selectedFile && fileInfo && (
                     <Box sx={{ mb: 2, p:1, border: `1px solid ${colors.grey[700]}`, borderRadius: '4px' }}>
-                        <Typography variant="subtitle1" sx={{ color: colors.grey[100], mb: 1, fontWeight: 'bold' }}>File Information</Typography>
-                        <Typography variant="body2" sx={{ color: colors.grey[200], mb: 0.5 }}>File Name: <span style={{color: colors.grey[300]}}>{fileInfo.name || selectedFile.name}</span></Typography>
-                        <Typography variant="body2" sx={{ color: colors.grey[200], mb: 0.5 }}>Plot: <span style={{color: colors.grey[300]}}>{fileInfo.plot_name || 'N/A'}</span></Typography>
-                        <Typography variant="body2" sx={{ color: colors.grey[200], mb: 0.5 }}>Division: <span style={{color: colors.grey[300]}}>{fileInfo.divisionName || 'N/A'}</span></Typography>
-                        <Typography variant="body2" sx={{ color: colors.grey[200] }}>Project: <span style={{color: colors.grey[300]}}>{fileInfo.projectName || 'N/A'}</span></Typography>
+                        <Box 
+                            sx={{ 
+                                position: 'relative',
+                                mb: fileInfoExpanded ? 1 : 0,
+                                cursor: 'pointer',
+                                '&:hover': { opacity: 0.8 }
+                            }}
+                            onClick={() => setFileInfoExpanded(!fileInfoExpanded)}
+                        >
+                            <Typography variant="subtitle1" sx={{ color: colors.grey[100], fontWeight: 'bold', pr: 3 }}>File Information</Typography>
+                            <ExpandMore 
+                                sx={{ 
+                                    position: 'absolute',
+                                    right: 0,
+                                    top: '50%',
+                                    transform: fileInfoExpanded 
+                                        ? 'translateY(-50%) rotate(180deg)' 
+                                        : 'translateY(-50%) rotate(0deg)',
+                                    color: colors.grey[300],
+                                    transition: 'transform 0.2s ease-in-out'
+                                }}
+                            />
+                        </Box>
+                        {fileInfoExpanded && (
+                            <Box>
+                                <Typography variant="body2" sx={{ color: colors.grey[200], mb: 0.5 }}>File Name: <span style={{color: colors.grey[300]}}>{fileInfo.name || selectedFile.name}</span></Typography>
+                                <Typography variant="body2" sx={{ color: colors.grey[200], mb: 0.5 }}>Plot: <span style={{color: colors.grey[300]}}>{fileInfo.plot_name || 'N/A'}</span></Typography>
+                                <Typography variant="body2" sx={{ color: colors.grey[200], mb: 0.5 }}>Division: <span style={{color: colors.grey[300]}}>{fileInfo.divisionName || 'N/A'}</span></Typography>
+                                <Typography variant="body2" sx={{ color: colors.grey[200] }}>Project: <span style={{color: colors.grey[300]}}>{fileInfo.projectName || 'N/A'}</span></Typography>
+                            </Box>
+                        )}
                     </Box>
                 )}
 
@@ -1655,11 +2080,85 @@ end_header
                   </Box>
                 )}
 
+                {/* --- Colour Mode --- */}
+                {pointCloud && (
+                  <FormControl fullWidth size="small" sx={styles.filterModeSelect}>
+                    <InputLabel>Colour Mode</InputLabel>
+                    <Select value={filterMode} label="Colour Mode" onChange={(e) => setFilterMode(e.target.value)}>
+                      <MenuItem value="classification">Classification</MenuItem>
+                      <MenuItem value="treeID">Tree ID</MenuItem>
+                    </Select>
+                  </FormControl>
+                )}
+
+                {/* --- Split Point Cloud --- */}
+                {pointCloud && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="body2" sx={{ color: colors.grey[300], mb: 1, textAlign: 'center', fontWeight: 'bold' }}>
+                      Split Point Cloud
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Button
+                        variant="contained"
+                        onClick={handleSplitByClassification}
+                        disabled={lastConfirmedSplit === 'classification'}
+                        fullWidth
+                        sx={{ 
+                          backgroundColor: colors.greenAccent[700],
+                          color: colors.grey[100],
+                          '&:hover': { backgroundColor: colors.greenAccent[600] },
+                          '&:disabled': {
+                            backgroundColor: colors.grey[700],
+                            color: colors.grey[500]
+                          }
+                        }}
+                      >
+                        Split by Classification
+                      </Button>
+                      <Button
+                        variant="contained"
+                        onClick={handleSplitByTreeID}
+                        disabled={!treeIDData || lastConfirmedSplit === 'treeID'}
+                        fullWidth
+                        sx={{ 
+                          backgroundColor: colors.greenAccent[700],
+                          color: colors.grey[100],
+                          whiteSpace: 'pre-line',
+                          '&:hover': { backgroundColor: colors.greenAccent[600] },
+                          '&:disabled': {
+                            backgroundColor: colors.grey[700],
+                            color: colors.grey[500]
+                          }
+                        }}
+                      >
+                        Split by{'\n'}Tree ID
+                      </Button>
+                    </Box>
+                  </Box>
+                )}
+
                 {/* --- Point Cloud Parts --- */}
                 {pointCloud && (
                   <Box sx={styles.annotationListSection}>
-                     <Box sx={{display: 'flex', alignItems: 'center', mb:1}}>
+                     <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', mb:1 }}>
                        <Typography sx={{...styles.annotationTitle, flex: 1, borderBottom: 'none', textAlign: 'center'}}>Point Cloud</Typography>
+                       <IconButton
+                         onClick={() => setPartListHelpDialogOpen(true)}
+                         size="small"
+                         sx={{
+                           position: 'absolute',
+                           right: 0,
+                           bottom: '20%',
+                           color: colors.grey[400],
+                           '&:hover': {
+                             color: colors.greenAccent[400],
+                             backgroundColor: 'rgba(0,0,0,0.1)',
+                           },
+                         }}
+                         title="How to manage parts"
+                       >
+                         <HelpOutline fontSize="small" />
+                       </IconButton>
                      </Box>
                     <Box sx={{ maxHeight: 320, overflowY: 'auto' }}>
                       <Box 
@@ -1690,6 +2189,15 @@ end_header
                               onChange={(e) => {
                                 e.stopPropagation();
                                 const checked = e.target.checked;
+                                // Save state BEFORE the action (if first time, this becomes the initial state)
+                                if (history.length === 0) {
+                                  const beforeSnapshot = createStateSnapshot();
+                                  if (beforeSnapshot) {
+                                    setHistory([beforeSnapshot]);
+                                    setHistoryIndex(0);
+                                  }
+                                }
+                                shouldSaveHistoryRef.current = true;
                                 setParts(prev => prev.map(part => ({ ...part, visible: checked })));
                               }}
                               sx={{ p: 0.5 }}
@@ -1705,6 +2213,7 @@ end_header
                     
                     {parts.map(part => {
                       const isSelected = selectedParts.includes(part.id);
+                      const partColor = getPartColor(part);
                       
                       return (
                       <Box 
@@ -1733,6 +2242,16 @@ end_header
                       >
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+                            <Box
+                              sx={{
+                                width: 16,
+                                height: 16,
+                                backgroundColor: partColor,
+                                borderRadius: '2px',
+                                border: `1px solid ${colors.grey[600]}`,
+                                flexShrink: 0
+                              }}
+                            />
                             <Typography sx={styles.annotationName}>
                               {part.name}
                             </Typography>
@@ -1754,50 +2273,133 @@ end_header
                   </Box>
                 )}
 
-                {/* --- Filter Mode --- */}
-                {pointCloud && (
-                  <FormControl fullWidth size="small" sx={styles.filterModeSelect}>
-                    <InputLabel>Filter Mode</InputLabel>
-                    <Select value={filterMode} label="Filter Mode" onChange={(e) => setFilterMode(e.target.value)}>
-                      <MenuItem value="classification">Classification</MenuItem>
-                      <MenuItem value="treeID">Tree ID</MenuItem>
-                    </Select>
-                  </FormControl>
-                )}
 
-                {/* Split/Reset Button - appears when filter mode is selected */}
-                {pointCloud && filterMode && (
-                  <Box sx={{ mt: 2 }}>
-                    {parts.length === 0 ? (
-                      <Button
-                        variant="contained"
-                        onClick={() => handleSplitPointCloud()}
-                        fullWidth
+                {/* --- Annotation & Selection Tools --- */}
+                {pointCloud && (
+                  <Box sx={styles.annotationSection}>
+                    <Box 
+                      sx={{ 
+                        position: 'relative',
+                        mb: annotationSelectionExpanded ? 1 : 0,
+                        cursor: 'pointer',
+                        '&:hover': { opacity: 0.8 }
+                      }}
+                      onClick={() => setAnnotationSelectionExpanded(!annotationSelectionExpanded)}
+                    >
+                      <Typography sx={{...styles.annotationTitle, pr: 3}}>Tools</Typography>
+                      <ExpandMore 
                         sx={{ 
-                          backgroundColor: colors.greenAccent[500],
-                          '&:hover': { backgroundColor: colors.greenAccent[600] }
+                          position: 'absolute',
+                          right: 0,
+                          top: '35%',
+                          transform: annotationSelectionExpanded 
+                            ? 'translateY(-50%) rotate(180deg)' 
+                            : 'translateY(-50%) rotate(0deg)',
+                          color: colors.grey[300],
+                          transition: 'transform 0.2s ease-in-out'
                         }}
-                        startIcon={<DeleteSweep />}
-                      >
-                        Split Point Cloud by {filterMode === 'classification' ? 'Classification' : 'Tree ID'}
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outlined"
-                        onClick={() => handleResetPointCloud()}
-                        fullWidth
-                        sx={{ 
-                          borderColor: colors.grey[400],
-                          color: colors.grey[200],
-                          '&:hover': { 
-                            borderColor: colors.grey[300],
-                            backgroundColor: colors.grey[800]
-                          }
-                        }}
-                        startIcon={<Close />}
-                      >
-                        Reset to Full Point Cloud
-                      </Button>
+                      />
+                    </Box>
+                    
+                    {annotationSelectionExpanded && (
+                      <Box>
+                        {/* Annotation Tool */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, mt: 2 }}>
+                          <Typography variant="body2" sx={{ color: colors.grey[300] }}>
+                            Annotation Tool
+                          </Typography>
+                          <IconButton 
+                            onClick={() => setAnnotationHelpDialogOpen(true)}
+                            size="small"
+                            sx={{ 
+                              color: colors.grey[400],
+                              '&:hover': { 
+                                color: colors.greenAccent[400],
+                                backgroundColor: 'rgba(0,0,0,0.1)'
+                              }
+                            }} 
+                            title="How to use Annotation Tool"
+                          >
+                            <HelpOutline fontSize="small" />
+                          </IconButton>
+                        </Box>
+                        <Button
+                          variant="contained"
+                          onClick={() => setAnnotationDialogOpen(true)}
+                          disabled={isAnnotating || parts.length === 0 || selectedParts.length !== 1}
+                          fullWidth
+                          sx={{ 
+                            mb: 2,
+                            backgroundColor: colors.greenAccent[500],
+                            color: colors.grey[100],
+                            fontWeight: !isAnnotating && parts.length > 0 && selectedParts.length === 1 ? 'bold' : 'normal',
+                            opacity: (parts.length === 0 || selectedParts.length !== 1) || isAnnotating ? 0.5 : 1,
+                            '&:hover': {
+                              backgroundColor: colors.greenAccent[600]
+                            },
+                            '&:disabled': {
+                              opacity: 0.5,
+                              backgroundColor: colors.grey[700],
+                              color: colors.grey[500]
+                            }
+                          }}
+                          startIcon={<Edit />}
+                        >
+                          Annotate Selected Part
+                        </Button>
+                        
+                        {/* Selection Tool */}
+                        <Box sx={{ mt: 2 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography gutterBottom variant="body2" sx={{ color: colors.grey[300], mb: 0 }}>
+                              Selection Tool
+                            </Typography>
+                            <IconButton
+                              onClick={() => setSelectionHelpDialogOpen(true)}
+                              size="small"
+                              sx={{
+                                color: colors.grey[400],
+                                '&:hover': {
+                                  color: colors.greenAccent[400],
+                                  backgroundColor: 'rgba(0,0,0,0.1)',
+                                },
+                              }}
+                              title="How to use Selection Tool"
+                            >
+                              <HelpOutline fontSize="small" />
+                            </IconButton>
+                          </Box>
+                          {isProcessingLasso && (
+                            <Box sx={styles.loadingContainer}>
+                                <CircularProgress size={18}/>
+                                <Typography sx={styles.loadingText}>Processing Selection...</Typography>
+                            </Box>
+                          )}
+                          <Button
+                            variant="contained"
+                            onClick={() => handleToolSelect('lasso')}
+                            disabled={isProcessingLasso}
+                            fullWidth
+                            sx={{
+                              mb: 2,
+                              backgroundColor: activeTool === 'lasso' ? colors.greenAccent[600] : colors.greenAccent[800],
+                              color: colors.grey[100],
+                              fontWeight: 'bold',
+                              '&:hover': {
+                                backgroundColor: activeTool === 'lasso' ? colors.greenAccent[600] : colors.greenAccent[700]
+                              },
+                              '&:disabled': {
+                                opacity: 0.5,
+                                backgroundColor: colors.grey[700]
+                              }
+                            }}
+                            startIcon={<Gesture />}
+                          >
+                            Lasso Tool{activeTool === 'lasso' ? ' (activate)' : ''}
+                          </Button>
+                        </Box>
+                        
+                      </Box>
                     )}
                   </Box>
                 )}
@@ -1805,83 +2407,74 @@ end_header
                 {/* --- Combined Tools Container --- */}
                 {pointCloud && (
                   <Box sx={styles.annotationSection}>
-                    <Typography sx={styles.annotationTitle}>Tools & Controls</Typography>
-                    
-                    {/* Bounding Box */}
-                    <FormControlLabel 
-                      control={<Checkbox checked={showBoundingBox} onChange={toggleBoundingBox} sx={styles.checkbox}/>} 
-                      label="Show Bounding Box" 
-                      sx={styles.checkboxLabel}
-                    />
-                    
-                    {/* Point Size */}
-                    <Box sx={{ px: 1, mt: 2 }}>
-                      <Typography gutterBottom variant="body2" sx={{ color: colors.grey[300] }}>
-                        Point Size
-                      </Typography>
-                      <Slider
-                        value={pointSize}
-                        onChange={(e, newValue) => setPointSize(newValue)}
-                        aria-labelledby="point-size-slider"
-                        valueLabelDisplay="auto"
-                        step={0.5}
-                        min={1}
-                        max={20}
-                        sx={{ color: colors.greenAccent[500] }}
-                      />
-                    </Box>
-
-                    {/* Point Density */}
-                    <Box sx={{ px: 1, mt: 2 }}>
-                      <Typography gutterBottom variant="body2" sx={{ color: colors.grey[300] }}>
-                        Point Density
-                      </Typography>
-                      <Slider
-                        value={pointDensity}
-                        onChange={(e, v) => setPointDensity(v)}
-                        aria-labelledby="point-density-slider"
-                        valueLabelDisplay="auto"
-                        step={0.05}
-                        min={0.1}
-                        max={1.0}
-                        sx={{ color: colors.greenAccent[500] }}
-                      />
-                    </Box>
-                    
-                    {/* Annotation Button */}
-                    <Button
-                      variant="contained"
-                      onClick={() => setAnnotationDialogOpen(true)}
-                      disabled={isAnnotating}
-                      fullWidth
-                      sx={{ mt: 2, mb: 2 }}
-                      startIcon={<Edit />}
+                    <Box 
+                      sx={{ 
+                        position: 'relative',
+                        mb: toolsControlsExpanded ? 1 : 0,
+                        cursor: 'pointer',
+                        '&:hover': { opacity: 0.8 }
+                      }}
+                      onClick={() => setToolsControlsExpanded(!toolsControlsExpanded)}
                     >
-                      Annotate Selected Part
-                    </Button>
-                    
-                    {/* Selection Tool */}
-                    <Box sx={{ mt: 2 }}>
-                      <Typography gutterBottom variant="body2" sx={{ color: colors.grey[300], mb: 1 }}>
-                        Selection Tool
-                      </Typography>
-                      {isProcessingLasso && (
-                        <Box sx={styles.loadingContainer}>
-                            <CircularProgress size={18}/>
-                            <Typography sx={styles.loadingText}>Processing Selection...</Typography>
-                        </Box>
-                      )}
-                      <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1}}>
-                        <IconButton
-                          sx={{...styles.toolButton, ...(activeTool === 'lasso' ? {backgroundColor: colors.primary[700], color: colors.grey[100]} : {})}}
-                          onClick={() => handleToolSelect('lasso')} 
-                          title="Lasso Selection Tool"
-                          disabled={isProcessingLasso}
-                        >
-                          <Gesture />
-                        </IconButton>
-                      </Box>
+                      <Typography sx={{...styles.annotationTitle, pr: 3}}>Display Settings</Typography>
+                      <ExpandMore 
+                        sx={{ 
+                          position: 'absolute',
+                          right: 0,
+                          top: '35%',
+                          transform: toolsControlsExpanded 
+                            ? 'translateY(-50%) rotate(180deg)' 
+                            : 'translateY(-50%) rotate(0deg)',
+                          color: colors.grey[300],
+                          transition: 'transform 0.2s ease-in-out'
+                        }}
+                      />
                     </Box>
+                    
+                    {toolsControlsExpanded && (
+                      <Box>
+                        {/* Bounding Box */}
+                        <FormControlLabel 
+                          control={<Checkbox checked={showBoundingBox} onChange={toggleBoundingBox} sx={styles.checkbox}/>} 
+                          label="Show Bounding Box" 
+                          sx={styles.checkboxLabel}
+                        />
+                        
+                        {/* Point Size */}
+                        <Box sx={{ px: 1, mt: 2 }}>
+                          <Typography gutterBottom variant="body2" sx={{ color: colors.grey[300] }}>
+                            Point Size
+                          </Typography>
+                          <Slider
+                            value={pointSize}
+                            onChange={(e, newValue) => setPointSize(newValue)}
+                            aria-labelledby="point-size-slider"
+                            valueLabelDisplay="auto"
+                            step={0.5}
+                            min={1}
+                            max={20}
+                            sx={{ color: colors.greenAccent[500] }}
+                          />
+                        </Box>
+
+                        {/* Point Density */}
+                        <Box sx={{ px: 1, mt: 2 }}>
+                          <Typography gutterBottom variant="body2" sx={{ color: colors.grey[300] }}>
+                            Point Density
+                          </Typography>
+                          <Slider
+                            value={pointDensity}
+                            onChange={(e, v) => setPointDensity(v)}
+                            aria-labelledby="point-density-slider"
+                            valueLabelDisplay="auto"
+                            step={0.05}
+                            min={0.1}
+                            max={1.0}
+                            sx={{ color: colors.greenAccent[500] }}
+                          />
+                        </Box>
+                      </Box>
+                    )}
                   </Box>
                 )}
 
@@ -1900,12 +2493,102 @@ end_header
 
           {/* MiniMap Toggle Button & Container */}
           <Box sx={{ position: 'absolute', top: '15px', left: '315px', zIndex: 1002, display: 'flex', gap: '10px' }}>
-            <IconButton onClick={toggleMiniMap} sx={{ backgroundColor: 'rgba(0,0,0,0.2)', color: 'white', '&:hover': {backgroundColor: 'rgba(0,0,0,0.4)'} }}>
-              {showMiniMap ? <Close /> : <Map />}
-            </IconButton>
-            <IconButton onClick={handleResetView} sx={{ backgroundColor: 'rgba(0,0,0,0.2)', color: 'white', '&:hover': {backgroundColor: 'rgba(0,0,0,0.4)'} }} title="Reset View">
-              <Refresh />
-            </IconButton>
+            <Tooltip title={showMiniMap ? "Hide Mini Map" : "Show Mini Map"}>
+              <IconButton onClick={toggleMiniMap} sx={{ backgroundColor: 'rgba(0,0,0,0.2)', color: 'white', '&:hover': {backgroundColor: 'rgba(0,0,0,0.4)'} }}>
+                {showMiniMap ? <Close /> : <Map />}
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Reset View">
+              <IconButton onClick={handleResetView} sx={{ backgroundColor: 'rgba(0,0,0,0.2)', color: 'white', '&:hover': {backgroundColor: 'rgba(0,0,0,0.4)'} }}>
+                <Refresh />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={canUndo ? "Undo (Ctrl+Z)" : "Nothing to undo"}>
+              <span>
+                <IconButton 
+                  onClick={handleUndo} 
+                  disabled={!canUndo}
+                  sx={{ 
+                    backgroundColor: 'rgba(0,0,0,0.2)', 
+                    color: canUndo ? 'white' : 'rgba(255,255,255,0.5)',
+                    fontWeight: canUndo ? 'bold' : 'normal',
+                    opacity: canUndo ? 1 : 0.5,
+                    '&:hover': canUndo ? {backgroundColor: 'rgba(0,0,0,0.4)'} : {},
+                    '&:disabled': {
+                      color: 'rgba(255,255,255,0.5)',
+                      opacity: 0.5
+                    }
+                  }}
+                >
+                  <Undo />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title={canRedo ? "Redo (Ctrl+Y)" : "Nothing to redo"}>
+              <span>
+                <IconButton 
+                  onClick={handleRedo} 
+                  disabled={!canRedo}
+                  sx={{ 
+                    backgroundColor: 'rgba(0,0,0,0.2)', 
+                    color: canRedo ? 'white' : 'rgba(255,255,255,0.5)',
+                    fontWeight: canRedo ? 'bold' : 'normal',
+                    opacity: canRedo ? 1 : 0.5,
+                    '&:hover': canRedo ? {backgroundColor: 'rgba(0,0,0,0.4)'} : {},
+                    '&:disabled': {
+                      color: 'rgba(255,255,255,0.5)',
+                      opacity: 0.5
+                    }
+                  }}
+                >
+                  <Redo />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title={isAnnotating || parts.length === 0 || selectedParts.length !== 1 
+              ? (parts.length === 0 ? "Select a part to annotate" : selectedParts.length === 0 ? "Select a part to annotate" : "Select exactly one part")
+              : "Annotate Selected Part"}>
+              <span>
+                <IconButton 
+                  onClick={() => setAnnotationDialogOpen(true)}
+                  disabled={isAnnotating || parts.length === 0 || selectedParts.length !== 1}
+                  sx={{ 
+                    backgroundColor: 'rgba(0,0,0,0.2)', 
+                    color: !isAnnotating && parts.length > 0 && selectedParts.length === 1 ? 'white' : 'rgba(255,255,255,0.7)',
+                    fontWeight: !isAnnotating && parts.length > 0 && selectedParts.length === 1 ? 'bold' : 'normal',
+                    '&:hover': !isAnnotating && parts.length > 0 && selectedParts.length === 1 ? {backgroundColor: 'rgba(0,0,0,0.4)'} : {},
+                    '&:disabled': {
+                      color: 'rgba(255,255,255,0.7)',
+                      backgroundColor: 'rgba(0,0,0,0.3)',
+                      opacity: 1
+                    }
+                  }}
+                >
+                  <Edit />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title={isProcessingLasso ? "Processing selection..." : "Lasso Selection Tool"}>
+              <span>
+                <IconButton 
+                  onClick={() => handleToolSelect('lasso')}
+                  disabled={isProcessingLasso}
+                  sx={{ 
+                    backgroundColor: activeTool === 'lasso' ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.2)', 
+                    color: activeTool === 'lasso' ? 'white' : 'rgba(255,255,255,0.5)',
+                    fontWeight: activeTool === 'lasso' ? 'bold' : 'normal',
+                    opacity: activeTool === 'lasso' ? 1 : 0.5,
+                    '&:hover': {backgroundColor: 'rgba(0,0,0,0.4)'},
+                    '&:disabled': {
+                      color: 'rgba(255,255,255,0.5)',
+                      opacity: 0.5
+                    }
+                  }}
+                >
+                  <Gesture />
+                </IconButton>
+              </span>
+            </Tooltip>
           </Box>
           {showMiniMap && (
             <Box sx={miniMapContainerStyle}>
@@ -1936,16 +2619,14 @@ end_header
          </DialogTitle>
          <DialogContent>
            <Box sx={{ mt: 2 }}>
-             <Typography variant="body2" sx={{ color: colors.grey[300], mb: 2 }}>
-               {parts.length === 0 
-                 ? "This will annotate the full point cloud"
-                 : selectedParts.length === 0 
-                   ? "Please select a part to annotate"
-                   : selectedParts.length === 1
-                     ? `This will annotate: ${parts.find(p => p.id === selectedParts[0])?.name || 'Selected Part'}`
-                     : `This will annotate ${selectedParts.length} selected parts`
-               }
-             </Typography>
+            <Typography variant="body2" sx={{ color: colors.grey[300], mb: 2 }}>
+              {selectedParts.length === 0 
+                ? "Please select a part to annotate"
+                : selectedParts.length === 1
+                  ? <>This will annotate: <strong>{parts.find(p => p.id === selectedParts[0])?.name || 'Selected Part'}</strong></>
+                  : <>This will annotate <strong>{selectedParts.length} selected parts</strong></>
+              }
+            </Typography>
              
              <FormControl fullWidth sx={{ mb: 2 }}>
                <InputLabel>Annotation Type</InputLabel>
@@ -2019,7 +2700,8 @@ end_header
             disabled={
               !selectedAnnotationValue || 
               isAnnotating || 
-              (parts.length > 0 && selectedParts.length === 0) ||
+              parts.length === 0 ||
+              selectedParts.length === 0 ||
               (selectedAnnotationType === 'treeID' && (selectedAnnotationValue === '' || isNaN(parseInt(selectedAnnotationValue, 10)) || parseInt(selectedAnnotationValue, 10) < -2147483648 || parseInt(selectedAnnotationValue, 10) > 2147483647))
             }
             startIcon={<Save />}
@@ -2028,6 +2710,268 @@ end_header
           </Button>
          </DialogActions>
        </Dialog>
+
+       {/* Annotation Help Dialog */}
+       <Dialog 
+         open={annotationHelpDialogOpen} 
+         onClose={() => setAnnotationHelpDialogOpen(false)}
+         maxWidth="md"
+         fullWidth
+       >
+         <DialogTitle>
+           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+               <HelpOutline sx={{ color: colors.greenAccent[500] }} />
+               How to Use Annotation Tool
+             </Box>
+             <IconButton
+               onClick={() => setAnnotationHelpDialogOpen(false)}
+               sx={{
+                 color: colors.grey[400],
+                 '&:hover': {
+                   color: colors.grey[200],
+                   backgroundColor: 'rgba(0,0,0,0.1)'
+                 }
+               }}
+               size="small"
+             >
+               <Close />
+             </IconButton>
+           </Box>
+         </DialogTitle>
+         <DialogContent>
+           <Box sx={{ mt: 2 }}>
+             <Typography variant="h6" sx={{ color: colors.grey[100], mb: 2, fontWeight: 'bold' }}>
+               Overview
+             </Typography>
+             <Typography variant="body1" sx={{ color: colors.grey[300], mb: 3 }}>
+               The Annotation Tool allows you to assign classification labels or Tree IDs to points in your point cloud. 
+               You can annotate specific selected parts that you create using the Lasso Selection Tool.
+             </Typography>
+
+             <Typography variant="h6" sx={{ color: colors.grey[100], mb: 2, fontWeight: 'bold' }}>
+               Step-by-Step Instructions
+             </Typography>
+             
+             <Box sx={{ mb: 3 }}>
+               <Typography variant="subtitle1" sx={{ color: colors.greenAccent[400], mb: 1, fontWeight: 'bold' }}>
+                 1. Create and Select a Part
+               </Typography>
+              <Box sx={{ pl: 2, mb: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
+                  <Typography variant="body2" sx={{ color: colors.grey[300] }}>
+                    • Use the
+                  </Typography>
+                  <Gesture sx={{ fontSize: 16, color: colors.grey[300] }} />
+                  <Typography variant="body2" sx={{ color: colors.grey[300] }}>
+                    <strong>Lasso Selection Tool</strong> to create a part by selecting points in the point cloud.
+                  </Typography>
+                </Box>
+                <Typography variant="body2" sx={{ color: colors.grey[300], mb: 1 }}>
+                  • You can also create parts using the <strong>Split Point Cloud</strong> buttons for Classification or Tree ID.
+                </Typography>
+                <Typography variant="body2" sx={{ color: colors.grey[300] }}>
+                  • Select exactly one part from the point cloud list before annotating.
+                </Typography>
+              </Box>
+
+               <Typography variant="subtitle1" sx={{ color: colors.greenAccent[400], mb: 1, fontWeight: 'bold' }}>
+                 2. Click the Annotation Button
+               </Typography>
+               <Box sx={{ pl: 2, mb: 2, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                 <Typography variant="body2" sx={{ color: colors.grey[300] }}>
+                   Click the
+                 </Typography>
+                 <Edit sx={{ fontSize: 16, color: colors.grey[300] }} />
+                 <Typography variant="body2" sx={{ color: colors.grey[300] }}>
+                   icon button in the viewer or the "Annotate Selected Part" button in the sidebar.
+                 </Typography>
+               </Box>
+
+               <Typography variant="subtitle1" sx={{ color: colors.greenAccent[400], mb: 1, fontWeight: 'bold' }}>
+                 3. Choose Annotation Type and Value
+               </Typography>
+               <Typography variant="body2" sx={{ color: colors.grey[300], mb: 2, pl: 2 }}>
+                 • Select the <strong>Annotation Type</strong> (Classification or Tree ID).
+                 <br />
+                 • For <strong>Classification:</strong> Choose from the dropdown list of available classifications.
+                 <br />
+                 • For <strong>Tree ID:</strong> Enter an integer value.
+               </Typography>
+
+               <Typography variant="subtitle1" sx={{ color: colors.greenAccent[400], mb: 1, fontWeight: 'bold' }}>
+                 4. Apply Annotation
+               </Typography>
+               <Typography variant="body2" sx={{ color: colors.grey[300], mb: 2, pl: 2 }}>
+                 Click "Apply Annotation" to assign the selected classification or Tree ID to all points in the selected area.
+                 The annotation process may take a moment depending on the number of points.
+               </Typography>
+             </Box>
+
+             <Typography variant="h6" sx={{ color: colors.grey[100], mb: 2, fontWeight: 'bold' }}>
+               Tips
+             </Typography>
+            <Box component="ul" sx={{ color: colors.grey[300], pl: 3, mb: 2 }}>
+              <li>You must create at least one part using the Lasso Selection Tool or the Split Point Cloud buttons before you can annotate.</li>
+               <li>Select exactly one part from the point cloud list before annotating, or the annotation button will be disabled.</li>
+               <li>You can undo/redo annotations using the undo/redo buttons in the viewer.</li>
+             </Box>
+           </Box>
+         </DialogContent>
+      </Dialog>
+
+      {/* Part List Help Dialog */}
+      <Dialog
+        open={partListHelpDialogOpen}
+        onClose={() => setPartListHelpDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <HelpOutline sx={{ color: colors.greenAccent[500] }} />
+              How to Use Point Cloud List
+            </Box>
+            <IconButton
+              onClick={() => setPartListHelpDialogOpen(false)}
+              sx={{
+                color: colors.grey[400],
+                '&:hover': {
+                  color: colors.grey[200],
+                  backgroundColor: 'rgba(0,0,0,0.1)',
+                },
+              }}
+              size="small"
+            >
+              <Close />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="body1" sx={{ color: colors.grey[300], mb: 2 }}>
+              The Point Cloud list shows every part you have created. Use it to control visibility, selection, and part actions.
+            </Typography>
+            <Box component="ul" sx={{ color: colors.grey[300], pl: 3, mb: 2, '& > li': { mb: 1 } }}>
+              <li><strong>Toggle visibility:</strong> Use the checkbox on each part to show or hide it in the viewer.</li>
+              <li><strong>Select a part:</strong> Click a row to select it. The selected part will be highlighted.</li>
+              <li><strong>Multi-select:</strong> Hold <strong>Ctrl</strong> while clicking to select multiple parts.</li>
+              <li><strong>Context menu (right-click a part):</strong> Provides rename, delete, and save options. The merge option appears when multiple parts are selected.</li>
+              <li><strong>Merge parts:</strong> Select multiple parts, then use the context menu and choose "Merge Selected Parts" to combine them into one part.</li>
+            </Box>
+          </Box>
+        </DialogContent>
+      </Dialog>
+
+      {/* Selection Tool Help Dialog */}
+      <Dialog
+        open={selectionHelpDialogOpen}
+        onClose={() => setSelectionHelpDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <HelpOutline sx={{ color: colors.greenAccent[500] }} />
+              How to Use Selection Tool
+            </Box>
+            <IconButton
+              onClick={() => setSelectionHelpDialogOpen(false)}
+              sx={{
+                color: colors.grey[400],
+                '&:hover': {
+                  color: colors.grey[200],
+                  backgroundColor: 'rgba(0,0,0,0.1)',
+                },
+              }}
+              size="small"
+            >
+              <Close />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="body1" sx={{ color: colors.grey[300], mb: 2 }}>
+              The Selection Tool lets you split the point cloud into parts using a lasso (free-form polygon) selection.
+            </Typography>
+            <Typography variant="subtitle1" sx={{ color: colors.greenAccent[400], mb: 1, fontWeight: 'bold' }}>
+              Steps
+            </Typography>
+            <Box component="ul" sx={{ color: colors.grey[300], pl: 3, mb: 2 }}>
+              <li>Click the lasso icon to activate it.</li>
+              <li>Click around the area you want to isolate.</li>
+            </Box>
+            <Typography variant="body2" sx={{ color: colors.grey[400], mt: 2, fontStyle: 'italic' }}>
+              Note: The lasso only cuts the parts you currently have selected. Select specific parts first if needed.
+            </Typography>
+          </Box>
+        </DialogContent>
+      </Dialog>
+
+      {/* Split Warning Dialog */}
+      <Dialog
+        open={splitWarningDialogOpen}
+        onClose={() => {
+          setSplitWarningDialogOpen(false);
+          setPendingSplitType(null);
+          setPendingMiniMapTreeID(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="h6" sx={{ color: colors.grey[100] }}>
+              Warning
+            </Typography>
+            <IconButton
+              onClick={() => {
+                setSplitWarningDialogOpen(false);
+                setPendingSplitType(null);
+                setPendingMiniMapTreeID(null);
+              }}
+              sx={{
+                color: colors.grey[400],
+                '&:hover': {
+                  color: colors.grey[200],
+                  backgroundColor: 'rgba(0,0,0,0.1)',
+                },
+              }}
+              size="small"
+            >
+              <Close />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              All existing parts will be lost when you split the point cloud.
+            </Alert>
+            <Typography variant="body2" sx={{ color: colors.grey[300] }}>
+              {pendingSplitType === 'minimap' 
+                ? 'This action will replace all current parts with new parts based on Tree ID from the minimap. Any unsaved work on existing parts will be lost.'
+                : `This action will replace all current parts with new parts based on ${pendingSplitType === 'classification' ? 'classification' : 'Tree ID'}. Any unsaved work on existing parts will be lost.`
+              }
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setSplitWarningDialogOpen(false);
+            setPendingSplitType(null);
+            setPendingMiniMapTreeID(null);
+          }}>
+            Cancel
+          </Button>
+          <Button onClick={handleConfirmSplit} variant="contained" color="warning">
+            Continue
+          </Button>
+        </DialogActions>
+      </Dialog>
 
        {/* Rename Dialog */}
        <Dialog 

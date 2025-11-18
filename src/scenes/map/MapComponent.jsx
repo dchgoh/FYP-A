@@ -137,6 +137,7 @@ const MapComponent = ({ isCollapsed }) => {
                                     ) : ( <Typography variant="body2" sx={{ my: 2, fontStyle: 'italic', textAlign: 'center' }}>No individual tree data available.</Typography> )}
                                     <Box sx={styles.popupDetailsSection}>
                                         <Typography variant="body2">Plot: {file.plot_name || 'N/A'}</Typography>
+                                        <Typography variant="body2">Division: {file.divisionName || 'N/A'}</Typography>
                                         <Typography variant="body2">Project: {file.projectName}</Typography>
                                         {file.status === 'ready' && <Link to={`/pointcloud?fileId=${file.id}`} style={{ color: colors.blueAccent[300], fontWeight: 'bold' }}>View Point Cloud</Link>}
                                     </Box>

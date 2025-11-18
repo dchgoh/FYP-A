@@ -587,14 +587,13 @@ const MiniMapContent = ({ files, currentFileId, initialCenter, initialZoom, colo
                     >
                       <div style={tooltipContentStyle}>
                         <div style={{ marginBottom: '2px', fontSize: '11px' }}>
-                          <strong style={{ marginRight: '3px', fontSize: '11px' }}>ID:</strong>
+                          <strong style={{ marginRight: '3px', fontSize: '11px' }}>Tree ID:</strong>
                           <span style={valueStyle}>{treeId}</span>
                         </div>
                         <div style={{ marginBottom: '3px', fontSize: '11px' }}>
-                          <strong style={{ marginRight: '3px', fontSize: '11px' }}>Loc:</strong>
+                          <strong style={{ marginRight: '3px', fontSize: '11px' }}>Coords:</strong>
                           <span style={valueStyle}>
-                            {formatNumber(midpointData.latitude, 3)},
-                            {formatNumber(midpointData.longitude, 3)}
+                            {formatNumber(midpointData.latitude, 5)}, {formatNumber(midpointData.longitude, 5)}
                           </span>
                         </div>
 

@@ -123,12 +123,12 @@ const MidpointsMiniMap = ({ midpoints, centerCoords, mainFileName }) => {
             if (validMidpoints.length > 0) {
               const pointsForBounds = validMidpoints.map(m => [m.latitude, m.longitude]);
               const bounds = L.latLngBounds(pointsForBounds);
-              map.fitBounds(bounds.pad(0.15), {
-                maxZoom: MAX_MINI_MAP_ZOOM - 2,
-                padding: [10, 10]
+              map.fitBounds(bounds.pad(0.05), {
+                maxZoom: MAX_MINI_MAP_ZOOM,
+                padding: [5, 5]
               });
             } else if (centerCoords) {
-              map.setView(centerCoords, 15);
+              map.setView(centerCoords, 18);
             }
           }
         }
@@ -166,10 +166,10 @@ const MidpointsMiniMap = ({ midpoints, centerCoords, mainFileName }) => {
   }
 
   let initialCenter = centerCoords || [0,0];
-  let initialZoom = centerCoords ? 15 : 2;
+  let initialZoom = centerCoords ? 18 : 2;
   if (validMidpoints.length > 0) {
     initialCenter = [validMidpoints[0].latitude, validMidpoints[0].longitude];
-    initialZoom = 16;
+    initialZoom = 19;
   }
 
   // --- Styles for Tooltip Content (Can be adjusted with MUI theme for more power) ---
@@ -257,7 +257,24 @@ const MidpointsMiniMap = ({ midpoints, centerCoords, mainFileName }) => {
               if (midpointData.hasOwnProperty('dbh_cm') && midpointData.dbh_cm !== undefined) {
                 metricsToDisplay.push({ label: 'DBH:', value: formatNumber(midpointData.dbh_cm, 1, 'cm') });
               }
-              // ... (add other metrics as before)
+              if (midpointData.hasOwnProperty('height_m') && midpointData.height_m !== undefined) {
+                metricsToDisplay.push({ label: 'Height:', value: formatNumber(midpointData.height_m, 1, 'm') });
+              }
+              if (midpointData.hasOwnProperty('stem_volume_m3') && midpointData.stem_volume_m3 !== undefined) {
+                metricsToDisplay.push({ label: 'Stem Vol:', value: formatNumber(midpointData.stem_volume_m3, 3, 'm³') });
+              }
+              if (midpointData.hasOwnProperty('ag_volume_m3') && midpointData.ag_volume_m3 !== undefined) {
+                metricsToDisplay.push({ label: 'AG Vol:', value: formatNumber(midpointData.ag_volume_m3, 3, 'm³') });
+              }
+              if (midpointData.hasOwnProperty('total_volume_m3') && midpointData.total_volume_m3 !== undefined) {
+                metricsToDisplay.push({ label: 'Total Vol:', value: formatNumber(midpointData.total_volume_m3, 3, 'm³') });
+              }
+              if (midpointData.hasOwnProperty('biomass_tonnes') && midpointData.biomass_tonnes !== undefined) {
+                metricsToDisplay.push({ label: 'Biomass:', value: formatNumber(midpointData.biomass_tonnes, 3, 'tonnes') });
+              }
+              if (midpointData.hasOwnProperty('carbon_tonnes') && midpointData.carbon_tonnes !== undefined) {
+                metricsToDisplay.push({ label: 'Carbon:', value: formatNumber(midpointData.carbon_tonnes, 3, 'tonnes') });
+              }
               if (midpointData.hasOwnProperty('co2_equivalent_tonnes') && midpointData.co2_equivalent_tonnes !== undefined) {
                 metricsToDisplay.push({ label: 'CO₂eq:', value: formatNumber(midpointData.co2_equivalent_tonnes, 3, 'tonnes') });
               }

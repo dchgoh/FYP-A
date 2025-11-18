@@ -95,11 +95,8 @@ export const annotateAllVisiblePoints = (setIsAnnotating, setAnnotationDialogOpe
           // Multiple parts selected - combine them
           targetGeometry = combineVisibleParts();
         }
-      } else if (parts.length === 0) {
-        // No parts exist, annotate the full original geometry
-        targetGeometry = originalGeometry;
       } else {
-        // Parts exist but no part is selected, show error
+        // No part is selected or no parts exist, show error
         setIsAnnotating(false);
         setAnnotationDialogOpen(false);
         return;
