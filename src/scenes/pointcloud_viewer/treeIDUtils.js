@@ -3,7 +3,14 @@
 export const createInitialTreeIDs = (treeIDs) => {
   if (!treeIDs || treeIDs.length === 0) return {};
   
-  const uniqueTreeIDs = [...new Set(treeIDs)];
+  // OPTIMIZATION: Count points in a single O(n) pass instead of O(n*m) with filter
+  const pointCountMap = new Map();
+  for (let i = 0; i < treeIDs.length; i++) {
+    const treeID = treeIDs[i];
+    pointCountMap.set(treeID, (pointCountMap.get(treeID) || 0) + 1);
+  }
+  
+  const uniqueTreeIDs = Array.from(pointCountMap.keys());
   const hasNegativeOne = uniqueTreeIDs.includes(-1);
   
   // Sort: Unclassified first, then regular treeIDs
@@ -38,7 +45,7 @@ export const createInitialTreeIDs = (treeIDs) => {
       name: displayName,
       visible: true,
       color: generateTreeIDColor(originalTreeID),
-      pointCount: treeIDs.filter(id => id === originalTreeID).length
+      pointCount: pointCountMap.get(originalTreeID) || 0
     };
   });
   

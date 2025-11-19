@@ -1415,8 +1415,6 @@ end_header
   const performSplitByTreeID = () => {
     if (!pointCloud || !originalGeometry || !treeIDData) return;
     
-    const newParts = [];
-    
     // Split by treeID - create a custom filter for each treeID
     // Check if -1 exists to determine which is Unclassified
     const hasNegativeOne = Object.keys(treeIDs).some(key => parseInt(key) === -1);
@@ -1438,23 +1436,65 @@ end_header
       return numA - numB;
     });
     
-    sortedEntries.forEach(([id, treeID]) => {
-      const filteredGeometry = filterPointCloudBySingleTreeID(originalGeometry, id, treeID, treeIDData);
-      if (filteredGeometry && filteredGeometry.attributes && filteredGeometry.attributes.position && filteredGeometry.attributes.position.count > 0) {
-        newParts.push({
-          id: Date.now() + Math.random(),
-          name: treeID.name,
-          geometry: filteredGeometry,
-          visible: true,
-          type: 'treeID',
-          treeIDId: id
-        });
-      }
-    });
+    // OPTIMIZATION: For large numbers of treeIDs, process in batches to avoid blocking UI
+    const BATCH_SIZE = 50; // Process 50 treeIDs at a time
+    const totalEntries = sortedEntries.length;
+    const newParts = []; // Shared across batches
     
-    if (newParts.length > 0) {
-      setParts(newParts);
-      setSelectedParts([]); // Clear selection after splitting
+    const processBatch = (startIndex) => {
+      const endIndex = Math.min(startIndex + BATCH_SIZE, totalEntries);
+      
+      for (let i = startIndex; i < endIndex; i++) {
+        const [id, treeID] = sortedEntries[i];
+        const filteredGeometry = filterPointCloudBySingleTreeID(originalGeometry, id, treeID, treeIDData);
+        if (filteredGeometry && filteredGeometry.attributes && filteredGeometry.attributes.position && filteredGeometry.attributes.position.count > 0) {
+          newParts.push({
+            id: Date.now() + Math.random() + i, // Ensure unique IDs
+            name: treeID.name,
+            geometry: filteredGeometry,
+            visible: true,
+            type: 'treeID',
+            treeIDId: id
+          });
+        }
+      }
+      
+      // If more entries to process, continue in next frame
+      if (endIndex < totalEntries) {
+        requestAnimationFrame(() => processBatch(endIndex));
+      } else {
+        // All done, update state
+        if (newParts.length > 0) {
+          setParts(newParts);
+          setSelectedParts([]); // Clear selection after splitting
+        }
+      }
+    };
+    
+    // Start processing
+    if (totalEntries > BATCH_SIZE) {
+      // For large datasets, process in batches
+      processBatch(0);
+    } else {
+      // For small datasets, process all at once
+      sortedEntries.forEach(([id, treeID]) => {
+        const filteredGeometry = filterPointCloudBySingleTreeID(originalGeometry, id, treeID, treeIDData);
+        if (filteredGeometry && filteredGeometry.attributes && filteredGeometry.attributes.position && filteredGeometry.attributes.position.count > 0) {
+          newParts.push({
+            id: Date.now() + Math.random(),
+            name: treeID.name,
+            geometry: filteredGeometry,
+            visible: true,
+            type: 'treeID',
+            treeIDId: id
+          });
+        }
+      });
+      
+      if (newParts.length > 0) {
+        setParts(newParts);
+        setSelectedParts([]); // Clear selection after splitting
+      }
     }
   };
 
@@ -1469,6 +1509,21 @@ end_header
   };
 
   const handleSplitByTreeID = () => {
+    // PERFORMANCE CHECK: Warn if too many treeIDs
+    const treeIDCount = Object.keys(treeIDs).length;
+    const PERFORMANCE_THRESHOLD = 1000; // Warn if more than 1000 treeIDs
+    
+    if (treeIDCount > PERFORMANCE_THRESHOLD) {
+      const proceed = window.confirm(
+        `Warning: You have ${treeIDCount} tree IDs. Creating parts for all of them may cause performance issues and could freeze the browser.\n\n` +
+        `Consider using the Tree ID filter mode instead of splitting.\n\n` +
+        `Do you want to continue anyway?`
+      );
+      if (!proceed) {
+        return;
+      }
+    }
+    
     if (parts.length > 0) {
       setPendingSplitType('treeID');
       setSplitWarningDialogOpen(true);

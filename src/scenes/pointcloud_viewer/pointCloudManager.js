@@ -195,6 +195,10 @@ export const filterPointCloudByClassifications = (originalGeometry, classificati
   return finalGeometry;
 };
 
+// Cache for uniqueTreeIDData to avoid recalculating on every filter call
+let cachedTreeIDData = null;
+let cachedTreeIDDataArray = null;
+
 export const filterPointCloudByTreeIDs = (originalGeometry, treeIDData, treeIDs) => {
   if (!originalGeometry || !treeIDData) return null;
   
@@ -206,12 +210,30 @@ export const filterPointCloudByTreeIDs = (originalGeometry, treeIDData, treeIDs)
   const newCustomColors = [];
   const newSizes = [];
   
-  const uniqueTreeIDData = createInitialTreeIDs(treeIDData); // Get the color map
+  // OPTIMIZATION: Cache uniqueTreeIDData and only recalculate if treeIDData array reference changed
+  if (cachedTreeIDDataArray !== treeIDData) {
+    cachedTreeIDData = createInitialTreeIDs(treeIDData);
+    cachedTreeIDDataArray = treeIDData;
+  }
+  const uniqueTreeIDData = cachedTreeIDData;
+  
+  // OPTIMIZATION: Pre-compute visible treeIDs as a Set for O(1) lookup
+  const visibleTreeIDs = new Set();
+  Object.keys(treeIDs).forEach(key => {
+    const treeID = treeIDs[key];
+    if (treeID && treeID.visible !== false) {
+      visibleTreeIDs.add(parseInt(key));
+    }
+  });
+  // Also include treeIDs that are not in the treeIDs object (default to visible)
+  // This handles the case where treeIDs object might not have all treeIDs
 
   for (let i = 0; i < positions.length; i += 3) {
     const pointIndex = i / 3;
     const treeID = treeIDData[pointIndex];
-    const { isVisible } = findTreeIDByID(treeID, treeIDs);
+    
+    // OPTIMIZATION: Use Set lookup instead of function call
+    const isVisible = !treeIDs[String(treeID)] || visibleTreeIDs.has(treeID);
 
     if (isVisible) {
       newPositions.push(positions[i], positions[i+1], positions[i+2]);
