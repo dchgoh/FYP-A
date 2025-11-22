@@ -76,6 +76,9 @@ router.post('/:id/stop', checkRole([ROLES.ADMIN, ROLES.DATA_MANAGER]), fileContr
 // Start File Processing Route (Admin/DM)
 router.post('/:id/start', checkRole([ROLES.ADMIN, ROLES.DATA_MANAGER]), fileController.startFileProcessing);
 
+// Start Segmentation Route (Admin/DM) - for files that were skipped during upload
+router.post('/:id/segment', checkRole([ROLES.ADMIN, ROLES.DATA_MANAGER]), fileController.startSegmentation);
+
 // System Health Routes (Admin only)
 router.get('/system/health', checkRole([ROLES.ADMIN]), fileController.getSystemHealth);
 
