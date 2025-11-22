@@ -204,6 +204,7 @@ const createFilesTable = async () => {
           tree_biomass_tonnes JSONB,
           tree_carbon_tonnes JSONB,
           tree_co2_equivalent_tonnes JSONB,
+          segmentation_skipped BOOLEAN DEFAULT false,
           CONSTRAINT fk_project
             FOREIGN KEY(project_id)
             REFERENCES projects(id)
@@ -211,7 +212,21 @@ const createFilesTable = async () => {
             ON UPDATE CASCADE
       );
     `);
-    console.log("Uploaded_files table checked/updated with new biomass/carbon metrics columns.");
+    
+    // Add segmentation_skipped column if it doesn't exist (for existing databases)
+    await pool.query(`
+      DO $$ 
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'uploaded_files' AND column_name = 'segmentation_skipped'
+        ) THEN
+          ALTER TABLE uploaded_files ADD COLUMN segmentation_skipped BOOLEAN DEFAULT false;
+        END IF;
+      END $$;
+    `);
+    
+    console.log("Uploaded_files table checked/updated with new biomass/carbon metrics columns and segmentation_skipped flag.");
 
     // Index remains useful
     await pool.query(`

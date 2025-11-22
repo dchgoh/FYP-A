@@ -492,6 +492,18 @@ export const useFileManagement = () => {
             showSnackbar("Auth required.", "error"); 
             return; 
         }
+
+        // Optimistic update: Remove from processing set and update status immediately
+        setFilesBeingProcessed(prev => {
+            const next = new Set(prev);
+            next.delete(fileId);
+            return next;
+        });
+        
+        // Optimistically update the file status to 'stopped'
+        setFiles(prev => prev.map(file => 
+            file.id === fileId ? { ...file, status: 'stopped' } : file
+        ));
         
         try {
             const res = await axios.post(`${API_BASE_URL}/files/${fileId}/stop`, {}, { 
@@ -500,13 +512,18 @@ export const useFileManagement = () => {
             
             if (res.data.success) {
                 showSnackbar(`Processing stopped for "${fileToStop.name}".`, "success");
-                fetchFiles(); // Refresh file list
+                // Refresh file list to get the actual status from server
+                fetchFiles(); 
             } else { 
-                showSnackbar(res.data.message || "Stop processing failed.", "warning"); 
+                showSnackbar(res.data.message || "Stop processing failed.", "warning");
+                // Revert optimistic update on failure
+                fetchFiles(); 
             }
         } catch (e) {
             console.error("Stop processing error:", e);
             showSnackbar(e.response?.data?.message || "Server error stopping processing.", "error");
+            // Revert optimistic update on error
+            fetchFiles(); 
         }
       };
 
@@ -520,7 +537,7 @@ export const useFileManagement = () => {
         const fileId = fileToStart?.id;
         if (!fileId) { 
             handleMenuClose(); 
-            return; 
+            return;
         }
         
         handleMenuClose();
@@ -564,6 +581,57 @@ export const useFileManagement = () => {
             setFilesBeingProcessed(prev => {
                 const next = new Set(prev);
                 next.delete(fileToStart.id);
+                return next;
+            });
+        }
+      };
+
+      const handleStartSegmentation = async (fileToSegment) => {
+        if (!canPerformAction('start', fileToSegment)) { 
+            showSnackbar("Permission denied.", "error"); 
+            handleMenuClose(); 
+            return; 
+        }
+        
+        const fileId = fileToSegment?.id;
+        if (!fileId) { 
+            handleMenuClose(); 
+            return;
+        }
+        
+        handleMenuClose();
+    
+        const token = localStorage.getItem('authToken');
+        if (!token) { 
+            showSnackbar("Auth required.", "error"); 
+            return; 
+        }
+
+        // Optimistic UI update
+        setFilesBeingProcessed(prev => new Set(prev).add(fileToSegment.id));
+        
+        try {
+            const res = await axios.post(`${API_BASE_URL}/files/${fileId}/segment`, {}, { 
+                headers: { 'Authorization': `Bearer ${token}` } 
+            });
+            
+            if (res.data.success) {
+                showSnackbar(`Segmentation started for "${fileToSegment.name}".`, "success");
+                fetchFiles(); 
+            } else { 
+                showSnackbar(res.data.message || "Start segmentation failed.", "warning"); 
+                setFilesBeingProcessed(prev => {
+                    const next = new Set(prev);
+                    next.delete(fileToSegment.id);
+                    return next;
+                });
+            }
+        } catch (e) {
+            console.error("Start segmentation error:", e);
+            showSnackbar(e.response?.data?.message || "Server error starting segmentation.", "error");
+            setFilesBeingProcessed(prev => {
+                const next = new Set(prev);
+                next.delete(fileToSegment.id);
                 return next;
             });
         }
@@ -1588,7 +1656,7 @@ export const useFileManagement = () => {
         setSelectedManagerToAddInModal,setSelectedFileIds,
 
         // Handlers
-        handleMenuClick, handleMenuClose, handleDownload, handleRemove, handleStopProcessing, handleStartProcessing,
+        handleMenuClick, handleMenuClose, handleDownload, handleRemove, handleStopProcessing, handleStartProcessing, handleStartSegmentation,
         handleViewPointCloud, handleFileUpload, handleAssignProject, handleReassignFile,
         handleBulkDelete, handleSelectAllClick, handleRowCheckboxClick, 
         handleSnackbarClose, showSnackbar, handleExportToExcel,

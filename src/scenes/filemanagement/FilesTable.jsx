@@ -7,6 +7,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import StopIcon from '@mui/icons-material/Stop';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import ScienceIcon from '@mui/icons-material/Science';
 
 const ACTIVE_PIPELINE_PROCESSING_STATUSES = [
     'segmenting',
@@ -22,7 +23,7 @@ const FilesTable = ({
     handleSelectAllClick, handleRowCheckboxClick, canPerformAction,
     filesBeingProcessed, deletingProjectId, deletingDivisionId, isDeletingBulk,
     handleDownload, handleRemove, handleViewPointCloud, handleStopProcessing,
-    handleStartProcessing,
+    handleStartProcessing, handleStartSegmentation,
     handleOpenReassignModal, numTotalSelectableForDelete
 }) => {
     const [anchorEl, setAnchorEl] = useState(null);
@@ -75,6 +76,15 @@ const FilesTable = ({
                         const isEffectivelyConverting = ACTIVE_PIPELINE_PROCESSING_STATUSES.includes(file.status) || filesBeingProcessed.has(file.id);
                         const isGlobalDeleteActive = !!deletingProjectId || !!deletingDivisionId || isDeletingBulk;
                         const canDeleteThisFile = canPerformAction('delete', file);
+
+                        // Check if user can segment this file
+                        // Show button only for ready files that were uploaded with skip segmentation
+                        // (regardless of whether they have tree data or not, as LAS processing might add tree data)
+                        const canSegment = isReady && 
+                                          file.segmentation_skipped === true && (
+                            canPerformAction('delete', file) || // If they can delete, they can segment
+                            canPerformAction('reassign', file)  // If they can reassign, they can segment
+                        );
 
                         let statusText = "Not Ready"; let statusColor = colors.grey[500];
                         if (isReady) { statusText = "Ready"; statusColor = colors.greenAccent[400]; }
@@ -138,6 +148,20 @@ const FilesTable = ({
                                                     title="Resume Processing"
                                                 >
                                                     <PlayArrowIcon fontSize="small" />
+                                                </IconButton>
+                                            )}
+                                        </Box>
+                                    ) : canSegment ? (
+                                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                                            <Typography variant="caption" sx={{ color: statusColor }}>{statusText}</Typography>
+                                            {canSegment && (
+                                                <IconButton
+                                                    size="small"
+                                                    onClick={(e) => { e.stopPropagation(); handleStartSegmentation(file); }}
+                                                    sx={{ color: colors.blueAccent[400], padding: '2px', '&:hover': { backgroundColor: 'rgba(33, 150, 243, 0.1)', color: colors.blueAccent[300] } }}
+                                                    title="Run Tree Segmentation"
+                                                >
+                                                    <ScienceIcon fontSize="small" />
                                                 </IconButton>
                                             )}
                                         </Box>

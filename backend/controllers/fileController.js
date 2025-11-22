@@ -7,7 +7,7 @@ const segmentationService = require('../services/segmentationService');
 const { getProgress, clearProgress } = require('../services/progressStore');
 const lasProcessingService = require('../services/lasProcessingService');
 const { encryptFileTo, decryptToStream } = require('../utils/fileCrypto');
-const { addFileProcessingJob, getQueueStatus, stopFileProcessing: stopFileProcessingService, startFileProcessing: startFileProcessingService } = require('../services/queueService');
+const { addFileProcessingJob, getQueueStatus, stopFileProcessing: stopFileProcessingService, startFileProcessing: startFileProcessingService, startSegmentation: startSegmentationService } = require('../services/queueService');
 const systemMonitor = require('../services/systemMonitor');
 
 
@@ -105,6 +105,7 @@ const formatFileRecord = (dbRecord) => {
         divisionName: dbRecord.division_name || "Unassigned",
         projectName: dbRecord.project_name || "Unassigned",
         division_id: dbRecord.division_id || null,
+        segmentation_skipped: dbRecord.segmentation_skipped || false,
         // Transient runtime field (in-memory progress parsed from terminal)
         progress_percent: getProgress(typeof dbRecord.id === 'number' ? dbRecord.id : parseInt(dbRecord.id)) || null,
     };
@@ -149,12 +150,12 @@ exports.uploadFile = async (req, res) => {
         // They will be NULL initially but formatFileRecord will handle it.
         const insertQuery = `
             INSERT INTO uploaded_files
-                (original_name, stored_filename, stored_path, mime_type, size_bytes, plot_name, project_id, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'uploaded')
+                (original_name, stored_filename, stored_path, mime_type, size_bytes, plot_name, project_id, status, segmentation_skipped)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'uploaded', $8)
             RETURNING
                 id, original_name, size_bytes, upload_date, stored_path, project_id, plot_name, status,
                 latitude, longitude, tree_midpoints, tree_heights_adjusted, tree_dbhs_cm,
-                assumed_d2_cm_for_volume,
+                assumed_d2_cm_for_volume, segmentation_skipped,
                 -- New columns from your table:
                 tree_stem_volumes_m3,          -- If you renamed tree_volumes_m3 to this
                 tree_above_ground_volumes_m3,
@@ -174,7 +175,8 @@ exports.uploadFile = async (req, res) => {
             mimetype,
             size,
             plot_name || null, 
-            cleanProjectId     
+            cleanProjectId,
+            shouldSkipSegmentation  // Store whether segmentation was skipped
         ];
         const insertResult = await pool.query(insertQuery, insertValues);
 
@@ -338,7 +340,8 @@ exports.getFiles = async (req, res) => {
           f.tree_total_volumes_m3,        
           f.tree_biomass_tonnes,          
           f.tree_carbon_tonnes,           
-          f.tree_co2_equivalent_tonnes,   
+          f.tree_co2_equivalent_tonnes,
+          f.segmentation_skipped,
           p.name AS project_name,
           p.division_id,
           d.name AS division_name
@@ -1531,6 +1534,34 @@ exports.startFileProcessing = async (req, res) => {
         res.status(500).json({ 
             success: false, 
             message: error.message || "Failed to start processing" 
+        });
+    }
+};
+
+// Start Segmentation for Already Processed File
+exports.startSegmentation = async (req, res) => {
+    const fileId = parseInt(req.params.id);
+    
+    if (isNaN(fileId)) {
+        return res.status(400).json({ 
+            success: false, 
+            message: "Invalid file ID" 
+        });
+    }
+    
+    try {
+        const result = await startSegmentationService(fileId);
+        res.json({
+            success: true,
+            message: result.message,
+            status: result.status || 'segmenting',
+            jobId: result.jobId
+        });
+    } catch (error) {
+        console.error(`Error starting segmentation for file ${fileId}:`, error);
+        res.status(500).json({ 
+            success: false, 
+            message: error.message || "Failed to start segmentation" 
         });
     }
 };

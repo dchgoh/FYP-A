@@ -238,6 +238,8 @@ processingQueue.process('process-file', RESOURCE_LIMITS.MAX_CONCURRENT_JOBS, asy
 
             // Step 3: Final status and encryption
             await updateJobStatus(fileId, 'ready', 'Processing complete - ready for viewer');
+            // Clear segmentation_skipped flag since segmentation is now complete
+            await pool.query("UPDATE uploaded_files SET segmentation_skipped = false WHERE id = $1", [fileId]);
             // --- MODIFIED: Use the correct file path for encryption ---
             await encryptProcessedFile(fileId, processingFilePath);
         }
@@ -687,6 +689,109 @@ async function startFileProcessing(fileId) {
     }
 }
 
+// Start segmentation for an already processed file
+async function startSegmentation(fileId) {
+    console.log(`[Queue] Starting segmentation for already processed file ${fileId}`);
+    
+    try {
+        // Step 1: Get file information from database
+        const fileResult = await pool.query(
+            "SELECT stored_path, status, tree_count, tree_midpoints FROM uploaded_files WHERE id = $1",
+            [fileId]
+        );
+        
+        if (fileResult.rows.length === 0) {
+            throw new Error(`File with id ${fileId} not found`);
+        }
+        
+        const file = fileResult.rows[0];
+        const fileStatus = file.status;
+        
+        // Step 2: Check if file can be re-segmented
+        // Only allow files that are 'ready' and don't have tree data (were skipped during upload)
+        if (fileStatus !== 'ready') {
+            throw new Error(`File status "${fileStatus}" cannot be re-segmented. File must be in 'ready' status.`);
+        }
+        
+        // Check if file already has tree data (was segmented before)
+        // Check both tree_count and tree_midpoints to determine if segmentation was done
+        const hasTreeCount = file.tree_count && file.tree_count > 0;
+        const hasTreeMidpoints = file.tree_midpoints && typeof file.tree_midpoints === 'object' && Object.keys(file.tree_midpoints).length > 0;
+        const hasTreeData = hasTreeCount || hasTreeMidpoints;
+        if (hasTreeData) {
+            throw new Error(`File ${fileId} already has tree data. Cannot re-segment.`);
+        }
+        
+        // Step 3: Check if file already has a job in queue
+        const waiting = await processingQueue.getWaiting();
+        const active = await processingQueue.getActive();
+        
+        for (const job of [...waiting, ...active]) {
+            if (job.data && job.data.fileId === fileId) {
+                throw new Error(`File ${fileId} already has a job in the queue (job ${job.id})`);
+            }
+        }
+        
+        // Step 4: Get project root directory
+        const projectRootDir = process.env.PROJECT_ROOT_DIR || process.cwd();
+        
+        // Step 5: Resolve file path (handle encrypted files)
+        let filePath = file.stored_path;
+        if (!path.isAbsolute(filePath)) {
+            filePath = path.resolve(process.cwd(), filePath);
+        }
+        
+        // Step 6: Handle encrypted files - decrypt if needed
+        const isEncrypted = filePath.endsWith('.enc');
+        if (isEncrypted) {
+            // Decrypt file to a temporary location for processing
+            const decryptedPath = filePath.replace(/\.enc$/, '');
+            console.log(`[Queue] Decrypting file ${fileId} from ${filePath} to ${decryptedPath}`);
+            
+            if (!fs.existsSync(filePath)) {
+                throw new Error(`Encrypted file not found at ${filePath}`);
+            }
+            
+            await decryptFileTo(filePath, decryptedPath);
+            filePath = decryptedPath;
+            console.log(`[Queue] Successfully decrypted file ${fileId}`);
+        } else {
+            // Check if file exists
+            if (!fs.existsSync(filePath)) {
+                throw new Error(`File not found at ${filePath}`);
+            }
+        }
+        
+        // Step 7: Update database status to indicate segmentation job is queued
+        await pool.query(
+            "UPDATE uploaded_files SET status = 'segmenting', processing_error = NULL WHERE id = $1",
+            [fileId]
+        );
+
+        // Step 8: Add job to queue with skipSegmentation = false (we want to run segmentation)
+        const job = await addFileProcessingJob(fileId, filePath, projectRootDir, false);
+        console.log(`[Queue] Added segmentation job ${job.id} for file ${fileId}`);
+
+        // Step 9: Get updated file status to return to client
+        const updatedFileResult = await pool.query(
+            "SELECT status FROM uploaded_files WHERE id = $1",
+            [fileId]
+        );
+        const updatedStatus = updatedFileResult.rows.length > 0 ? updatedFileResult.rows[0].status : 'segmenting';
+
+        return { 
+            success: true, 
+            message: `Segmentation started successfully for file ${fileId}`,
+            status: updatedStatus,
+            jobId: job.id
+        };
+        
+    } catch (error) {
+        console.error(`[Queue] Error starting segmentation for file ${fileId}:`, error);
+        throw error;
+    }
+}
+
 // Graceful shutdown
 process.on('SIGTERM', async () => {
     console.log('[Queue] Received SIGTERM, shutting down gracefully');
@@ -708,6 +813,7 @@ module.exports = {
     clearQueue,
     stopFileProcessing,
     startFileProcessing,
+    startSegmentation,
     processingQueue,
     redis,
 };
