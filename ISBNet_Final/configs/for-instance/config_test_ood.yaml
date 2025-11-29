@@ -1,0 +1,137 @@
+# ==============================================================================
+#      ISBNet Configuration for Out-of-Domain (OOD) Testing
+# ==============================================================================
+# This configuration file is specifically for evaluating the pre-trained 
+# FOR-Instance model on the new, out-of-domain dataset.
+
+# ------------------------------------------------------------------------------
+#                                   MODEL
+# ------------------------------------------------------------------------------
+# These parameters MUST match the original training config exactly. DO NOT CHANGE.
+class_names: ["ground", "tree"]
+
+model:
+  # --- Core Architecture ---
+  channels: 16
+  num_blocks: 7
+  mask_dim_out: 16
+  
+  # --- Class Configuration ---
+  semantic_classes: 2
+  instance_classes: 1
+  sem2ins_classes: []
+  ignore_label: -100
+
+  # --- Voxelization and Input ---
+  voxel_scale: 8
+  with_coords: True
+
+  # --- Model Heads and Mechanisms ---
+  semantic_only: False
+  semantic_weight: False
+  instance_head_cfg:
+    num_dyco_layer: 2
+    dec_dim: 128
+    n_sample_pa1: 1024
+    n_queries: 128
+    radius_scale: 1
+    radius: 0.4
+    neighbor: 32
+  use_spp_pool: True
+  filter_bg_thresh: 0.1
+  iterative_sampling: True
+
+  # --- Test-Time Configuration ---
+  # These inference parameters are kept the same as the original validation
+  # to ensure a fair comparison of the model's generalization performance.
+  test_cfg:
+    x4_split: False
+    logit_thresh: 0.0
+    score_thresh: 0.2
+    npoint_thresh: 100
+    type_nms: 'matrix'
+    topk: 100
+
+# ------------------------------------------------------------------------------
+#                                     DATA
+# ------------------------------------------------------------------------------
+data:
+  # The 'train' section is IGNORED by the test.py script, but is kept for completeness.
+  train:
+    type: 'forinstance'
+    data_root: '/fred/oz419/brenda/FOR-Instance/unpreprocessed/processed_instance_aware_v5_final_centered'
+    prefix: 'train'
+    suffix: '.pth'
+    training: True
+    repeat: 4
+    voxel_cfg:
+      scale: 8
+      spatial_shape: [160, 160, 320]
+      max_npoint: 20000
+      min_npoint: 1000
+
+  # ============================================================================
+  # >>> ACTION REQUIRED: THIS IS THE ONLY SECTION THAT HAS BEEN MODIFIED <<<
+  # ============================================================================
+  # This section now points to your newly processed out-of-domain dataset.
+  test:
+    type: 'forinstance'
+    # The root directory containing your newly processed data.
+    data_root: '/fred/oz419/brenda/FOR-Instance/unpreprocessed/processed_test_sarawak'
+    # The subdirectory name (split name) you used during preprocessing.
+    prefix: 'test_ood'
+    suffix: '.pth'
+    training: False
+    voxel_cfg:
+      scale: 8
+      spatial_shape: [160, 160, 320]
+      max_npoint: 20000
+      min_npoint: 1000
+
+# ------------------------------------------------------------------------------
+#                                  DATALOADER
+# ------------------------------------------------------------------------------
+# The 'test' dataloader config will be used. No changes are needed here.
+dataloader:
+  train:
+    batch_size: 1
+    num_workers: 4
+  test:
+    batch_size: 1
+    num_workers: 4
+
+# ==============================================================================
+# The sections below are for training and are IGNORED by the test.py script.
+# They are kept here for reference and to maintain file structure.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+#                                  OPTIMIZATION
+# ------------------------------------------------------------------------------
+optimizer:
+  type: 'AdamW'
+  lr: 0.0001
+  weight_decay: 0.0001
+  auto_scale_lr: False
+
+# ------------------------------------------------------------------------------
+#                                  TRAINING
+# ------------------------------------------------------------------------------
+epochs: 240
+step_epoch: 50
+save_freq: 5
+
+# --- CHECKPOINTING & LOGGING ---
+pretrain: 'pretrains/head_stpls3d_val.pth'
+work_dir: 'work_dirs/forinstance_v2_finetune'
+
+# --- MISC ---
+# These are used by test.py
+fp16: True
+save_cfg:
+  instance: True
+  semantic: False
+  offset: False
+  object_conditions: False
+  offset_vertices: False
+  nmc_clusters: False

@@ -1,0 +1,133 @@
+# ==============================================================================
+#                 ISBNet Configuration: Overfitting Sanity Check
+# ==============================================================================
+# This configuration is designed to test if the model can overfit to a tiny
+# dataset. A successful run should show the training loss dropping to near-zero.
+
+# Add this for reproducibility and good practice
+class_names: ["ground", "tree"]
+
+# ------------------------------------------------------------------------------
+#                                   MODEL
+# ------------------------------------------------------------------------------
+model:
+  # All model parameters are the same as your baseline
+  channels: 32
+  num_blocks: 7
+  semantic_classes: 2
+  instance_classes: 1
+  sem2ins_classes: []
+  ignore_label: -100
+  voxel_scale: 8
+  with_coords: True
+  semantic_only: False
+  semantic_weight: False
+  instance_head_cfg:
+    num_dyco_layer: 2
+    dec_dim: 128
+    n_sample_pa1: 2048
+    n_queries: 256
+    radius_scale: 1
+    radius: 0.4
+    neighbor: 32
+  use_spp_pool: True
+  filter_bg_thresh: 0.1
+  iterative_sampling: True
+  test_cfg:
+    x4_split: False
+    logit_thresh: 0.0
+    score_thresh: 0.2
+    npoint_thresh: 100
+    type_nms: 'matrix'
+    topk: 100
+  
+  # For this test, we can keep the backbone frozen.
+  # fixed_modules: ['input_conv', 'unet', 'output_layer', 'semantic_linear', 'offset_linear', 'offset_vertices_linear', 'box_conf_linear']
+
+# ------------------------------------------------------------------------------
+#                                     DATA
+# ------------------------------------------------------------------------------
+data:
+  train:
+    type: 'forinstance'
+    # =================================================================
+    # CRITICAL CHANGE: Point to the new "mini" dataset
+    # =================================================================
+    data_root: '/fred/oz419/brenda/FOR-Instance/unpreprocessed/overfit_test_v3'
+    prefix: 'train'
+    suffix: '.pth'
+    training: True
+    # =================================================================
+    # CRITICAL CHANGE: Turn off repeating. We want to see the same 5 files.
+    # =================================================================
+    repeat: 1
+    voxel_cfg:
+      scale: 20
+      spatial_shape: [640, 640, 640]
+      max_npoint: 80000
+      min_npoint: 1000 # Lower this just in case your small sample is small
+  test:
+    type: 'forinstance'
+    # =================================================================
+    # CRITICAL CHANGE: Point to the new "mini" dataset
+    # =================================================================
+    data_root: '/fred/oz419/brenda/FOR-Instance/unpreprocessed/overfit_test_v3'
+    prefix: 'train'
+    suffix: '.pth'
+    training: True
+    # =================================================================
+    # CRITICAL CHANGE: Turn off repeating. We want to see the same 5 files.
+    # =================================================================
+    repeat: 1
+    voxel_cfg:
+      scale: 20
+      spatial_shape: [640, 640, 640]
+      max_npoint: 80000
+      min_npoint: 1000 # Lower this just in case your small sample is small
+  # We don't need a validation set for this test.
+
+# ------------------------------------------------------------------------------
+#                                  DATALOADER
+# ------------------------------------------------------------------------------
+dataloader:
+  train:
+    # Use a small batch size, as the dataset is tiny.
+    batch_size: 1
+    num_workers: 4
+  test: # This part is ignored since we will skip validation
+    batch_size: 1
+    num_workers: 4
+
+# ------------------------------------------------------------------------------
+#                                  OPTIMIZATION
+# ------------------------------------------------------------------------------
+optimizer:
+  type: 'AdamW'
+  # Use a healthy learning rate to ensure the model can learn.
+  lr: 0.001
+  weight_decay: 0.0001
+  auto_scale_lr: False
+
+# ------------------------------------------------------------------------------
+#                                  TRAINING
+# ------------------------------------------------------------------------------
+# We don't need many epochs to see overfitting.
+epochs: 300
+step_epoch: 150
+save_freq: 50
+
+# --- CHECKPOINTING & LOGGING ---
+# Start from the public pre-trained weights.
+pretrain: 'pretrains/head_stpls3d_val.pth'
+
+# A unique directory for this test.
+work_dir: 'work_dirs/overfit_test'
+
+# --- MISC ---
+fp16: False
+save_cfg:
+  instance: True
+  semantic: False
+  offset: False
+  object_conditions: False
+  offset_vertices: False
