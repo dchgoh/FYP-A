@@ -286,6 +286,9 @@ def main():
         all_chunk_results = []
         with torch.no_grad():
             for batch in tqdm(dataloader, desc="Processing"):
+                # Skip None batches (chunks with too few points are filtered out by collate_fn)
+                if batch is None:
+                    continue
                 for key in batch:
                     if isinstance(batch[key], torch.Tensor):
                         batch[key] = batch[key].to(device)

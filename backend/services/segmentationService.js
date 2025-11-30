@@ -28,11 +28,13 @@ async function runISBNetInference(inputLas, outputLas, configPath, checkpointPat
         const wslPythonPath = process.env.WSL_PYTHON || ('/home/localadmin/miniconda3/envs/' + wslCondaEnv + '/bin/python');
 
         const pyArgs = [
-            'run_inference_local.py',
+            'run_inference_efficient.py',
             inputWSL,
             outputWSL,
             configWSL,
-            checkpointWSL
+            checkpointWSL,
+            '--conf-thresh', '0.01',
+            '--min-points', '100'
         ].join(' ');
 
         const fullCmd = [

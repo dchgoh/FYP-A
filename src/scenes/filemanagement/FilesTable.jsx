@@ -7,7 +7,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import StopIcon from '@mui/icons-material/Stop';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import ScienceIcon from '@mui/icons-material/Science';
+
 
 const ACTIVE_PIPELINE_PROCESSING_STATUSES = [
     'segmenting',
@@ -144,7 +144,7 @@ const FilesTable = ({
                                                 <IconButton
                                                     size="small"
                                                     onClick={(e) => { e.stopPropagation(); handleStartProcessing(file); }}
-                                                    sx={{ color: colors.greenAccent[400], padding: '2px', '&:hover': { backgroundColor: 'rgba(76, 175, 80, 0.1)', color: colors.greenAccent[300] } }}
+                                                    sx={{ color: colors.blueAccent[400], padding: '2px', '&:hover': { backgroundColor: 'rgba(76, 175, 80, 0.1)', color: colors.blueAccent[300] } }}
                                                     title="Resume Processing"
                                                 >
                                                     <PlayArrowIcon fontSize="small" />
@@ -161,7 +161,7 @@ const FilesTable = ({
                                                     sx={{ color: colors.blueAccent[400], padding: '2px', '&:hover': { backgroundColor: 'rgba(33, 150, 243, 0.1)', color: colors.blueAccent[300] } }}
                                                     title="Run Tree Segmentation"
                                                 >
-                                                    <ScienceIcon fontSize="small" />
+                                                    <PlayArrowIcon fontSize="small" />
                                                 </IconButton>
                                             )}
                                         </Box>
