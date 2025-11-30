@@ -229,10 +229,23 @@ const ExportModal = ({
     };
 
     const handleExport = () => {
-        console.log('DEBUG: ExportModal - exportSelectedFiles:', exportSelectedFiles);
-        console.log('DEBUG: ExportModal - exportSelectedFiles size:', exportSelectedFiles.size);
-        console.log('DEBUG: ExportModal - exportSelectedFiles as array:', Array.from(exportSelectedFiles));
-        handleExportToExcel(exportSelectedFiles);
+        // Filter exportSelectedFiles to only include files that are currently visible in the filtered list
+        const filteredIds = new Set(filteredReadyFiles.map(f => f.id));
+        const filteredSelectedFiles = new Set(
+            Array.from(exportSelectedFiles).filter(id => filteredIds.has(id))
+        );
+        
+        console.log('DEBUG: ExportModal - exportSelectedFiles (all):', exportSelectedFiles);
+        console.log('DEBUG: ExportModal - filteredReadyFiles IDs:', Array.from(filteredIds));
+        console.log('DEBUG: ExportModal - filteredSelectedFiles (filtered):', filteredSelectedFiles);
+        console.log('DEBUG: ExportModal - filteredSelectedFiles size:', filteredSelectedFiles.size);
+        
+        if (filteredSelectedFiles.size === 0) {
+            console.warn('No files selected in the current filter');
+            return;
+        }
+        
+        handleExportToExcel(filteredSelectedFiles);
         handleClose();
     };
 

@@ -1415,7 +1415,9 @@ export const useFileManagement = () => {
         
         const filesToExport = selectedIdsArray && selectedIdsArray.length > 0 ? 
             files.filter(file => {
-                const isSelected = selectedIdsArray.includes(file.id);
+                // Convert both to numbers for reliable comparison
+                const fileId = Number(file.id);
+                const isSelected = selectedIdsArray.some(id => Number(id) === fileId);
                 console.log(`DEBUG: File ${file.id} (type: ${typeof file.id}) - isSelected: ${isSelected}`);
                 return isSelected && file.status === 'ready';
             }) :
@@ -1552,10 +1554,13 @@ export const useFileManagement = () => {
             const totalFiles = response.data.total_files;
 
             // IMPORTANT: Filter treeData to only include trees from selected files
-            // The backend might return data for all files, so we filter it here
-            const selectedFileIdsArray = filesToExport.map(f => f.id);
+            // The backend should now filter by fileIds, but we keep this as a safety net
+            const selectedFileIdsSet = new Set(filesToExport.map(f => Number(f.id)));
             const originalTreeDataCount = treeData.length;
-            treeData = treeData.filter(tree => selectedFileIdsArray.includes(tree.file_id));
+            treeData = treeData.filter(tree => {
+                const treeFileId = Number(tree.file_id);
+                return selectedFileIdsSet.has(treeFileId);
+            });
             
             console.log('DEBUG: Backend returned', originalTreeDataCount, 'trees');
             console.log('DEBUG: After filtering by selected files:', treeData.length, 'trees');

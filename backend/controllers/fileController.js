@@ -1285,7 +1285,7 @@ exports.getSumTreeCarbonTonnes = async (req, res) => {
 
 // --- NEW: Get detailed tree data for Excel export ---
 exports.getDetailedTreeDataForExport = async (req, res) => {
-    const { projectId, divisionId, plotName } = req.query;
+    const { projectId, divisionId, plotName, fileIds } = req.query;
     
     let query = `
         SELECT 
@@ -1318,24 +1318,41 @@ exports.getDetailedTreeDataForExport = async (req, res) => {
         "f.status = 'ready'" // Only export data from successfully processed files
     ];
 
-    // Filter by Division ID
-    if (divisionId && divisionId !== 'all' && !isNaN(parseInt(divisionId))) {
-        queryParams.push(parseInt(divisionId));
-        whereConditions.push(`d.id = $${queryParams.length}`);
-    }
+    // Priority: If fileIds is provided, use only that filter (most specific)
+    // This ensures that when users select specific files, only those files are exported
+    if (fileIds && typeof fileIds === 'string' && fileIds.trim() !== '') {
+        const fileIdArray = fileIds.split(',').map(id => {
+            const parsed = parseInt(id.trim(), 10);
+            return isNaN(parsed) ? null : parsed;
+        }).filter(id => id !== null);
+        
+        if (fileIdArray.length > 0) {
+            // Use IN clause for multiple file IDs
+            const placeholders = fileIdArray.map((_, index) => `$${queryParams.length + index + 1}`).join(',');
+            queryParams.push(...fileIdArray);
+            whereConditions.push(`f.id IN (${placeholders})`);
+        }
+    } else {
+        // Fallback: Use division/project/plot filters only if fileIds is not provided
+        // Filter by Division ID
+        if (divisionId && divisionId !== 'all' && !isNaN(parseInt(divisionId))) {
+            queryParams.push(parseInt(divisionId));
+            whereConditions.push(`d.id = $${queryParams.length}`);
+        }
 
-    // Filter by Project ID
-    if (projectId && projectId !== 'all' && projectId !== 'unassigned' && !isNaN(parseInt(projectId))) {
-        queryParams.push(parseInt(projectId));
-        whereConditions.push(`f.project_id = $${queryParams.length}`);
-    } else if (projectId === 'unassigned') {
-        whereConditions.push(`f.project_id IS NULL`);
-    }
+        // Filter by Project ID
+        if (projectId && projectId !== 'all' && projectId !== 'unassigned' && !isNaN(parseInt(projectId))) {
+            queryParams.push(parseInt(projectId));
+            whereConditions.push(`f.project_id = $${queryParams.length}`);
+        } else if (projectId === 'unassigned') {
+            whereConditions.push(`f.project_id IS NULL`);
+        }
 
-    // Filter by Plot Name
-    if (plotName && plotName !== 'all' && typeof plotName === 'string' && plotName.trim() !== '') {
-        queryParams.push(plotName.trim());
-        whereConditions.push(`f.plot_name = $${queryParams.length}`);
+        // Filter by Plot Name
+        if (plotName && plotName !== 'all' && typeof plotName === 'string' && plotName.trim() !== '') {
+            queryParams.push(plotName.trim());
+            whereConditions.push(`f.plot_name = $${queryParams.length}`);
+        }
     }
 
     if (whereConditions.length > 0) {
