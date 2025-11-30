@@ -40,6 +40,50 @@ import {
   handleAnnotationDialogClose
 } from './utils/annotationUtils';
 
+// Isolated Slider component - completely independent, doesn't trigger parent re-renders
+const IsolatedSlider = React.memo(({ 
+  initialValue,
+  onValueChange, // Called during drag to update uniform (via ref, no re-render)
+  onValueCommit, // Called on release to update parent state
+  ...otherProps 
+}) => {
+  // Internal state for smooth dragging (isolated from parent)
+  const [localValue, setLocalValue] = useState(initialValue);
+  
+  // Sync with initialValue when it changes externally (but not during drag)
+  useEffect(() => {
+    setLocalValue(initialValue);
+  }, [initialValue]);
+  
+  const handleChange = useCallback((e, newValue) => {
+    // Update local state for smooth slider movement (isolated re-render)
+    setLocalValue(newValue);
+    // Update uniform directly via callback (no parent re-render)
+    onValueChange?.(newValue);
+  }, [onValueChange]);
+  
+  const handleCommit = useCallback((e, newValue) => {
+    // Update parent state only on release (triggers parent re-render for persistence)
+    onValueCommit?.(newValue);
+  }, [onValueCommit]);
+  
+  return (
+    <Slider
+      value={localValue}
+      onChange={handleChange}
+      onChangeCommitted={handleCommit}
+      {...otherProps}
+    />
+  );
+}, (prevProps, nextProps) => {
+  // Only re-render if initialValue changes (not during drag)
+  return prevProps.initialValue === nextProps.initialValue &&
+         prevProps.onValueChange === nextProps.onValueChange &&
+         prevProps.onValueCommit === nextProps.onValueCommit;
+});
+
+IsolatedSlider.displayName = 'IsolatedSlider';
+
 const PointCloudViewer = ({ isCollapsed }) => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
@@ -71,8 +115,9 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const [isProcessingLasso, setIsProcessingLasso] = useState(false);
   const [parts, setParts] = useState([]);
   const [activePartId, setActivePartId] = useState(null);
-  const [pointSize, setPointSize] = useState(5.0); // State for the slider value
-  const [pointDensity, setPointDensity] = useState(1.0); // 0..1 density control
+  const [pointSize, setPointSize] = useState(5.0); // State for the slider value (only updated on release)
+  const [pointDensity, setPointDensity] = useState(1.0); // 0..1 density control (only updated on release)
+  const pointCloudRef = useRef(null); // Store pointCloud reference to update uniforms directly
   
   // --- Multi-selection and Context Menu State ---
   const [selectedParts, setSelectedParts] = useState([]);
@@ -106,6 +151,11 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const [annotationSelectionExpanded, setAnnotationSelectionExpanded] = useState(true);
   const [toolsControlsExpanded, setToolsControlsExpanded] = useState(true);
   
+  // --- User Role State ---
+  const [userRole, setUserRole] = useState(() => {
+    return localStorage.getItem('userRole') || null;
+  });
+  
   // --- Undo/Redo State ---
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -113,19 +163,53 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const isRestoringRef = useRef(false);
   const shouldSaveHistoryRef = useRef(false);
 
-  // This effect updates the shader when the slider value changes
+  // Store pointCloud in ref for direct access without re-renders
+  useEffect(() => {
+    pointCloudRef.current = pointCloud;
+  }, [pointCloud]);
+
+  // This effect updates the shader when the slider value changes (only on release)
   useEffect(() => {
     if (pointCloud && pointCloud.material) {
       pointCloud.material.uniforms.u_pointSize.value = pointSize;
     }
   }, [pointSize, pointCloud]);
 
-  // Update density uniform when changed
+  // Update density uniform when changed (only on release)
   useEffect(() => {
     if (pointCloud && pointCloud.material && pointCloud.material.uniforms.u_density) {
       pointCloud.material.uniforms.u_density.value = pointDensity;
     }
   }, [pointDensity, pointCloud]);
+
+  // Callbacks for Point Size slider - update uniform directly (no parent re-render)
+  const handlePointSizeChange = useCallback((newValue) => {
+    // Update uniform immediately via ref (no re-render, smooth visual update)
+    if (pointCloudRef.current && pointCloudRef.current.material) {
+      pointCloudRef.current.material.uniforms.u_pointSize.value = newValue;
+    }
+  }, []);
+
+  const handlePointSizeCommit = useCallback((newValue) => {
+    // Update parent state only when user releases mouse (triggers re-render for persistence)
+    setPointSize(newValue);
+  }, []);
+
+  // Callbacks for Point Density slider - update uniform directly (no parent re-render)
+  const handlePointDensityChange = useCallback((v) => {
+    // Update uniform immediately via ref (no re-render, smooth visual update)
+    if (pointCloudRef.current && pointCloudRef.current.material && pointCloudRef.current.material.uniforms.u_density) {
+      pointCloudRef.current.material.uniforms.u_density.value = v;
+    }
+  }, []);
+
+  const handlePointDensityCommit = useCallback((v) => {
+    // Update parent state only when user releases mouse (triggers re-render for persistence)
+    setPointDensity(v);
+  }, []);
+
+  // Memoized slider styles to prevent re-creation on every render
+  const sliderSx = useMemo(() => ({ color: colors.greenAccent[500] }), [colors.greenAccent]);
 
   // --- MiniMap State ---
   const [showMiniMap, setShowMiniMap] = useState(true);
@@ -2324,8 +2408,8 @@ end_header
                             }
                           }
                         }}
-                        onContextMenu={(e) => handleContextMenu(e, part.id)}
-                        title={`Click to view this part. Ctrl+click for multi-selection. Right-click for options.`}
+                        onContextMenu={userRole !== 'Regular' ? (e) => handleContextMenu(e, part.id) : undefined}
+                        title={userRole !== 'Regular' ? `Click to view this part. Ctrl+click for multi-selection. Right-click for options.` : `Click to view this part. Ctrl+click for multi-selection.`}
                       >
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
@@ -2364,7 +2448,7 @@ end_header
 
 
                 {/* --- Annotation & Selection Tools --- */}
-                {pointCloud && (
+                {pointCloud && userRole !== 'Regular' && (
                   <Box sx={styles.annotationSection}>
                     <Box 
                       sx={{ 
@@ -2534,15 +2618,17 @@ end_header
                           <Typography gutterBottom variant="body2" sx={{ color: colors.grey[300] }}>
                             Point Size
                           </Typography>
-                          <Slider
-                            value={pointSize}
-                            onChange={(e, newValue) => setPointSize(newValue)}
+                          <IsolatedSlider
+                            initialValue={pointSize}
+                            onValueChange={handlePointSizeChange}
+                            onValueCommit={handlePointSizeCommit}
                             aria-labelledby="point-size-slider"
                             valueLabelDisplay="auto"
                             step={0.5}
                             min={1}
                             max={20}
-                            sx={{ color: colors.greenAccent[500] }}
+                            sx={sliderSx}
+                            disableRipple
                           />
                         </Box>
 
@@ -2551,15 +2637,17 @@ end_header
                           <Typography gutterBottom variant="body2" sx={{ color: colors.grey[300] }}>
                             Point Density
                           </Typography>
-                          <Slider
-                            value={pointDensity}
-                            onChange={(e, v) => setPointDensity(v)}
+                          <IsolatedSlider
+                            initialValue={pointDensity}
+                            onValueChange={handlePointDensityChange}
+                            onValueCommit={handlePointDensityCommit}
                             aria-labelledby="point-density-slider"
                             valueLabelDisplay="auto"
                             step={0.05}
                             min={0.1}
                             max={1.0}
-                            sx={{ color: colors.greenAccent[500] }}
+                            sx={sliderSx}
+                            disableRipple
                           />
                         </Box>
                       </Box>
@@ -3154,6 +3242,7 @@ end_header
        </Dialog>
 
        {/* Context Menu */}
+       {userRole !== 'Regular' && (
        <Menu
          open={contextMenu !== null}
          onClose={handleCloseContextMenu}
@@ -3206,6 +3295,7 @@ end_header
             ] : [])
           ]}
        </Menu>
+       )}
      </Box>
    );
  };

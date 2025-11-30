@@ -45,11 +45,13 @@ export const createPointCloudMaterial = () => {
     attribute vec3 customColor;
     varying vec3 vColor;
     varying vec3 vWorldPosition;
+    varying vec3 vModelPosition; // Add model-space position for stable density hash
 
     void main() {
       vColor = customColor;
       vec4 worldPosition = modelMatrix * vec4(position, 1.0);
       vWorldPosition = worldPosition.xyz;
+      vModelPosition = position; // Store original model-space position
       vec4 mvPosition = viewMatrix * worldPosition;
       
       // REPLACE THE HARDCODED 10.0 with the new uniform
@@ -65,13 +67,14 @@ export const createPointCloudMaterial = () => {
     uniform float opacity;
     varying vec3 vColor;
     varying vec3 vWorldPosition;
+    varying vec3 vModelPosition; // Model-space position for stable density hash
     uniform bool u_clippingEnabled;
     uniform vec3 u_clipBoxMin;
     uniform vec3 u_clipBoxMax;
     uniform float u_density; // 0..1
 
     float hash(vec3 p) {
-      // Simple hash from world position to pseudo-random in [0,1)
+      // Simple hash from position to pseudo-random in [0,1)
       return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
     }
     void main() {
@@ -82,8 +85,9 @@ export const createPointCloudMaterial = () => {
           discard;
         }
       }
-      // Density discard: keep approximately u_density fraction of points
-      if (hash(vWorldPosition) > u_density) discard;
+      // Density discard: use model-space position for stable hash (doesn't change with camera/view)
+      // This ensures the same points are shown regardless of camera position or rotation
+      if (hash(vModelPosition) > u_density) discard;
       vec2 center = gl_PointCoord - vec2(0.5);
       float dist = length(center);
       if (dist > 0.5) discard;
