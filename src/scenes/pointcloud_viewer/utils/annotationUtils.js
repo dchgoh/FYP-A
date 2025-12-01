@@ -52,14 +52,8 @@ export const annotateAllVisiblePoints = (setIsAnnotating, setAnnotationDialogOpe
         return colors[index % colors.length];
       };
       
-      // Determine display name
-      const hasNegativeOne = Object.keys(treeIDs).some(key => parseInt(key) === -1);
-      let displayName;
-      if (hasNegativeOne) {
-        displayName = treeIDValue === -1 ? 'Unclassified' : `Tree ${treeIDValue}`;
-      } else {
-        displayName = treeIDValue === 0 ? 'Unclassified' : `Tree ${treeIDValue}`;
-      }
+      // Display name: -1 is always "Unclassified", trees start from 0
+      const displayName = treeIDValue === -1 ? 'Unclassified' : `Tree ${treeIDValue}`;
       
       treeInfo = {
         id: treeIDValue,
@@ -364,12 +358,7 @@ export const annotateAllVisiblePoints = (setIsAnnotating, setAnnotationDialogOpe
               // Update part name if annotating with treeID
               let newPartName = part.name;
               if (selectedAnnotationType === 'treeID' && annotationTreeID !== null) {
-                const hasNegativeOne = Object.keys(treeIDs).some(key => parseInt(key) === -1);
-                if (hasNegativeOne) {
-                  newPartName = annotationTreeID === -1 ? 'Unclassified' : `Tree ${annotationTreeID}`;
-                } else {
-                  newPartName = annotationTreeID === 0 ? 'Unclassified' : `Tree ${annotationTreeID}`;
-                }
+                newPartName = annotationTreeID === -1 ? 'Unclassified' : `Tree ${annotationTreeID}`;
               }
               
               // The targetGeometry has already been updated with the annotation

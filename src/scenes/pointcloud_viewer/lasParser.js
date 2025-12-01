@@ -188,7 +188,18 @@ export const parseLASFile = async (file, onProgress = null) => {
 
         // --- END OF NEW RANDOM SAMPLING LOGIC ---
         
-        resolve({ points, colors, treeIDs, numberOfPointRecords });
+        resolve({ 
+          points, 
+          colors, 
+          treeIDs, 
+          numberOfPointRecords,
+          xOffset,
+          yOffset,
+          zOffset,
+          xScale,
+          yScale,
+          zScale
+        });
       } catch (error) {
         console.error("Fatal error during LAS file parsing:", error);
         reject(error);

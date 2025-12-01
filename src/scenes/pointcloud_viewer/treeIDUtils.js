@@ -11,13 +11,12 @@ export const createInitialTreeIDs = (treeIDs) => {
   }
   
   const uniqueTreeIDs = Array.from(pointCountMap.keys());
-  const hasNegativeOne = uniqueTreeIDs.includes(-1);
   
   // Sort: Unclassified first, then regular treeIDs
   uniqueTreeIDs.sort((a, b) => {
-    // Determine which value is unclassified
-    const aIsUnclassified = hasNegativeOne ? (a === -1) : (a === 0);
-    const bIsUnclassified = hasNegativeOne ? (b === -1) : (b === 0);
+    // -1 is always the unclassified ID
+    const aIsUnclassified = a === -1;
+    const bIsUnclassified = b === -1;
     
     // Unclassified goes to the very first position
     if (aIsUnclassified && !bIsUnclassified) return -1;
@@ -30,15 +29,8 @@ export const createInitialTreeIDs = (treeIDs) => {
   const treeIDMap = {};
   
   uniqueTreeIDs.forEach((originalTreeID) => {
-    // Determine display name based on whether -1 exists
-    let displayName;
-    if (hasNegativeOne) {
-      // If -1 exists: -1 is "Unclassified", 0 is "Tree 0"
-      displayName = originalTreeID === -1 ? 'Unclassified' : `Tree ${originalTreeID}`;
-    } else {
-      // If -1 does NOT exist: 0 is "Unclassified"
-      displayName = originalTreeID === 0 ? 'Unclassified' : `Tree ${originalTreeID}`;
-    }
+    // Display name: -1 is always "Unclassified", trees start from 0
+    const displayName = originalTreeID === -1 ? 'Unclassified' : `Tree ${originalTreeID}`;
     
     treeIDMap[originalTreeID] = {
       id: originalTreeID,

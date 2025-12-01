@@ -98,6 +98,7 @@ const PointCloudViewer = ({ isCollapsed }) => {
   const [pointCloud, setPointCloud] = useState(null);
   const [originalGeometry, setOriginalGeometry] = useState(null);
   const [fileInfo, setFileInfo] = useState(null);
+  const [originalFileOffsets, setOriginalFileOffsets] = useState({ xOffset: 0, yOffset: 0, zOffset: 0, xScale: 0.01, yScale: 0.01, zScale: 0.01 });
   const [classifications, setClassifications] = useState(createInitialClassifications());
   const [treeIDs, setTreeIDs] = useState({});
   const [treeIDData, setTreeIDData] = useState([]);
@@ -435,13 +436,33 @@ end_header
       maxZ = Math.max(maxZ, positions[i + 2]);
     }
     
-    // Use fixed scale factors for simplicity
-    const scaleX = 0.01;
-    const scaleY = 0.01;
-    const scaleZ = 0.01;
-    const offsetX = minX;
-    const offsetY = minY;
-    const offsetZ = minZ;
+    // Use original file's scale factors and offsets to preserve coordinate system
+    // This ensures saved parts maintain the same coordinate reference as the original file
+    const scaleX = originalFileOffsets.xScale || 0.01;
+    const scaleY = originalFileOffsets.yScale || 0.01;
+    const scaleZ = originalFileOffsets.zScale || 0.01;
+    // Use original file's offsets instead of part's minX/minY/minZ
+    // This preserves the absolute coordinate system, allowing backend to correctly read file location
+    const offsetX = originalFileOffsets.xOffset || 0;
+    const offsetY = originalFileOffsets.yOffset || 0;
+    const offsetZ = originalFileOffsets.zOffset || 0;
+    
+    // Debug: Log coordinate conversion info
+    if (pointCount > 0) {
+      const firstPointX = positions[0];
+      const firstPointY = positions[1];
+      const firstPointZ = positions[2];
+      const firstPointXInt = Math.round((firstPointX - offsetX) / scaleX);
+      const firstPointYInt = Math.round((firstPointY - offsetY) / scaleY);
+      const firstPointZInt = Math.round((firstPointZ - offsetZ) / scaleZ);
+      const reconstructedX = firstPointXInt * scaleX + offsetX;
+      const reconstructedY = firstPointYInt * scaleY + offsetY;
+      const reconstructedZ = firstPointZInt * scaleZ + offsetZ;
+      console.log(`[Save] Part "${partName}": First point absolute coords: (${firstPointX.toFixed(3)}, ${firstPointY.toFixed(3)}, ${firstPointZ.toFixed(3)})`);
+      console.log(`[Save] Using offsets: (${offsetX.toFixed(3)}, ${offsetY.toFixed(3)}, ${offsetZ.toFixed(3)}), scales: (${scaleX}, ${scaleY}, ${scaleZ})`);
+      console.log(`[Save] First point relative ints: (${firstPointXInt}, ${firstPointYInt}, ${firstPointZInt})`);
+      console.log(`[Save] Reconstructed from ints: (${reconstructedX.toFixed(3)}, ${reconstructedY.toFixed(3)}, ${reconstructedZ.toFixed(3)})`);
+    }
     
     // Create LAS header (375 bytes for LAS 1.3)
     const header = new ArrayBuffer(375);
@@ -1337,7 +1358,11 @@ end_header
     setError(null);
     setIsLoading(true);
     try {
-      const { points, colors, treeIDs } = await parseLASFile(file);
+      const { points, colors, treeIDs, xOffset, yOffset, zOffset, xScale, yScale, zScale } = await parseLASFile(file);
+      // Store original file's coordinate offsets and scales for use when saving parts
+      if (xOffset !== undefined && yOffset !== undefined && zOffset !== undefined) {
+        setOriginalFileOffsets({ xOffset, yOffset, zOffset, xScale: xScale || 0.01, yScale: yScale || 0.01, zScale: zScale || 0.01 });
+      }
       await new Promise(resolve => {
         requestAnimationFrame(() => {
           if (sceneManagerRef.current) {
@@ -1500,17 +1525,14 @@ end_header
     if (!pointCloud || !originalGeometry || !treeIDData) return;
     
     // Split by treeID - create a custom filter for each treeID
-    // Check if -1 exists to determine which is Unclassified
-    const hasNegativeOne = Object.keys(treeIDs).some(key => parseInt(key) === -1);
-    
     // Sort entries: Unclassified first, then regular treeIDs
     const sortedEntries = Object.entries(treeIDs).sort(([idA, treeIDA], [idB, treeIDB]) => {
       const numA = parseInt(idA);
       const numB = parseInt(idB);
       
-      // Determine which value is unclassified
-      const aIsUnclassified = hasNegativeOne ? (numA === -1) : (numA === 0);
-      const bIsUnclassified = hasNegativeOne ? (numB === -1) : (numB === 0);
+      // -1 is always the unclassified ID
+      const aIsUnclassified = numA === -1;
+      const bIsUnclassified = numB === -1;
       
       // Unclassified goes to the very first position
       if (aIsUnclassified && !bIsUnclassified) return -1;
@@ -1651,8 +1673,6 @@ end_header
     
     const positions = originalGeometry.attributes.position.array;
     const classificationColors = originalGeometry.attributes.classificationColor?.array || originalGeometry.attributes.color.array;
-    const treeIDColors = originalGeometry.attributes.treeIDColor?.array || originalGeometry.attributes.color.array;
-    const customColors = originalGeometry.attributes.customColor.array;
     const sizes = originalGeometry.attributes.size.array;
     
     const newPositions = [];
@@ -1857,14 +1877,13 @@ end_header
     } else {
       // Need to split by treeID first - show only the clicked treeID
       const newParts = [];
-      const hasNegativeOne = Object.keys(treeIDs).some(key => parseInt(key) === -1);
       
       // Sort entries: Unclassified first, then regular treeIDs
       const sortedEntries = Object.entries(treeIDs).sort(([idA, treeIDA], [idB, treeIDB]) => {
         const numA = parseInt(idA);
         const numB = parseInt(idB);
-        const aIsUnclassified = hasNegativeOne ? (numA === -1) : (numA === 0);
-        const bIsUnclassified = hasNegativeOne ? (numB === -1) : (numB === 0);
+        const aIsUnclassified = numA === -1;
+        const bIsUnclassified = numB === -1;
         if (aIsUnclassified && !bIsUnclassified) return -1;
         if (!aIsUnclassified && bIsUnclassified) return 1;
         return numA - numB;

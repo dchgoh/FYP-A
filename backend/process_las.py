@@ -11,8 +11,8 @@ from scipy.optimize import least_squares
 # SOURCE_EPSG_COORD_TRANSFORM is now detected automatically
 TARGET_EPSG_COORD_TRANSFORM = 4326
 ID_FIELD_NAME_FOR_TREES = "treeID"
-VALUES_TO_IGNORE_FOR_TREES = {0}
-MIN_ID_VALUE_FOR_TREES = 1
+VALUES_TO_IGNORE_FOR_TREES = {-1}
+MIN_ID_VALUE_FOR_TREES = 0
 HEIGHT_ADJUSTMENT_VALUE_FOR_L = 1.3
 DBH_HEIGHT_ABOVE_GROUND = 1.3
 DBH_VERTICAL_SLICE_THICKNESS = 0.20
@@ -77,11 +77,22 @@ def extract_tree_ids_from_extra_bytes(las_file_obj):
         if hasattr(las_file_obj, 'points') and hasattr(las_file_obj.points, 'ExtraBytes'):
             extra_bytes_data = las_file_obj.points.ExtraBytes
             if extra_bytes_data.size > 0:
-                tree_ids_raw = extra_bytes_data[:, 0:4].view(np.float32).flatten()
-                return tree_ids_raw
+                # Frontend writes treeID as int32 (little-endian) in first 4 bytes of extra bytes for each point
+                # extra_bytes_data shape is (n_points, n_extra_bytes_per_point)
+                n_points = extra_bytes_data.shape[0] if len(extra_bytes_data.shape) > 0 else 0
+                if n_points > 0 and extra_bytes_data.shape[1] >= 4:
+                    # Extract first 4 bytes from each point
+                    first_4_bytes = extra_bytes_data[:, 0:4]
+                    # Convert to contiguous byte array and interpret as little-endian int32
+                    # Each row of 4 bytes becomes one int32 value
+                    tree_ids_raw = np.frombuffer(first_4_bytes.tobytes(), dtype='<i4')  # '<i4' = little-endian int32
+                    log_stderr("ExtraBytes", f"Extracted {len(tree_ids_raw)} tree IDs from extra bytes (unique: {len(np.unique(tree_ids_raw))})")
+                    return tree_ids_raw
+                else:
+                    log_stderr("ExtraBytes", f"Extra bytes shape insufficient: {extra_bytes_data.shape if hasattr(extra_bytes_data, 'shape') else 'unknown'}")
         return None
     except Exception as e:
-        log_stderr("ExtraBytes", f"Failed to extract tree IDs from extra bytes: {e}")
+        log_stderr("ExtraBytes", f"Failed to extract tree IDs from extra bytes: {e}\n{traceback.format_exc()}")
         return None
 
 def extract_tree_ids_from_lidar(
@@ -185,17 +196,24 @@ def calculate_tree_midpoints(
         z_coords_np = np.array(las_file_obj.z)
         ids_for_calc_np = ids_for_calc_np.astype(int)
 
+        log_stderr("Midpoint", f"Calculating midpoints for {len(target_tree_ids)} tree IDs. Tree ID array shape: {ids_for_calc_np.shape}, unique IDs in array: {len(np.unique(ids_for_calc_np))}")
+        
         for tree_id in target_tree_ids:
             mask = (ids_for_calc_np == tree_id)
+            point_count = np.sum(mask)
             if np.any(mask):
                 tree_midpoints_dict[str(tree_id)] = {
                     "x": np.mean(x_coords_np[mask]),
                     "y": np.mean(y_coords_np[mask]),
                     "z": np.mean(z_coords_np[mask])
                 }
+                log_stderr("Midpoint", f"Tree ID {tree_id}: Found {point_count} points, midpoint at ({tree_midpoints_dict[str(tree_id)]['x']:.2f}, {tree_midpoints_dict[str(tree_id)]['y']:.2f})")
             else:
                 tree_midpoints_dict[str(tree_id)] = None
-        log_stderr("Midpoint", "Midpoint calculation complete.")
+                log_stderr("Midpoint", f"Tree ID {tree_id}: No points found (mask sum: {point_count})")
+        
+        successful_midpoints = sum(1 for v in tree_midpoints_dict.values() if v is not None)
+        log_stderr("Midpoint", f"Midpoint calculation complete. {successful_midpoints}/{len(target_tree_ids)} trees have valid midpoints.")
         return tree_midpoints_dict
     except Exception as e:
         log_stderr("Midpoint", f"An error occurred during midpoint calculation: {e}\n{traceback.format_exc()}")
@@ -399,22 +417,42 @@ if __name__ == "__main__":
             log_stderr("Main", f"Source CRS (EPSG:{source_epsg}) is already target WGS84. No transformation needed.")
 
         if len(las.points) > 0:
+            # laspy automatically converts stored integers to absolute coordinates using scale and offset
+            # So las.x[0] is already the absolute coordinate, not the stored integer
             first_point_x, first_point_y = las.x[0], las.y[0]
+            first_point_z = las.z[0] if len(las.points) > 0 else 0
+            
+            # Also get the stored raw integer values and offsets for debugging
+            x_offset = las.header.x_offset
+            y_offset = las.header.y_offset
+            z_offset = las.header.z_offset
+            x_scale = las.header.x_scale
+            y_scale = las.header.y_scale
+            z_scale = las.header.z_scale
+            
+            log_stderr("Main", f"First point absolute coords (from laspy): ({first_point_x:.6f}, {first_point_y:.6f}, {first_point_z:.6f})")
+            log_stderr("Main", f"LAS header offsets: ({x_offset:.6f}, {y_offset:.6f}, {z_offset:.6f})")
+            log_stderr("Main", f"LAS header scales: ({x_scale}, {y_scale}, {z_scale})")
+            
             if transformer_to_wgs84:
                 try:
                     lon, lat = transformer_to_wgs84.transform(first_point_x, first_point_y)
                     output_results["latitude"], output_results["longitude"] = lat, lon
+                    log_stderr("Main", f"Transformed to WGS84: ({lon:.6f}, {lat:.6f})")
                 except Exception as e_coord:
                     err_msg = f"Error transforming first point: {e_coord}"
                     log_stderr("Main", err_msg); output_results["errors"].append(err_msg)
             elif source_epsg == TARGET_EPSG_COORD_TRANSFORM:
                 output_results["longitude"], output_results["latitude"] = float(first_point_x), float(first_point_y)
+                log_stderr("Main", f"Already WGS84, using first point: ({first_point_x:.6f}, {first_point_y:.6f})")
         else:
             output_results["warnings"].append("LAS file has no points. Skipping first point transform.")
 
         extracted_ids_set = extract_tree_ids_from_lidar(las, ID_FIELD_NAME_FOR_TREES, VALUES_TO_IGNORE_FOR_TREES, MIN_ID_VALUE_FOR_TREES)
         extracted_ids_list_str = sorted([str(tid) for tid in extracted_ids_set])
 
+        log_stderr("Main", f"Extracted {len(extracted_ids_set)} unique tree IDs: {extracted_ids_list_str[:10]}{'...' if len(extracted_ids_list_str) > 10 else ''}")
+        
         output_results["tree_ids"] = extracted_ids_list_str
         output_results["num_trees"] = len(extracted_ids_list_str)
 
