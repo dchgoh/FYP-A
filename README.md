@@ -10,6 +10,14 @@ An automated end-to-end AI pipeline that transforms raw LiDAR data (LAS/LAZ) int
 ## 📑 Research Context
 Standard 3D segmentation models (PointNet++, ISBNet) are typically trained on temperate/boreal benchmarks (e.g., FOR-Instance). This project scientifically quantifies the **Domain Gap**, revealing an **80%+ performance drop** when applying these models to tropical datasets. Our solution provides a manually refined annotation workflow to bridge this gap.
 
+<!-- RESEARCH PAPER SECTION -->
+### 📚 Publications
+Our research on the domain gap and tropical forest generalization was presented at the **APSIPA ASC 2025** conference:
+
+**"Canopy to Canopy: Evaluating Model Generalization In 3D Tropical Forest Semantic Segmentation"**  
+*Brenda Ru Yi SIM, Lee Sue Han, Choo Chung Siung, and Yuen Peng Loh.*  
+[📄 Read the full paper here](https://doi.org/10.1109/APSIPAASC65261.2025.11249085)
+
 ---
 
 ## 🏗️ System Architecture
@@ -112,7 +120,7 @@ Before you begin, ensure you have the following installed:
 <details>
   <summary><b>Click to view our full research poster</b></summary>
   <br>
-  <img src="assets/poster.jpg" alt="FYP Poster" width="100%">
+  <img src="assets/poster.png" alt="FYP Poster" width="100%">
 </details>
 
 ---
