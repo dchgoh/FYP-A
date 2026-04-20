@@ -77,7 +77,7 @@ Follow these steps to set up and run the project locally:
 *   **3D Visualization:** Potree
 *   **Mapping Library:** Leaflet
 *   **Styling:** CSS Modules, Styled Components
-*   **AI/Machine Learning:** PyTorch (framework for training and deployment), PointNet++ (deployed semantic segmentation model architecture), PointNet (model architecture used in training/evaluation)
+*   **AI/Machine Learning:** PyTorch (framework for training and deployment), PointNet++ (deployed semantic segmentation model architecture), PointNet (model architecture used in training/evaluation), ISBNet (deployed instance segmentation model architecture)
 *   **Package Management:** npm
 *   **Containerization:** Docker
 
