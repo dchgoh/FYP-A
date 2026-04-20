@@ -16,7 +16,6 @@ This project provides a web-based interface built with ReactJS for visualizing 3
             *   Live-Branches
             *   Woody-Branches
             *   Terrain
-        *   *(Note: Segmentation of individual, distinct trees is a future development goal.)*
 *   **Real-time Data Extraction & Display:**
     *   Automatic extraction and display of key tree metrics based on segmented organs:
         *   Tree Height
