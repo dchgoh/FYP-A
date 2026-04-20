@@ -120,7 +120,7 @@ Before you begin, ensure you have the following installed:
 ## 🖼️ Project Poster
 <!-- You can use a smaller preview of the poster here -->
 <details>
-  <summary><b>Click to view our full research poster</b></summary>
+  <summary><b>Click to view our poster</b></summary>
   <br>
   <img src="assets/poster.png" alt="FYP Poster" width="100%">
 </details>
