@@ -20,31 +20,6 @@ Standard 3D segmentation models (PointNet++, ISBNet) are typically trained on te
 ---
 
 ## 🚀 Key Features
-*   **Interactive 3D Point Cloud Visualization:** Display and navigate large point cloud datasets using Potree.
-*   **Map Integration:** View forest data, point clouds, and tree locations overlaid on a geographical map.
-*   **Automated Point Cloud Processing Pipeline:**
-    *   **.LAS/.LAZ File Upload:** Directly upload raw point cloud files (e.g., `.las`, `.laz`).
-    *   **Automatic Potree Conversion:** Uploaded files are automatically converted to the Potree format for efficient web visualization.
-    *   **Automatic AI-Powered Semantic Segmentation of Tree Organs:**
-        *   Following conversion, the system automatically performs AI-driven segmentation to identify and delineate key tree components from the point cloud, such as:
-            *   Low-Vegetation
-            *   Stem
-            *   Live-Branches
-            *   Woody-Branches
-            *   Terrain
-*   **Real-time Data Extraction & Display:**
-    *   Automatic extraction and display of key tree metrics based on segmented organs:
-        *   Tree Height
-        *   Diameter at Breast Height (DBH) / Stem Diameter
-        *   Crown Diameter/Area (derived from foliage/branch segmentation)
-        *   Tree Volume (estimated stem/total volume)
-*   **Carbon Stock Estimation:** Calculate and display estimated carbon sequestration for inventoried trees based on extracted metrics.
-*   **Hierarchical Data Organization:**
-    *   Manage data within a structured hierarchy: **Division -> Project -> Plot**.
-*   **Data and File Filtering System:** Robust filtering capabilities to easily find and manage specific datasets, files, or inventory records.
-*   **Team Management:** Functionality to manage users, assign roles, and control access to projects and data within a collaborative environment.
-*   **User-Friendly Interface:** Built with ReactJS for a modern, responsive, and intuitive web experience.
-
 ### 1. Automated AI Pipeline
 *   **Seamless Ingestion:** Upload `.las` or `.laz` files.
 *   **Semantic Segmentation:** Fine-grained structural classification into 5 classes (Stem, Terrain, Live Branches, Woody Branches, Low Vegetation) using **PointNet++**.
